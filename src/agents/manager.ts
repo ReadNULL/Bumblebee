@@ -1,7 +1,7 @@
-import { createAgentSession, SessionManager } from '@earendil-works/pi-coding-agent'
 import { AgentConfig, AgentInstance, AgentTask, AgentResult } from './types.js'
 import { RoleManager } from '../roles/manager.js'
 import { RoleConfig } from '../roles/types.js'
+import { callLLM } from '../core/session-factory.js'
 
 export class AgentManager {
   private agents: Map<string, AgentInstance> = new Map()
@@ -163,39 +163,11 @@ export class AgentManager {
     ].filter(Boolean).join('\n')
 
     try {
-      const { session } = await createAgentSession({
-        cwd: process.cwd(),
-        sessionManager: SessionManager.inMemory(process.cwd()),
-        resourceLoader: {
-          getExtensions: () => ({ extensions: [], errors: [], runtime: { tools: new Map(), commands: new Map(), shortcuts: new Map(), flags: new Map(), messageRenderers: new Map(), providers: new Map(), eventHandlers: new Map() } as any }),
-          getSkills: () => ({ skills: [], diagnostics: [] }),
-          getPrompts: () => ({ prompts: [], diagnostics: [] }),
-          getThemes: () => ({ themes: [], diagnostics: [] }),
-          getAgentsFiles: () => ({ agentsFiles: [] }),
-          getSystemPrompt: () => systemPrompt,
-          getAppendSystemPrompt: () => [],
-          extendResources: () => {},
-          reload: async () => {},
-        },
-      })
-
-      let response = ''
-      const unsubscribe = session.subscribe((event) => {
-        if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
-          response += event.assistantMessageEvent.delta
-        }
-      })
-
-      try {
-        await session.prompt(userPrompt)
-        return {
-          message: response || '(无响应)',
-          role: agent.role.name,
-          taskType: task.type,
-        }
-      } finally {
-        unsubscribe()
-        session.dispose()
+      const result = await callLLM({ systemPrompt, userPrompt })
+      return {
+        message: result.text,
+        role: agent.role.name,
+        taskType: task.type,
       }
     } catch {
       // AI SDK 不可用时降级为模拟响应

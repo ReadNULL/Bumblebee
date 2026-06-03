@@ -1,129 +1,194 @@
+import { readFile, writeFile, mkdir } from 'fs/promises'
+import { join } from 'path'
+import { homedir } from 'os'
+
 export interface MemoryConfig {
   enabled: boolean
-  maxHistory: number
+  storageDir?: string
 }
 
-interface MemoryEntry {
-  id: string
-  timestamp: Date
-  input: string
-  output: string
-  context: Record<string, any>
-  relevance: number
+export interface UserProfile {
+  // 结构化偏好
+  language?: string
+  codeStyle?: string
+  verbosity?: 'concise' | 'normal' | 'detailed'
+  theme?: string
+
+  // 自由文本偏好
+  preferences: string[]
+  environment: Record<string, string>
+  facts: string[]
+
+  lastUpdated: string
+}
+
+const DEFAULT_STORAGE_DIR = join(homedir(), '.bumblebee', 'memory')
+const PROFILE_FILE = 'profile.json'
+
+const EMPTY_PROFILE: UserProfile = {
+  preferences: [],
+  environment: {},
+  facts: [],
+  lastUpdated: ''
+}
+
+function createEmptyProfile(): UserProfile {
+  return {
+    preferences: [],
+    environment: {},
+    facts: [],
+    lastUpdated: ''
+  }
 }
 
 export class MemoryManager {
   private config: MemoryConfig
-  private shortTerm: MemoryEntry[] = []
-  private longTerm: Map<string, MemoryEntry> = new Map()
+  private profile: UserProfile = createEmptyProfile()
+  private storageDir: string
+  private initialized = false
 
   constructor(config: Partial<MemoryConfig> = {}) {
     this.config = {
       enabled: config.enabled !== false,
-      maxHistory: config.maxHistory || 100
+      storageDir: config.storageDir
     }
+    this.storageDir = this.config.storageDir || DEFAULT_STORAGE_DIR
   }
 
-  // 检索相关记忆
-  async recall(query: string): Promise<string> {
-    if (!this.config.enabled) {
-      return ''
-    }
-
-    // 检索短期记忆
-    const recentMemories = this.shortTerm
-      .filter(m => this.isRelevant(m, query))
-      .slice(-5)
-
-    // 检索长期记忆
-    const longTermMemories = Array.from(this.longTerm.values())
-      .filter(m => this.isRelevant(m, query))
-      .slice(-3)
-
-    // 合并记忆
-    const allMemories = [...recentMemories, ...longTermMemories]
-
-    if (allMemories.length === 0) {
-      return ''
-    }
-
-    // 格式化记忆上下文
-    return this.formatMemories(allMemories)
+  // 初始化（从磁盘加载画像）
+  async initialize(): Promise<void> {
+    if (this.initialized) return
+    this.initialized = true
+    await this.loadProfile()
   }
 
-  // 保存记忆
-  async remember(input: string, output: string): Promise<void> {
-    if (!this.config.enabled) {
-      return
+  // ========== 用户画像 ==========
+
+  // 获取用户画像
+  getProfile(): UserProfile {
+    return { ...this.profile }
+  }
+
+  // 更新用户画像（合并去重，持久化）
+  async updateProfile(updates: Partial<UserProfile>): Promise<void> {
+    if (updates.language !== undefined) {
+      this.profile.language = updates.language
+    }
+    if (updates.codeStyle !== undefined) {
+      this.profile.codeStyle = updates.codeStyle
+    }
+    if (updates.verbosity !== undefined) {
+      this.profile.verbosity = updates.verbosity
+    }
+    if (updates.theme !== undefined) {
+      this.profile.theme = updates.theme
     }
 
-    const entry: MemoryEntry = {
-      id: this.generateId(),
-      timestamp: new Date(),
-      input,
-      output,
-      context: {},
-      relevance: 1.0
-    }
-
-    // 添加到短期记忆
-    this.shortTerm.push(entry)
-
-    // 限制短期记忆大小
-    if (this.shortTerm.length > this.config.maxHistory) {
-      const removed = this.shortTerm.shift()
-      // 评估是否提升到长期记忆
-      if (removed && this.shouldPromoteToLongTerm(removed)) {
-        this.longTerm.set(removed.id, removed)
+    if (updates.preferences) {
+      const existing = new Set(this.profile.preferences)
+      for (const pref of updates.preferences) {
+        if (!existing.has(pref)) {
+          this.profile.preferences.push(pref)
+          existing.add(pref)
+        }
       }
     }
+
+    if (updates.environment) {
+      Object.assign(this.profile.environment, updates.environment)
+    }
+
+    if (updates.facts) {
+      const existing = new Set(this.profile.facts)
+      for (const fact of updates.facts) {
+        if (!existing.has(fact)) {
+          this.profile.facts.push(fact)
+          existing.add(fact)
+        }
+      }
+    }
+
+    this.profile.lastUpdated = new Date().toISOString()
+    await this.saveProfile()
   }
 
-  // 清空记忆
-  clear(): void {
-    this.shortTerm = []
-    this.longTerm.clear()
+  // 将画像格式化为 system prompt 上下文
+  getContextPrompt(): string {
+    const parts: string[] = []
+
+    // 结构化偏好
+    if (this.profile.language) {
+      parts.push(`编程语言偏好: ${this.profile.language}`)
+    }
+    if (this.profile.codeStyle) {
+      parts.push(`代码风格: ${this.profile.codeStyle}`)
+    }
+    if (this.profile.verbosity) {
+      parts.push(`详细程度: ${this.profile.verbosity}`)
+    }
+
+    // 自由文本偏好
+    if (this.profile.preferences.length > 0) {
+      parts.push(`用户偏好：\n${this.profile.preferences.map(p => `- ${p}`).join('\n')}`)
+    }
+
+    const envEntries = Object.entries(this.profile.environment)
+    if (envEntries.length > 0) {
+      parts.push(`用户环境：\n${envEntries.map(([k, v]) => `- ${k}: ${v}`).join('\n')}`)
+    }
+
+    if (this.profile.facts.length > 0) {
+      parts.push(`重要事实：\n${this.profile.facts.map(f => `- ${f}`).join('\n')}`)
+    }
+
+    return parts.length > 0 ? `\n## 已知用户画像\n${parts.join('\n\n')}` : ''
   }
 
-  // 获取记忆统计
-  getStats(): { shortTerm: number; longTerm: number } {
+  // 获取画像统计
+  getStats(): { preferences: number; facts: number; environmentKeys: number } {
     return {
-      shortTerm: this.shortTerm.length,
-      longTerm: this.longTerm.size
+      preferences: this.profile.preferences.length,
+      facts: this.profile.facts.length,
+      environmentKeys: Object.keys(this.profile.environment).length
     }
   }
 
-  // 判断记忆是否相关
-  private isRelevant(memory: MemoryEntry, query: string): boolean {
-    const keywords = query.toLowerCase().split(/\s+/)
-    const content = `${memory.input} ${memory.output}`.toLowerCase()
-
-    return keywords.some(keyword => content.includes(keyword))
+  // 清空画像
+  async clear(): Promise<void> {
+    this.profile = createEmptyProfile()
+    await this.saveProfile()
   }
 
-  // 判断是否应该提升到长期记忆
-  private shouldPromoteToLongTerm(memory: MemoryEntry): boolean {
-    return memory.relevance > 0.7
+  // ========== 画像持久化 ==========
+
+  // 确保存储目录存在
+  private async ensureDirectory(): Promise<void> {
+    try {
+      await mkdir(this.storageDir, { recursive: true })
+    } catch {
+      // 目录已存在，忽略
+    }
   }
 
-  // 格式化记忆
-  private formatMemories(memories: MemoryEntry[]): string {
-    return memories
-      .map(m => {
-        const time = m.timestamp.toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })
-        const inputPreview = m.input.length > 50
-          ? m.input.substring(0, 50) + '...'
-          : m.input
-        return `[${time}] ${inputPreview}`
-      })
-      .join('\n')
+  // 从磁盘加载画像
+  private async loadProfile(): Promise<void> {
+    try {
+      const filePath = join(this.storageDir, PROFILE_FILE)
+      const content = await readFile(filePath, 'utf-8')
+      this.profile = { ...EMPTY_PROFILE, ...JSON.parse(content) }
+    } catch {
+      // 文件不存在，使用空画像
+    }
   }
 
-  // 生成 ID
-  private generateId(): string {
-    return `mem_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+  // 保存画像到磁盘
+  private async saveProfile(): Promise<void> {
+    try {
+      await this.ensureDirectory()
+      const filePath = join(this.storageDir, PROFILE_FILE)
+      await writeFile(filePath, JSON.stringify(this.profile, null, 2), 'utf-8')
+    } catch {
+      // 写入失败，静默忽略
+    }
   }
 }

@@ -31,13 +31,14 @@
   "license": "MIT",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.78.0",
-    "@earendil-works/pi-tui": "^0.78.0",
     "wechaty": "^1.20.2",
     "@larksuiteoapi/node-sdk": "^1.36.0",
-    "xstate": "^5.18.0",
     "zod": "^3.23.0",
     "yaml": "^2.5.0",
     "typebox": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-tui": "^0.78.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

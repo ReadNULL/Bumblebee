@@ -12,11 +12,13 @@ import {
   UserPreferences,
   UserHistory
 } from './types.js'
+import { MemoryManager } from '../memory/manager.js'
 
 export class ContextManager {
   private contexts: Map<string, Context> = new Map()
   private projectContext: ProjectContext | null = null
   private userContext: UserContext | null = null
+  private memoryManager: MemoryManager | null = null
 
   // ========== 上下文管理 ==========
 
@@ -99,6 +101,11 @@ export class ContextManager {
 
   // ========== 用户上下文 ==========
 
+  // 设置 MemoryManager 引用（用于读取用户画像偏好）
+  setMemoryManager(memoryManager: MemoryManager): void {
+    this.memoryManager = memoryManager
+  }
+
   // 设置用户上下文
   setUserContext(user: UserContext): void {
     this.userContext = user
@@ -119,18 +126,42 @@ export class ContextManager {
     return this.userContext
   }
 
-  // 获取用户偏好
+  // 获取用户偏好（优先从 MemoryManager 读取）
   getUserPreferences(): UserPreferences | null {
+    // 优先从 MemoryManager 的画像读取
+    if (this.memoryManager) {
+      const profile = this.memoryManager.getProfile()
+      if (profile.language || profile.codeStyle || profile.verbosity || profile.theme) {
+        return {
+          language: profile.language || 'zh-CN',
+          codeStyle: profile.codeStyle || 'standard',
+          verbosity: profile.verbosity || 'normal',
+          theme: profile.theme || 'default',
+        }
+      }
+    }
+    // 回退到本地 userContext
     return this.userContext?.preferences || null
   }
 
-  // 更新用户偏好
-  updateUserPreferences(updates: Partial<UserPreferences>): void {
+  // 更新用户偏好（同时更新 MemoryManager）
+  async updateUserPreferences(updates: Partial<UserPreferences>): Promise<void> {
+    // 更新本地 userContext
     if (this.userContext) {
       this.userContext.preferences = {
         ...this.userContext.preferences,
         ...updates
       }
+    }
+
+    // 同步到 MemoryManager
+    if (this.memoryManager) {
+      await this.memoryManager.updateProfile({
+        language: updates.language,
+        codeStyle: updates.codeStyle,
+        verbosity: updates.verbosity,
+        theme: updates.theme,
+      })
     }
   }
 

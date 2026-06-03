@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Tests-138%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-140%20passed-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/Architecture-Plugin--based-ff6b35?style=flat-square" alt="Architecture">
 </p>
 
@@ -106,7 +106,7 @@ agent.switchRole('security-auditor')
 
 ### 记忆系统
 
-短期记忆 + 长期记忆的双层架构，让 Agent 能记住上下文、学习用户偏好。
+跨会话用户画像持久化，自动从对话中提取用户偏好、环境信息和关键事实。对话历史由 pi-coding-agent 的 SessionManager 管理，Bumblebee 在此基础上构建长期用户画像层。
 
 ### 渠道系统
 
@@ -128,7 +128,13 @@ agent.switchRole('security-auditor')
 
 ## TUI 体验
 
-Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) Extension 机制注入 TUI，获得完整的终端交互体验，同时保留所有差异化能力。
+Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) Extension 机制注入 TUI，复用框架的会话管理、上下文压缩（compaction）、工具系统等核心能力，同时注入角色、人格、用户画像等差异化功能。
+
+**复用的框架能力：**
+- `SessionManager` — 对话历史持久化、分支管理
+- `session_before_compact` — 压缩时自动提取用户画像
+- `before_agent_start` — 注入角色 system prompt + 用户画像
+- `defineTool` / `registerCommand` — 自定义工具和斜杠命令
 
 | 斜杠命令 | 功能 |
 |----------|------|
@@ -165,9 +171,25 @@ npm link
 bumblebee
 ```
 
+### LLM 配置
+
+Bumblebee 通过环境变量配置 LLM 连接。在项目根目录创建 `.env` 文件：
+
+```bash
+# Anthropic 直连
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+
+# 或 OpenAI 兼容接口
+OPENAI_API_KEY=sk-xxxxxxxxxxxx
+OPENAI_BASE_URL=https://your-proxy.com/v1
+```
+
+> **说明：** 也可以直接设置系统环境变量，无需 `.env` 文件。如使用第三方 API 代理，将 `BASE_URL` 指向代理地址即可。
+
 ### 配置文件
 
-在项目根目录创建 `.bumblebee.yaml`：
+在项目根目录创建 `.bumblebee.yaml`，用于配置人格、记忆等行为参数：
 
 ```yaml
 personality:
@@ -180,8 +202,8 @@ memory:
   maxHistory: 100
 
 ai:
-  provider: anthropic   # anthropic | openai | gemini | bedrock
-  model: claude-sonnet-4-6
+  provider: openai       # anthropic | openai | gemini | bedrock
+  model: gpt-4o
   temperature: 0.7
   maxTokens: 4096
 ```
@@ -197,6 +219,9 @@ await agent.initialize()
 
 const response = await agent.processMessage('帮我审查这段代码')
 agent.switchRole('code-reviewer')
+
+// 释放资源
+agent.dispose()
 ```
 
 ---
@@ -205,11 +230,11 @@ agent.switchRole('code-reviewer')
 
 ```
 src/
-├── core/           # 核心模块（Agent 主类、配置加载）
+├── core/           # 核心模块（Agent 主类、配置加载、LLM 调用工厂）
 ├── tui/            # TUI 集成（pi-coding-agent Extension）
 ├── roles/          # 角色系统（存储、管理、创建向导）
 ├── personality/    # 人格系统（情绪分析、人格注入）
-├── memory/         # 记忆系统（短期 / 长期记忆管理）
+├── memory/         # 记忆系统（用户画像持久化、对话画像提取）
 ├── channels/       # 渠道系统（微信 / 飞书 / 钉钉适配器）
 ├── agents/         # Agent 编排（生命周期管理、多 Agent 编排器）
 ├── workflows/      # 工作流引擎（DAG 调度、内置模板）
@@ -231,8 +256,7 @@ src/
 | AI 引擎 | pi-coding-agent | Agent 会话管理、TUI 框架、Extension API |
 | TUI 渲染 | pi-tui | 终端 UI 差分渲染、Markdown 渲染、交互组件 |
 | 类型校验 | Zod + TypeBox | 配置校验、工具参数 Schema |
-| 状态机 | XState | 复杂状态管理 |
-| 渠道 SDK | wechaty / @larksuiteoapi / dingtalk-robot-sdk | 平台接入 |
+| 渠道 SDK | wechaty / @larksuiteoapi | 平台接入（懒加载） |
 | 构建 | tsup | ESM 打包、Tree-shaking |
 | 测试 | vitest | 单元测试、集成测试 |
 
@@ -281,6 +305,7 @@ npm run dev
 - [x] **Phase 4** — 工作流引擎 + 模板
 - [x] **Phase 5** — 知识图谱 + 学习机制
 - [x] **Phase 6** — 语音/协作/仪表板/性能优化
+- [x] **Phase 6.5** — 消除与 pi 框架的重复造轮子，深度复用框架能力
 - [ ] **Phase 7** — 生产级渠道对接 + WebSocket 实时通信
 - [ ] **Phase 8** — 插件市场 + 社区生态
 

@@ -5,10 +5,11 @@
  */
 
 import { Type } from 'typebox'
-import { defineTool, type ExtensionAPI } from '@earendil-works/pi-coding-agent'
+import { defineTool, convertToLlm, serializeConversation, type ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { BumblebeeAgent } from '../core/agent.js'
 import { loadConfig } from '../core/config.js'
 import { BumblebeePersonality } from '../personality/traits.js'
+import { extractProfileFromConversation } from '../memory/profile-extractor.js'
 
 // 自定义工具：切换角色
 const switchRoleTool = defineTool({
@@ -120,13 +121,45 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
   agent = new BumblebeeAgent(config)
   await agent.initialize()
 
-  // 注入角色 system prompt
+  // 注入角色 system prompt + 用户画像
   pi.on('before_agent_start', async (event) => {
     const rolePrompt = agent.getRoleManager().getSystemPrompt()
     const personalityPrompt = BumblebeePersonality.getSystemPrompt()
+    const profilePrompt = agent.getMemoryManager().getContextPrompt()
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${personalityPrompt}\n\n## 当前角色\n${rolePrompt}`,
+      systemPrompt: `${event.systemPrompt}\n\n${personalityPrompt}\n\n## 当前角色\n${rolePrompt}${profilePrompt}`,
     }
+  })
+
+  // 拦截 compaction 事件，使用规则提取用户画像
+  pi.on('session_before_compact', async (event, _ctx) => {
+    const { preparation } = event
+    const { messagesToSummarize, turnPrefixMessages } = preparation
+
+    // 合并所有待摘要消息
+    const allMessages = [...messagesToSummarize, ...turnPrefixMessages]
+    if (allMessages.length === 0) return
+
+    // 序列化对话内容
+    const conversationText = serializeConversation(convertToLlm(allMessages))
+
+    // 获取已有画像
+    const existingProfile = agent.getMemoryManager().getProfile()
+
+    // 使用共享的规则提取函数
+    const extracted = extractProfileFromConversation(conversationText, existingProfile)
+
+    // 只有有新信息时才更新
+    const hasUpdates = (extracted.preferences?.length ?? 0) > 0
+      || (extracted.facts?.length ?? 0) > 0
+      || Object.keys(extracted.environment ?? {}).length > 0
+
+    if (hasUpdates) {
+      await agent.getMemoryManager().updateProfile(extracted)
+    }
+
+    // 返回 undefined 让框架执行默认 compaction
+    return
   })
 
   // 注册自定义工具
@@ -223,12 +256,12 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
     description: '记忆管理（用法: /memory 或 /memory clear）',
     handler: async (args, ctx) => {
       if (args.trim() === 'clear') {
-        agent.clearMemory()
+        await agent.clearMemory()
         ctx.ui.notify('记忆已清空', 'info')
         return
       }
       const stats = agent.getMemoryStats()
-      ctx.ui.notify(`记忆统计:\n  短期记忆: ${stats.shortTerm} 条\n  长期记忆: ${stats.longTerm} 条`, 'info')
+      ctx.ui.notify(`用户画像统计:\n  偏好: ${stats.preferences} 条\n  事实: ${stats.facts} 条\n  环境信息: ${stats.environmentKeys} 项`, 'info')
     },
   })
 }
