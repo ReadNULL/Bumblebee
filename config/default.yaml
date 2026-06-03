@@ -1,0 +1,16 @@
+# Bumblebee 配置文件示例
+
+personality:
+  intensity: moderate  # low | moderate | high
+  theme: transformers  # transformers | neutral
+
+memory:
+  enabled: true
+  maxHistory: 100
+
+ai:
+  provider: anthropic  # anthropic | openai | gemini | bedrock
+  model: claude-sonnet-4-6
+  temperature: 0.7
+  maxTokens: 4096
+  # apiKey: your-api-key-here
