@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Tests-164%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-195%20passed-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/Architecture-Plugin--based-ff6b35?style=flat-square" alt="Architecture">
 </p>
 
@@ -195,32 +195,31 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 
 | 斜杠命令 | 功能 |
 |----------|------|
+| `/help` | 显示所有命令（分组显示） |
+| `/help <命令>` | 显示具体命令用法 |
+| `/status` | 系统健康状态概览 |
 | `/roles` | 列出所有可用角色 |
-| `/switch <id>` | 切换角色（支持 Tab 补全） |
+| `/switch <id>` | 切换角色（支持 Tab 补全，无参数弹出选择窗口） |
 | `/role` | 显示当前角色详情 |
 | `/personality` | 显示人格状态 |
-| `/memory` | 显示记忆统计 |
-| `/memory summary` | 查看上次对话摘要 |
-| `/memory clear` | 清空记忆 |
-| `/knowledge` | 知识图谱统计（节点数、关系数、类型分布） |
+| `/memory` | 记忆管理（无参数弹出选择窗口） |
+| `/knowledge` | 知识图谱统计 |
 | `/knowledge search <词>` | 搜索知识节点 |
+| `/knowledge-cleanup` | 清理重复和无效节点 |
 | `/context` | 显示当前项目上下文（语言、框架、依赖） |
-| `/learn` | 学习系统统计（记录数、模式数、成功率） |
-| `/learn clear` | 清空学习数据 |
+| `/learn` | 学习系统管理（无参数弹出选择窗口） |
 | `/agents` | Agent 系统状态和列表 |
-| `/agent-run <team> [task]` | 运行专业 Agent 团队 |
+| `/agent-run <team> [task]` | 运行专业 Agent 团队（无参数弹出选择窗口） |
 | `/workflows` | 工作流系统状态 |
-| `/workflow-run <id>` | 触发工作流执行 |
+| `/workflow-run <id>` | 触发工作流执行（无参数弹出选择窗口） |
 | `/perf` | 性能指标（响应时间、缓存命中率、并发） |
-| `/cache` | 缓存状态 |
-| `/cache clear` | 清空缓存 |
+| `/cache` | 缓存管理（无参数弹出选择窗口） |
 | `/dashboard` | 仪表盘状态 |
-| `/collab` | 协作状态 |
-| `/collab connect` | 连接协作服务器 |
-| `/collab join <room>` | 加入协作房间 |
-| `/voice` | 语音引擎状态 |
-| `/voice start` | 启动语音识别 |
-| `/voice speak <text>` | 语音合成 |
+| `/channel-connect` | 连接渠道（无参数弹出选择窗口） |
+| `/channel-disconnect` | 断开渠道（无参数弹出选择窗口） |
+| `/collab` | 协作管理（无参数弹出选择窗口） |
+| `/voice` | 语音管理（无参数弹出选择窗口） |
+| `/history` | 显示最近会话历史 |
 | `/resume` | 浏览并选择历史会话 |
 | `/new` | 开始新会话 |
 
@@ -237,18 +236,26 @@ AI 在对话中可主动调用 15+ 工具，包括角色切换、Agent 编排、
 ### 安装与运行
 
 ```bash
-git clone https://github.com/your-org/bumblebee.git
+git clone https://github.com/ReadNULL/Bumblebee.git
 cd bumblebee
 npm install
 npm run build
 
+# 交互式配置向导
+npx bumblebee init           # 或 npx bumblebee init --preset mini/dev/full
+
+# 环境诊断
+npx bumblebee doctor
+
 # 启动 TUI
-node dist/cli.js
+npx bumblebee
 
 # 或全局链接
 npm link
 bumblebee
 ```
+
+> 详细用法见 [快速开始指南](docs/quick-start.md)。
 
 ### 会话管理
 
@@ -340,6 +347,15 @@ performance:
 dashboard:
   enabled: false           # 默认关闭
   refreshInterval: 5000
+
+channels:
+  wechat:
+    enabled: false
+  feishu:
+    enabled: false
+  dingtalk:
+    enabled: false
+    mode: webhook
 
 collaboration:
   enabled: false           # 需要 WebSocket 服务器
@@ -457,21 +473,6 @@ npm run dev
 - 代码通过 `npm run typecheck` 类型检查
 - 所有测试通过 `npx vitest run`
 - 新功能附带相应测试用例
-
----
-
-## 开发路线
-
-- [x] **Phase 1** — 核心架构 + TUI 集成
-- [x] **Phase 2** — 渠道系统（微信/飞书/钉钉）
-- [x] **Phase 3** — 多 Agent 协作编排
-- [x] **Phase 4** — 工作流引擎 + 模板
-- [x] **Phase 5** — 知识图谱 + 学习机制
-- [x] **Phase 6** — 语音/协作/仪表板/性能优化
-- [x] **Phase 6.5** — 消除与 pi 框架的重复造轮子，深度复用框架能力
-- [x] **Phase 6.6** — 6 大高级模块全部接入核心（agents/workflows/performance/dashboard/collaboration/voice）
-- [ ] **Phase 7** — 生产级渠道对接 + WebSocket 实时通信
-- [ ] **Phase 8** — 插件市场 + 社区生态
 
 ---
 
