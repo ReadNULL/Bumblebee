@@ -9,9 +9,10 @@
 <h1 align="center">Bumblebee</h1>
 
 <p align="center">
-  <strong>全渠道智能编程副官</strong><br>
+  <strong>多渠道智能编程副官</strong><br>
   <em>不只是 Coding Agent，而是能变形、协作、感知、响应的 AI 编程伙伴</em>
 </p>
+
 
 <p align="center">
   像变形金刚中的大黄蜂一样 —— 忠诚、敏捷、智能，随时适配你的工作方式
@@ -190,6 +191,9 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 - `before_agent_start` — 注入角色 system prompt + 用户画像
 - `defineTool` / `registerCommand` — 自定义工具和斜杠命令
 
+<details>
+<summary><strong>命令总览</strong> （点击展开）</summary>
+
 | 斜杠命令 | 功能 |
 |----------|------|
 | `/help` | 显示所有命令（分组显示） |
@@ -219,6 +223,8 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/history` | 显示最近会话历史 |
 | `/resume` | 浏览并选择历史会话 |
 | `/new` | 开始新会话 |
+
+</details>
 
 AI 在对话中可主动调用 15+ 工具，包括角色切换、Agent 编排、工作流触发、缓存管理、协作通信等。
 
@@ -300,6 +306,9 @@ OPENAI_BASE_URL=https://your-proxy.com/v1
 
 在项目根目录创建 `.bumblebee.yaml`，用于配置人格、记忆等行为参数：
 
+<details>
+<summary><strong>配置详情</strong> （点击展开）</summary>
+
 ```yaml
 personality:
   intensity: moderate    # low | moderate | high
@@ -365,6 +374,8 @@ voice:
   engine: browser          # browser | whisper | azure | google
   language: zh-CN
 ```
+
+</details>
 
 ### 作为库使用
 
