@@ -275,6 +275,15 @@ performance:
 dashboard:
   enabled: ${preset.dashboard.enabled}
 
+channels:
+  wechat:
+    enabled: false
+  feishu:
+    enabled: false
+  dingtalk:
+    enabled: false
+    mode: webhook
+
 collaboration:
   enabled: false
 
