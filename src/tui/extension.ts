@@ -12,6 +12,8 @@ import { BumblebeePersonality } from '../personality/traits.js'
 import { extractProfileFromConversation } from '../memory/profile-extractor.js'
 import { ChannelManager } from '../channels/manager.js'
 import { WeChatAdapter } from '../channels/wechat.js'
+import { getSpecializedAgentTypes, createAgentTeam, RECOMMENDED_TEAMS } from '../agents/specialized.js'
+import { getWorkflowTemplateIds, createWorkflowFromTemplate } from '../workflows/templates.js'
 
 // 自定义工具：切换角色
 const switchRoleTool = defineTool({
@@ -115,9 +117,9 @@ const getRoleInfoTool = defineTool({
 })
 
 // 从消息内容中提取文本
-function extractText(content: string | Array<{ type: string; text: string }>): string {
+function extractText(content: string | Array<{ type: string; [key: string]: any }>): string {
   if (typeof content === 'string') return content
-  return content?.filter(c => c.type === 'text').map(c => c.text).join('\n') ?? ''
+  return content?.filter(c => c.type === 'text' && 'text' in c).map(c => (c as any).text).join('\n') ?? ''
 }
 
 // 生成对话摘要（提取关键信息，限制长度）
@@ -172,14 +174,47 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
     await channelManager.loadFromConfig(config.channels)
   }
 
-  // 注入角色 system prompt + 用户画像 + 上次对话摘要
+  // 注入角色 system prompt + 用户画像 + 上次对话摘要 + 知识上下文
   pi.on('before_agent_start', async (event) => {
     const rolePrompt = agent.getRoleManager().getSystemPrompt()
     const personalityPrompt = BumblebeePersonality.getSystemPrompt()
     const profilePrompt = agent.getMemoryManager().getContextPrompt()
     const summaryPrompt = agent.getMemoryManager().getConversationSummaryPrompt()
+
+    // 项目上下文
+    const contextSummary = agent.getContext().getContextSummary()
+    let contextPrompt = ''
+    if (contextSummary.project) {
+      const p = contextSummary.project
+      contextPrompt = `\n\n## 项目上下文\n语言: ${p.language || '未知'}\n框架: ${p.framework || '未知'}\n依赖数: ${p.dependencies?.length || 0}`
+    }
+
+    // 学习推荐
+    const lastUserMsg = sessionMessages.filter((m: any) => m.role === 'user').pop()
+    let recommendationPrompt = ''
+    if (lastUserMsg) {
+      const text = extractText(lastUserMsg.content)
+      if (text) {
+        const recommendations = agent.getLearner().recommend({ context: { text }, limit: 3 })
+        if (recommendations.length > 0) {
+          recommendationPrompt = `\n\n## 学习到的模式建议\n${recommendations.map(r => `- ${r.description}`).join('\n')}`
+        }
+      }
+    }
+
+    // Agent 系统上下文
+    let agentPrompt = ''
+    if (agent.getAgentManager()) {
+      const stats = agent.getAgentManager()!.getStats()
+      agentPrompt = `\n\n## 多 Agent 系统\n可用 Agent: ${stats.total} (空闲: ${stats.idle}, 忙碌: ${stats.busy})`
+      if (agent.getWorkflowEngine()) {
+        const workflows = agent.getWorkflowEngine()!.getAllWorkflows()
+        agentPrompt += `\n已注册工作流: ${workflows.length} 个`
+      }
+    }
+
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${personalityPrompt}\n\n## 当前角色\n${rolePrompt}${profilePrompt}${summaryPrompt}`,
+      systemPrompt: `${event.systemPrompt}\n\n${personalityPrompt}\n\n## 当前角色\n${rolePrompt}${profilePrompt}${summaryPrompt}${contextPrompt}${recommendationPrompt}${agentPrompt}`,
     }
   })
 
@@ -208,6 +243,16 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
 
     if (hasUpdates) {
       await agent.getMemoryManager().updateProfile(extracted)
+    }
+
+    // 从对话中学习用户纠正模式
+    for (const msg of allMessages) {
+      if (msg.role !== 'user') continue
+      const text = extractText(msg.content)
+      if (!text) continue
+      if (text.includes('不要') || text.includes('别') || text.includes('不需要') || text.includes('不用')) {
+        agent.getLearner().record({ type: 'correction', input: text, output: '', success: false, context: {} })
+      }
     }
 
     // 返回 undefined 让框架执行默认 compaction
@@ -244,6 +289,10 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
       if (summary) {
         await agent.getMemoryManager().saveConversationSummary(summary)
       }
+
+      // 保存知识图谱和学习数据
+      await agent.getKnowledge().save()
+      await agent.getLearner().save()
     } catch {
       // 退出时的错误静默忽略
     }
@@ -527,6 +576,533 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
       } else {
         await channelManager.disconnectAll()
         ctx.ui.notify('已断开所有渠道', 'info')
+      }
+    },
+  })
+
+  // ========== 知识系统命令 ==========
+
+  // 注册斜杠命令：/knowledge
+  pi.registerCommand('knowledge', {
+    description: '知识图谱管理（用法: /knowledge 或 /knowledge search <关键词>）',
+    handler: async (args, ctx) => {
+      const sub = args.trim()
+
+      if (sub.startsWith('search ')) {
+        const keyword = sub.slice(7).trim()
+        if (!keyword) {
+          ctx.ui.notify('用法: /knowledge search <关键词>', 'info')
+          return
+        }
+        const results = agent.getKnowledge().query({ text: keyword, limit: 10 })
+        if (results.length === 0) {
+          ctx.ui.notify(`未找到与 "${keyword}" 相关的知识节点`, 'info')
+          return
+        }
+        const list = results.map(r =>
+          `- [${r.node.type}] ${r.node.name} (分数: ${r.score.toFixed(2)})`
+        ).join('\n')
+        ctx.ui.notify(`搜索结果 (${results.length}):\n${list}`, 'info')
+        return
+      }
+
+      const stats = agent.getKnowledge().getStats()
+      const typeEntries = Object.entries(stats.typeDistribution)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => `  ${k}: ${v}`)
+        .join('\n')
+      ctx.ui.notify(
+        `知识图谱统计:\n  节点: ${stats.nodeCount}\n  关系: ${stats.relationCount}\n类型分布:\n${typeEntries || '  (空)'}`,
+        'info'
+      )
+    },
+  })
+
+  // 注册斜杠命令：/context
+  pi.registerCommand('context', {
+    description: '显示当前项目上下文（语言、框架、环境）',
+    handler: async (_args, ctx) => {
+      const summary = agent.getContext().getContextSummary()
+      const parts: string[] = []
+
+      if (summary.project) {
+        const p = summary.project
+        parts.push(`项目上下文:\n  语言: ${p.language || '未知'}\n  框架: ${p.framework || '未知'}\n  依赖数: ${p.dependencies?.length || 0}`)
+      }
+      if (summary.user) {
+        parts.push(`用户上下文:\n  ID: ${summary.user.id || '未知'}`)
+      }
+      parts.push(`会话变量: ${summary.sessionVars} 个`)
+      parts.push(`任务上下文: ${summary.taskContexts} 个`)
+      parts.push(`总上下文: ${summary.totalContexts} 个`)
+
+      ctx.ui.notify(parts.join('\n'), 'info')
+    },
+  })
+
+  // 注册斜杠命令：/learn
+  pi.registerCommand('learn', {
+    description: '学习系统管理（用法: /learn 或 /learn clear）',
+    handler: async (args, ctx) => {
+      if (args.trim() === 'clear') {
+        agent.getLearner().clear()
+        ctx.ui.notify('学习数据已清空', 'info')
+        return
+      }
+
+      const stats = agent.getLearner().getStats()
+      const typeEntries = Object.entries(stats.typeDistribution)
+        .filter(([, v]) => v > 0)
+        .map(([k, v]) => `  ${k}: ${v}`)
+        .join('\n')
+      ctx.ui.notify(
+        `学习系统统计:\n  记录: ${stats.totalRecords}\n  模式: ${stats.totalPatterns}\n  成功率: ${(stats.successRate * 100).toFixed(1)}%\n类型分布:\n${typeEntries || '  (空)'}`,
+        'info'
+      )
+    },
+  })
+
+  // ========== Batch 1: Agent + Workflow 工具 ==========
+
+  // 工具：列出所有 Agent
+  pi.registerTool(defineTool({
+    name: 'list_agents',
+    label: 'List Agents',
+    description: '列出所有已注册的 Agent 及其状态',
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const mgr = agent.getAgentManager()
+      if (!mgr) return { content: [{ type: 'text' as const, text: 'Agent 系统未启用' }], details: { enabled: false } }
+      const agents = mgr.getAllAgents()
+      const stats = mgr.getStats()
+      const lines = agents.map(a => `  ${a.id} [${a.status}] - ${a.role.name}`)
+      return {
+        content: [{ type: 'text' as const, text: `Agent 列表 (${stats.total} 个):\n${lines.join('\n') || '  (空)'}` }],
+        details: { stats },
+      }
+    }
+  }))
+
+  // 工具：执行 Agent 任务
+  pi.registerTool(defineTool({
+    name: 'execute_agent_task',
+    label: 'Execute Agent Task',
+    description: '在指定 Agent 上执行任务',
+    parameters: Type.Object({
+      agentId: Type.String({ description: 'Agent ID' }),
+      description: Type.String({ description: '任务描述' }),
+      input: Type.String({ description: '任务输入' }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const mgr = agent.getAgentManager()
+      if (!mgr) return { content: [{ type: 'text' as const, text: 'Agent 系统未启用' }], details: { enabled: false } }
+      const result = await mgr.executeTask({
+        id: `task-${Date.now()}`,
+        agentId: params.agentId,
+        type: 'general',
+        description: params.description,
+        input: params.input,
+        priority: 'medium',
+      })
+      return {
+        content: [{ type: 'text' as const, text: `任务完成 [${result.success ? '成功' : '失败'}]:\n${result.output}` }],
+        details: { success: result.success, agentId: result.agentId },
+      }
+    }
+  }))
+
+  // 工具：多 Agent 编排
+  pi.registerTool(defineTool({
+    name: 'orchestrate_agents',
+    label: 'Orchestrate Agents',
+    description: '使用多 Agent 编排执行任务',
+    parameters: Type.Object({
+      team: Type.String({ description: '团队类型，如 code-review, testing, development, quality, full' }),
+      task: Type.String({ description: '任务描述' }),
+      mode: Type.Optional(Type.String({ description: '协作模式: independent, sequential, parallel, hierarchical' })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const orch = agent.getAgentOrchestrator()
+      if (!orch) return { content: [{ type: 'text' as const, text: 'Agent 编排系统未启用' }], details: { enabled: false } }
+      const teamTypes = (RECOMMENDED_TEAMS as any)[params.team]
+      if (!teamTypes) {
+        return { content: [{ type: 'text' as const, text: `未知团队类型: ${params.team}。可用: ${Object.keys(RECOMMENDED_TEAMS).join(', ')}` }], details: { error: 'unknown_team' } }
+      }
+      const result = await orch.executeTeamTask(teamTypes, params.task, { task: params.task }, (params.mode as any) || 'parallel')
+      return {
+        content: [{ type: 'text' as const, text: `编排完成 (${result.metrics.duration}ms):\n${result.results.map((r: any) => `  ${r.agentId}: ${String(r.output).substring(0, 200)}`).join('\n')}` }],
+        details: { duration: result.metrics.duration, agentCount: result.metrics.agentCount },
+      }
+    }
+  }))
+
+  // 工具：列出工作流
+  pi.registerTool(defineTool({
+    name: 'list_workflows',
+    label: 'List Workflows',
+    description: '列出所有已注册的工作流',
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const engine = agent.getWorkflowEngine()
+      if (!engine) return { content: [{ type: 'text' as const, text: '工作流系统未启用' }], details: { enabled: false } }
+      const workflows = engine.getAllWorkflows()
+      const templates = getWorkflowTemplateIds()
+      const lines = workflows.map(w => `  ${w.id} - ${w.name}`)
+      return {
+        content: [{ type: 'text' as const, text: `已注册工作流 (${workflows.length} 个):\n${lines.join('\n') || '  (空)'}\n\n可用模板: ${templates.join(', ')}` }],
+        details: { count: workflows.length, templates },
+      }
+    }
+  }))
+
+  // 工具：触发工作流
+  pi.registerTool(defineTool({
+    name: 'trigger_workflow',
+    label: 'Trigger Workflow',
+    description: '触发执行一个工作流',
+    parameters: Type.Object({
+      workflowId: Type.String({ description: '工作流 ID' }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const engine = agent.getWorkflowEngine()
+      if (!engine) return { content: [{ type: 'text' as const, text: '工作流系统未启用' }], details: { enabled: false } }
+      const result = await engine.trigger(params.workflowId)
+      const stepLines = Object.entries(result.steps).map(([id, s]: [string, any]) => `  ${id}: ${s.status}`).join('\n')
+      return {
+        content: [{ type: 'text' as const, text: `工作流执行完成 [${result.status}]:\n${stepLines}` }],
+        details: { workflowId: result.workflowId, status: result.status, duration: result.duration },
+      }
+    }
+  }))
+
+  // ========== Batch 1: Agent + Workflow 命令 ==========
+
+  // 命令：/agents
+  pi.registerCommand('agents', {
+    description: '显示 Agent 系统状态和列表',
+    handler: async (_args, ctx) => {
+      const mgr = agent.getAgentManager()
+      if (!mgr) {
+        ctx.ui.notify('Agent 系统未启用', 'warning')
+        return
+      }
+      const stats = mgr.getStats()
+      const agents = mgr.getAllAgents()
+      const lines = agents.map(a => `  ${a.id} [${a.status}] - ${a.role.name}`)
+      ctx.ui.notify(
+        `Agent 系统:\n  总计: ${stats.total}  空闲: ${stats.idle}  忙碌: ${stats.busy}  错误: ${stats.error}\n\nAgent 列表:\n${lines.join('\n') || '  (无已注册 Agent)'}`,
+        'info'
+      )
+    },
+  })
+
+  // 命令：/agent-run
+  pi.registerCommand('agent-run', {
+    description: '运行专业 Agent 团队（用法: /agent-run <team> [task]）',
+    handler: async (args, ctx) => {
+      const orch = agent.getAgentOrchestrator()
+      if (!orch) {
+        ctx.ui.notify('Agent 编排系统未启用', 'warning')
+        return
+      }
+      const parts = args.trim().split(/\s+/)
+      const teamName = parts[0] || 'code-review'
+      const task = parts.slice(1).join(' ') || '分析当前项目代码'
+      const teamTypes = (RECOMMENDED_TEAMS as any)[teamName]
+      if (!teamTypes) {
+        ctx.ui.notify(`未知团队: ${teamName}。可用: ${Object.keys(RECOMMENDED_TEAMS).join(', ')}`, 'warning')
+        return
+      }
+      ctx.ui.notify(`正在运行 ${teamName} 团队...`, 'info')
+      const result = await orch.executeTeamTask(teamTypes, task, { task }, 'parallel')
+      ctx.ui.notify(
+        `团队执行完成 (${result.metrics.duration}ms):\n${result.results.map((r: any) => `  ${r.agentId}: ${String(r.output).substring(0, 300)}`).join('\n')}`,
+        'info'
+      )
+    },
+  })
+
+  // 命令：/workflows
+  pi.registerCommand('workflows', {
+    description: '显示工作流系统状态',
+    handler: async (_args, ctx) => {
+      const engine = agent.getWorkflowEngine()
+      if (!engine) {
+        ctx.ui.notify('工作流系统未启用', 'warning')
+        return
+      }
+      const workflows = engine.getAllWorkflows()
+      const templates = getWorkflowTemplateIds()
+      const lines = workflows.map(w => `  ${w.id} - ${w.name} (${Object.keys(w.steps).length} 步骤)`)
+      ctx.ui.notify(
+        `工作流系统:\n  已注册: ${workflows.length}\n\n工作流列表:\n${lines.join('\n') || '  (空)'}\n\n可用模板: ${templates.join(', ')}`,
+        'info'
+      )
+    },
+  })
+
+  // 命令：/workflow-run
+  pi.registerCommand('workflow-run', {
+    description: '触发工作流执行（用法: /workflow-run <workflowId>）',
+    handler: async (args, ctx) => {
+      const engine = agent.getWorkflowEngine()
+      if (!engine) {
+        ctx.ui.notify('工作流系统未启用', 'warning')
+        return
+      }
+      const workflowId = args.trim()
+      if (!workflowId) {
+        const ids = engine.getAllWorkflows().map(w => w.id)
+        ctx.ui.notify(`用法: /workflow-run <id>\n可用工作流: ${ids.join(', ')}`, 'warning')
+        return
+      }
+      ctx.ui.notify(`正在执行工作流: ${workflowId}...`, 'info')
+      try {
+        const result = await engine.trigger(workflowId)
+        const stepLines = Object.entries(result.steps).map(([id, s]: [string, any]) => `  ${id}: ${s.status}`).join('\n')
+        ctx.ui.notify(
+          `工作流执行完成 [${result.status}]:\n${stepLines}`,
+          'info'
+        )
+      } catch (err: any) {
+        ctx.ui.notify(`工作流执行失败: ${err.message}`, 'error')
+      }
+    },
+  })
+
+  // ========== Batch 2: Performance + Dashboard 工具 ==========
+
+  // 工具：获取性能指标
+  pi.registerTool(defineTool({
+    name: 'get_performance_metrics',
+    label: 'Get Performance Metrics',
+    description: '获取当前系统性能指标',
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const monitor = agent.getPerformanceMonitor()
+      if (!monitor) return { content: [{ type: 'text' as const, text: '性能监控未启用' }], details: { enabled: false } }
+      const metrics = monitor.getMetrics()
+      const cache = agent.getCache()
+      const cacheStats = cache ? cache.getStats() : null
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `性能指标:\n  响应时间: avg=${metrics.responseTime.avg.toFixed(0)}ms\n  缓存: ${cacheStats ? `${cacheStats.size} 条目, 命中率 ${(cacheStats.hitRate * 100).toFixed(1)}%` : '未启用'}`
+        }],
+        details: { metrics, cacheStats },
+      }
+    }
+  }))
+
+  // 工具：清空缓存
+  pi.registerTool(defineTool({
+    name: 'clear_cache',
+    label: 'Clear Cache',
+    description: '清空 LRU 缓存',
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const cache = agent.getCache()
+      if (!cache) return { content: [{ type: 'text' as const, text: '缓存未启用' }], details: { enabled: false } }
+      const size = cache.size()
+      cache.clear()
+      return {
+        content: [{ type: 'text' as const, text: `已清空 ${size} 条缓存` }],
+        details: { cleared: size },
+      }
+    }
+  }))
+
+  // ========== Batch 2: Performance + Dashboard 命令 ==========
+
+  // 命令：/perf
+  pi.registerCommand('perf', {
+    description: '显示性能指标',
+    handler: async (_args, ctx) => {
+      const monitor = agent.getPerformanceMonitor()
+      if (!monitor) {
+        ctx.ui.notify('性能监控未启用', 'warning')
+        return
+      }
+      const metrics = monitor.getMetrics()
+      const cache = agent.getCache()
+      const cacheStats = cache ? cache.getStats() : null
+      const concurrency = agent.getConcurrency()
+      const concStats = concurrency ? concurrency.getStats() : null
+      ctx.ui.notify(
+        `性能指标:\n` +
+        `  响应时间: avg=${metrics.responseTime.avg.toFixed(0)}ms  p50=${metrics.responseTime.p50.toFixed(0)}ms  p90=${metrics.responseTime.p90.toFixed(0)}ms\n` +
+        `  吞吐量: ${metrics.throughput.requestsPerSecond.toFixed(1)} req/s\n` +
+        `  缓存: ${cacheStats ? `${cacheStats.size} 条目, 命中率 ${(cacheStats.hitRate * 100).toFixed(1)}%` : '未启用'}\n` +
+        `  并发: ${concStats ? `活跃 ${concStats.active}, 排队 ${concStats.queued}` : '未启用'}`,
+        'info'
+      )
+    },
+  })
+
+  // 命令：/cache
+  pi.registerCommand('cache', {
+    description: '缓存管理（用法: /cache 或 /cache clear）',
+    handler: async (args, ctx) => {
+      const cache = agent.getCache()
+      if (!cache) {
+        ctx.ui.notify('缓存未启用', 'warning')
+        return
+      }
+      if (args.trim() === 'clear') {
+        const size = cache.size()
+        cache.clear()
+        ctx.ui.notify(`已清空 ${size} 条缓存`, 'info')
+        return
+      }
+      const stats = cache.getStats()
+      ctx.ui.notify(
+        `缓存状态:\n  条目数: ${stats.size}\n  命中率: ${(stats.hitRate * 100).toFixed(1)}%\n  未命中率: ${(stats.missRate * 100).toFixed(1)}%`,
+        'info'
+      )
+    },
+  })
+
+  // 命令：/dashboard
+  pi.registerCommand('dashboard', {
+    description: '显示仪表盘状态',
+    handler: async (_args, ctx) => {
+      const dashboard = agent.getDashboard()
+      if (!dashboard) {
+        ctx.ui.notify('仪表盘未启用（在配置中设置 dashboard.enabled: true）', 'warning')
+        return
+      }
+      const widgets = dashboard.getAllWidgets()
+      const lines = widgets.map(w => `  ${w.id} [${w.type}] - ${w.title}`)
+      ctx.ui.notify(
+        `仪表盘:\n  组件数: ${widgets.length}\n\n组件列表:\n${lines.join('\n') || '  (空)'}`,
+        'info'
+      )
+    },
+  })
+
+  // ========== Batch 3: Collaboration + Voice 工具 ==========
+
+  // 工具：获取协作状态
+  pi.registerTool(defineTool({
+    name: 'get_collaboration_status',
+    label: 'Get Collaboration Status',
+    description: '获取实时协作状态',
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const room = agent.getCollaborationRoom()
+      if (!room) return { content: [{ type: 'text' as const, text: '协作模块未启用' }], details: { enabled: false } }
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `协作状态:\n  连接: ${room.isConnected() ? '已连接' : '未连接'}\n  用户数: ${room.getUserCount()}`
+        }],
+        details: { connected: room.isConnected(), userCount: room.getUserCount() },
+      }
+    }
+  }))
+
+  // 工具：发送协作消息
+  pi.registerTool(defineTool({
+    name: 'send_collaboration_message',
+    label: 'Send Collaboration Message',
+    description: '向协作房间发送消息',
+    parameters: Type.Object({
+      message: Type.String({ description: '消息内容' }),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const room = agent.getCollaborationRoom()
+      if (!room) return { content: [{ type: 'text' as const, text: '协作模块未启用' }], details: { enabled: false } }
+      if (!room.isConnected()) return { content: [{ type: 'text' as const, text: '未连接到协作房间' }], details: { connected: false } }
+      room.sendMessage(params.message)
+      return {
+        content: [{ type: 'text' as const, text: '消息已发送' }],
+        details: { sent: true },
+      }
+    }
+  }))
+
+  // 工具：语音状态
+  pi.registerTool(defineTool({
+    name: 'voice_status',
+    label: 'Voice Status',
+    description: '获取语音引擎状态',
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
+      const voice = agent.getVoiceEngine()
+      if (!voice) return { content: [{ type: 'text' as const, text: '语音模块未启用' }], details: { enabled: false } }
+      return {
+        content: [{ type: 'text' as const, text: `语音引擎状态: 已初始化` }],
+        details: { available: true },
+      }
+    }
+  }))
+
+  // ========== Batch 3: Collaboration + Voice 命令 ==========
+
+  // 命令：/collab
+  pi.registerCommand('collab', {
+    description: '协作管理（用法: /collab, /collab connect, /collab disconnect, /collab join <roomId>）',
+    handler: async (args, ctx) => {
+      const room = agent.getCollaborationRoom()
+      if (!room) {
+        ctx.ui.notify('协作模块未启用（在配置中设置 collaboration.enabled: true）', 'warning')
+        return
+      }
+      const cmd = args.trim().split(/\s+/)
+      const action = cmd[0] || ''
+      switch (action) {
+        case 'connect':
+          await room.connect()
+          ctx.ui.notify('已连接到协作服务器', 'info')
+          break
+        case 'disconnect':
+          await room.disconnect()
+          ctx.ui.notify('已断开协作连接', 'info')
+          break
+        case 'join':
+          if (!cmd[1]) { ctx.ui.notify('用法: /collab join <roomId>', 'warning'); return }
+          await room.joinRoom(cmd[1])
+          ctx.ui.notify(`已加入房间: ${cmd[1]}`, 'info')
+          break
+        default:
+          ctx.ui.notify(
+            `协作状态:\n  连接: ${room.isConnected() ? '已连接' : '未连接'}\n  用户数: ${room.getUserCount()}\n\n用法: /collab connect | disconnect | join <roomId>`,
+            'info'
+          )
+      }
+    },
+  })
+
+  // 命令：/voice
+  pi.registerCommand('voice', {
+    description: '语音管理（用法: /voice, /voice start, /voice stop, /voice speak <text>）',
+    handler: async (args, ctx) => {
+      const voice = agent.getVoiceEngine()
+      if (!voice) {
+        ctx.ui.notify('语音模块未启用（在配置中设置 voice.enabled: true）', 'warning')
+        return
+      }
+      const parts = args.trim().split(/\s+/)
+      const action = parts[0] || ''
+      switch (action) {
+        case 'start':
+          await voice.startListening()
+          ctx.ui.notify('语音识别已启动', 'info')
+          break
+        case 'stop':
+          await voice.stopListening()
+          ctx.ui.notify('语音识别已停止', 'info')
+          break
+        case 'speak':
+          if (!parts.slice(1).join(' ')) { ctx.ui.notify('用法: /voice speak <text>', 'warning'); return }
+          await voice.speak({ text: parts.slice(1).join(' ') })
+          ctx.ui.notify('语音播放完成', 'info')
+          break
+        default:
+          ctx.ui.notify(
+            `语音引擎: 已初始化\n\n用法: /voice start | stop | speak <text>`,
+            'info'
+          )
       }
     },
   })

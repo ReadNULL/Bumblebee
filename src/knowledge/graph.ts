@@ -4,6 +4,8 @@
  * 负责知识的存储、查询和推理
  */
 
+import { readFile, writeFile, mkdir } from 'fs/promises'
+import { dirname } from 'path'
 import {
   KnowledgeNode,
   NodeType,
@@ -16,6 +18,11 @@ import {
 export class KnowledgeGraph {
   private nodes: Map<string, KnowledgeNode> = new Map()
   private index: Map<string, Set<string>> = new Map()  // 倒排索引
+  private storagePath?: string
+
+  constructor(storagePath?: string) {
+    this.storagePath = storagePath
+  }
 
   // ========== 节点管理 ==========
 
@@ -454,5 +461,49 @@ export class KnowledgeGraph {
   clear(): void {
     this.nodes.clear()
     this.index.clear()
+  }
+
+  // ========== 持久化 ==========
+
+  // 保存到磁盘
+  async save(): Promise<void> {
+    if (!this.storagePath) return
+
+    try {
+      await mkdir(dirname(this.storagePath), { recursive: true })
+      const data = {
+        nodes: Array.from(this.nodes.values()),
+        index: Array.from(this.index.entries()).map(([key, ids]) => [key, Array.from(ids)])
+      }
+      await writeFile(this.storagePath, JSON.stringify(data, null, 2), 'utf-8')
+    } catch {
+      // 写入失败静默忽略
+    }
+  }
+
+  // 从磁盘加载
+  async load(): Promise<void> {
+    if (!this.storagePath) return
+
+    try {
+      const content = await readFile(this.storagePath, 'utf-8')
+      const data = JSON.parse(content)
+
+      // 恢复节点（还原 Date 对象）
+      this.nodes.clear()
+      for (const node of data.nodes ?? []) {
+        node.createdAt = new Date(node.createdAt)
+        node.updatedAt = new Date(node.updatedAt)
+        this.nodes.set(node.id, node)
+      }
+
+      // 恢复索引
+      this.index.clear()
+      for (const [key, ids] of data.index ?? []) {
+        this.index.set(key, new Set(ids))
+      }
+    } catch {
+      // 文件不存在或解析失败，使用空图谱
+    }
   }
 }

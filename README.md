@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Tests-140%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-164%20passed-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/Architecture-Plugin--based-ff6b35?style=flat-square" alt="Architecture">
 </p>
 
@@ -106,23 +106,80 @@ agent.switchRole('security-auditor')
 
 ### 记忆系统
 
-跨会话用户画像持久化，自动从对话中提取用户偏好、环境信息和关键事实。对话历史由 pi-coding-agent 的 SessionManager 管理，Bumblebee 在此基础上构建长期用户画像层。
+跨会话用户画像持久化，自动从对话中提取用户偏好、环境信息和关键事实。对话历史由 pi-coding-agent 的 SessionManager 管理，Bumblebee 在此基础上构建长期用户画像层。退出时自动保存对话摘要，新会话启动时注入上次对话要点。
 
 ### 渠道系统
 
 统一的 `ChannelAdapter` 接口，一套代码接入所有平台。官方实现 WeChat / Feishu / DingTalk，社区可自行扩展 Slack / Teams / Discord。
 
-### 多 Agent 协作
+### 知识系统
 
-支持 4 种协作模式（独立 / 顺序 / 并行 / 层级），根据任务复杂度自动调度多个专业 Agent 协同工作。
+三位一体的知识引擎，启动时自动感知项目环境，在对话中注入上下文和推荐，在交互中学习模式并持久化到磁盘：
+
+- **知识图谱** — 项目级节点关系图谱，支持文本搜索、关系遍历、路径推理和相似节点发现
+- **上下文管理器** — 自动检测项目语言、框架、依赖，桥接用户偏好，管理会话变量
+- **学习器** — 从对话中学习用户模式（纠正、偏好、反馈），生成智能推荐，置信度随使用增长
+
+### 多 Agent 协作编排
+
+`AgentManager` 管理 Agent 生命周期，`AgentOrchestrator` 提供 4 种协作模式：
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `independent` | 每个任务独立执行 | 无依赖的批量任务 |
+| `sequential` | 前一步输出作为后一步输入 | 流水线处理 |
+| `parallel` | 所有任务同时执行 | 独立任务加速 |
+| `hierarchical` | 主 Agent 分析 → 子 Agent 并行 → 主 Agent 总结 | 复杂分析任务 |
+
+内置 5 种推荐团队：`code-review` / `testing` / `development` / `quality` / `full`
+
+```typescript
+// 通过 TUI 快速启动团队
+// /agent-run code-review 审查当前项目的代码质量
+
+// 通过 API 编排
+const result = await agent.getAgentOrchestrator()!.executeTeamTask(
+  ['code-reviewer', 'security-auditor', 'test-writer'],
+  '全面审查 src/core/ 目录',
+  { focus: 'security' },
+  'hierarchical'
+)
+```
 
 ### 工作流引擎
 
-声明式工作流定义，支持条件分支、重试策略、超时控制、步骤间数据传递。内置 PR 审查 / Issue 分类 / 版本发布 / 代码质量检查模板。
+声明式 DAG 工作流，支持条件分支、重试策略（固定/指数退避）、超时控制、步骤间数据传递。4 种内置模板：
 
-### 知识图谱
+| 模板 | 步骤 | 用途 |
+|------|------|------|
+| `pr-review` | 代码分析 → 安全检查 → 测试覆盖 → 汇总 | PR 自动审查 |
+| `issue-triage` | 分类 → 优先级 → 分配 | Issue 自动分流 |
+| `release` | 版本检查 → 测试 → 构建 → 发布 | 发布流程自动化 |
+| `code-quality` | 静态分析 → 复杂度 → 重复检测 → 报告 | 代码质量检查 |
 
-构建项目级知识图谱，支持节点关系推理、上下文感知、模式学习和智能推荐。
+```typescript
+// 触发工作流
+const result = await agent.getWorkflowEngine()!.trigger('pr-review')
+```
+
+### 性能优化
+
+内置性能子系统，在 Agent 启动时自动初始化：
+
+- **LRU 缓存** — 带 TTL 的内存缓存，支持 lru/lfu/fifo 淘汰策略
+- **并发控制器** — 限制最大并发数，队列溢出自动排队
+- **性能监控** — 响应时间百分位（p50/p90/p99）、吞吐量、缓存命中率
+
+### 可视化仪表板
+
+`DashboardImpl` 提供可配置的 Widget 系统，支持指标卡片、时序图表、日志面板等组件，默认包含 Agent 数量、任务计数、成功率、响应时间等预设 Widget。
+
+### 协作与语音（实验性）
+
+- **实时协作** — WebSocket 双向通信，支持多人同时编辑、光标同步、房间管理
+- **语音交互** — 浏览器端语音识别与合成，支持多语言、连续识别、静音检测
+
+> 协作和语音模块依赖浏览器 API，默认禁用。在配置中设置 `collaboration.enabled: true` / `voice.enabled: true` 启用。
 
 ---
 
@@ -145,10 +202,29 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/memory` | 显示记忆统计 |
 | `/memory summary` | 查看上次对话摘要 |
 | `/memory clear` | 清空记忆 |
+| `/knowledge` | 知识图谱统计（节点数、关系数、类型分布） |
+| `/knowledge search <词>` | 搜索知识节点 |
+| `/context` | 显示当前项目上下文（语言、框架、依赖） |
+| `/learn` | 学习系统统计（记录数、模式数、成功率） |
+| `/learn clear` | 清空学习数据 |
+| `/agents` | Agent 系统状态和列表 |
+| `/agent-run <team> [task]` | 运行专业 Agent 团队 |
+| `/workflows` | 工作流系统状态 |
+| `/workflow-run <id>` | 触发工作流执行 |
+| `/perf` | 性能指标（响应时间、缓存命中率、并发） |
+| `/cache` | 缓存状态 |
+| `/cache clear` | 清空缓存 |
+| `/dashboard` | 仪表盘状态 |
+| `/collab` | 协作状态 |
+| `/collab connect` | 连接协作服务器 |
+| `/collab join <room>` | 加入协作房间 |
+| `/voice` | 语音引擎状态 |
+| `/voice start` | 启动语音识别 |
+| `/voice speak <text>` | 语音合成 |
 | `/resume` | 浏览并选择历史会话 |
 | `/new` | 开始新会话 |
 
-AI 在对话中可主动调用 `switch_role` / `list_roles` / `get_role_info` 工具。
+AI 在对话中可主动调用 15+ 工具，包括角色切换、Agent 编排、工作流触发、缓存管理、协作通信等。
 
 ---
 
@@ -235,6 +311,46 @@ ai:
   model: gpt-4o
   temperature: 0.7
   maxTokens: 4096
+
+knowledge:
+  enabled: true
+  maxRecords: 1000
+
+agents:
+  enabled: true
+  maxConcurrent: 5
+  defaultTemperature: 0.7
+
+workflows:
+  enabled: true
+  defaultTimeout: 300000
+  maxConcurrentWorkflows: 3
+
+performance:
+  enabled: true
+  cache:
+    maxSize: 1000
+    ttl: 300000
+    evictionPolicy: lru   # lru | lfu | fifo
+  concurrency:
+    maxConcurrent: 10
+    queueSize: 100
+    timeout: 30000
+
+dashboard:
+  enabled: false           # 默认关闭
+  refreshInterval: 5000
+
+collaboration:
+  enabled: false           # 需要 WebSocket 服务器
+  serverUrl: ws://localhost:3000
+  userId: local-user
+  userName: User
+
+voice:
+  enabled: false           # 需要浏览器环境
+  engine: browser          # browser | whisper | azure | google
+  language: zh-CN
 ```
 
 ### 作为库使用
@@ -246,11 +362,29 @@ const config = await loadConfig()
 const agent = new BumblebeeAgent(config)
 await agent.initialize()
 
+// 基础对话
 const response = await agent.processMessage('帮我审查这段代码')
+
+// 角色切换
 agent.switchRole('code-reviewer')
 
+// 多 Agent 编排
+const orch = agent.getAgentOrchestrator()!
+const result = await orch.executeTeamTask(
+  ['code-reviewer', 'security-auditor'],
+  '审查 src/core/ 目录',
+  { focus: 'security' },
+  'hierarchical'
+)
+
+// 触发工作流
+const workflow = await agent.getWorkflowEngine()!.trigger('pr-review')
+
+// 查询知识图谱
+const nodes = agent.getKnowledge().query({ text: 'authentication', limit: 5 })
+
 // 释放资源
-agent.dispose()
+await agent.dispose()
 ```
 
 ---
@@ -260,18 +394,18 @@ agent.dispose()
 ```
 src/
 ├── core/           # 核心模块（Agent 主类、配置加载、LLM 调用工厂）
-├── tui/            # TUI 集成（pi-coding-agent Extension）
-├── roles/          # 角色系统（存储、管理、创建向导）
+├── tui/            # TUI 集成（pi-coding-agent Extension，25+ 命令/工具）
+├── roles/          # 角色系统（存储、管理、创建向导，8 种内置模板）
 ├── personality/    # 人格系统（情绪分析、人格注入）
-├── memory/         # 记忆系统（用户画像持久化、对话画像提取）
+├── memory/         # 记忆系统（用户画像持久化、对话画像提取、跨会话摘要）
 ├── channels/       # 渠道系统（微信 / 飞书 / 钉钉适配器）
-├── agents/         # Agent 编排（生命周期管理、多 Agent 编排器）
-├── workflows/      # 工作流引擎（DAG 调度、内置模板）
-├── knowledge/      # 知识系统（图谱、上下文感知、学习机制）
-├── voice/          # 语音交互
-├── collaboration/  # 实时协作
-├── dashboard/      # 可视化仪表板
-├── performance/    # 性能优化器
+├── agents/         # Agent 编排（AgentManager + Orchestrator，4 种协作模式）
+├── workflows/      # 工作流引擎（DAG 调度、重试/超时/条件，4 种内置模板）
+├── knowledge/      # 知识系统（图谱 + 上下文 + 学习器，三合一智能引擎）
+├── performance/    # 性能优化（LRU 缓存、并发控制、性能监控）
+├── dashboard/      # 可视化仪表板（Widget 系统、指标卡片、时序图表）
+├── collaboration/  # 实时协作（WebSocket 房间、光标同步、多人编辑）
+├── voice/          # 语音交互（语音识别、语音合成、多语言支持）
 ├── cli.ts          # CLI 入口
 └── index.ts        # 库 barrel export
 ```
@@ -335,6 +469,7 @@ npm run dev
 - [x] **Phase 5** — 知识图谱 + 学习机制
 - [x] **Phase 6** — 语音/协作/仪表板/性能优化
 - [x] **Phase 6.5** — 消除与 pi 框架的重复造轮子，深度复用框架能力
+- [x] **Phase 6.6** — 6 大高级模块全部接入核心（agents/workflows/performance/dashboard/collaboration/voice）
 - [ ] **Phase 7** — 生产级渠道对接 + WebSocket 实时通信
 - [ ] **Phase 8** — 插件市场 + 社区生态
 

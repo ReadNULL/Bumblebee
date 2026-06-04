@@ -4,6 +4,8 @@
  * 负责从交互中学习模式和偏好
  */
 
+import { readFile, writeFile, mkdir } from 'fs/promises'
+import { dirname } from 'path'
 import {
   LearningType,
   LearningRecord,
@@ -17,9 +19,11 @@ export class Learner {
   private records: LearningRecord[] = []
   private patterns: Map<string, LearnedPattern> = new Map()
   private maxRecords: number
+  private storagePath?: string
 
-  constructor(maxRecords: number = 1000) {
+  constructor(maxRecords: number = 1000, storagePath?: string) {
     this.maxRecords = maxRecords
+    this.storagePath = storagePath
   }
 
   // ========== 学习记录 ==========
@@ -344,5 +348,48 @@ export class Learner {
   clear(): void {
     this.records = []
     this.patterns.clear()
+  }
+
+  // ========== 持久化 ==========
+
+  // 保存到磁盘
+  async save(): Promise<void> {
+    if (!this.storagePath) return
+
+    try {
+      await mkdir(dirname(this.storagePath), { recursive: true })
+      const data = {
+        records: this.records,
+        patterns: Array.from(this.patterns.values())
+      }
+      await writeFile(this.storagePath, JSON.stringify(data, null, 2), 'utf-8')
+    } catch {
+      // 写入失败静默忽略
+    }
+  }
+
+  // 从磁盘加载
+  async load(): Promise<void> {
+    if (!this.storagePath) return
+
+    try {
+      const content = await readFile(this.storagePath, 'utf-8')
+      const data = JSON.parse(content)
+
+      // 恢复记录（还原 Date 对象）
+      this.records = (data.records ?? []).map((r: any) => ({
+        ...r,
+        timestamp: new Date(r.timestamp)
+      }))
+
+      // 恢复模式（还原 Date 对象）
+      this.patterns.clear()
+      for (const p of data.patterns ?? []) {
+        p.lastSeen = new Date(p.lastSeen)
+        this.patterns.set(p.pattern, p)
+      }
+    } catch {
+      // 文件不存在或解析失败，使用空数据
+    }
   }
 }

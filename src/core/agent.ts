@@ -5,6 +5,17 @@ import { BumblebeePersonality } from '../personality/traits.js'
 import { RoleManager } from '../roles/manager.js'
 import { RoleConfig } from '../roles/types.js'
 import { MemoryManager } from '../memory/manager.js'
+import { KnowledgeGraph } from '../knowledge/graph.js'
+import { ContextManager } from '../knowledge/context.js'
+import { Learner } from '../knowledge/learner.js'
+import { AgentManager } from '../agents/manager.js'
+import { AgentOrchestrator } from '../agents/orchestrator.js'
+import { WorkflowEngine } from '../workflows/engine.js'
+import { getWorkflowTemplateIds, createWorkflowFromTemplate } from '../workflows/templates.js'
+import { LRUCache, ConcurrencyController, PerformanceMonitor } from '../performance/optimizer.js'
+import { DashboardImpl, createDefaultDashboard } from '../dashboard/dashboard.js'
+import type { CollaborationRoomImpl } from '../collaboration/room.js'
+import type { VoiceEngineImpl } from '../voice/engine.js'
 import { BumblebeeConfig } from './config.js'
 import { callLLM, type LLMCallResult } from './session-factory.js'
 
@@ -31,11 +42,25 @@ export class BumblebeeAgent {
   private personality: BumblebeePersonality
   private roleManager: RoleManager
   private memory: MemoryManager
+  private knowledge: KnowledgeGraph
+  private context: ContextManager
+  private learner: Learner
+  private agentManager: AgentManager | null = null
+  private agentOrchestrator: AgentOrchestrator | null = null
+  private workflowEngine: WorkflowEngine | null = null
+  private cache: LRUCache<any> | null = null
+  private concurrency: ConcurrencyController | null = null
+  private performanceMonitor: PerformanceMonitor | null = null
+  private dashboard: DashboardImpl | null = null
+  private collaborationRoom: CollaborationRoomImpl | null = null
+  private voiceEngine: VoiceEngineImpl | null = null
   private config: BumblebeeConfig
   private sessionManager: SessionManager | null = null
 
   constructor(config: BumblebeeConfig, rolesDir?: string, memoryDir?: string) {
     this.config = config
+
+    const memDir = memoryDir || DEFAULT_MEMORY_DIR
 
     // 初始化角色管理器
     this.roleManager = new RoleManager(rolesDir)
@@ -46,8 +71,35 @@ export class BumblebeeAgent {
     // 初始化记忆系统
     this.memory = new MemoryManager({
       ...config.memory,
-      storageDir: memoryDir || DEFAULT_MEMORY_DIR
+      storageDir: memDir
     })
+
+    // 初始化知识系统
+    this.knowledge = new KnowledgeGraph(join(memDir, 'knowledge-graph.json'))
+    this.context = new ContextManager()
+    this.learner = new Learner(config.knowledge?.maxRecords ?? 1000, join(memDir, 'learner.json'))
+
+    // 初始化 Agent 系统（依赖 roleManager）
+    if (config.agents?.enabled !== false) {
+      this.agentManager = new AgentManager(this.roleManager)
+      this.agentOrchestrator = new AgentOrchestrator(this.agentManager)
+    }
+
+    // 初始化性能子系统
+    const perf = config.performance
+    if (perf?.enabled !== false && perf?.cache) {
+      this.cache = new LRUCache({
+        maxSize: perf.cache.maxSize,
+        ttl: perf.cache.ttl,
+        evictionPolicy: perf.cache.evictionPolicy,
+      })
+      this.concurrency = new ConcurrencyController({
+        maxConcurrent: perf.concurrency.maxConcurrent,
+        queueSize: perf.concurrency.queueSize,
+        timeout: perf.concurrency.timeout,
+      })
+      this.performanceMonitor = new PerformanceMonitor()
+    }
   }
 
   // 初始化（需要调用）
@@ -57,6 +109,64 @@ export class BumblebeeAgent {
 
     // 初始化记忆系统（从磁盘加载画像）
     await this.memory.initialize()
+
+    // 初始化知识系统（从磁盘加载持久化数据）
+    await this.knowledge.load()
+    await this.learner.load()
+    this.context.setMemoryManager(this.memory)
+    await this.context.detectEnvironment()
+
+    // 初始化 Agent 系统
+    if (this.agentManager) {
+      await this.agentManager.initialize()
+    }
+
+    // 初始化工作流引擎（依赖 agentManager）
+    if (this.config.workflows?.enabled !== false && this.agentManager) {
+      this.workflowEngine = new WorkflowEngine(this.agentManager)
+      for (const templateId of getWorkflowTemplateIds()) {
+        this.workflowEngine.register(createWorkflowFromTemplate(templateId))
+      }
+    }
+
+    // 初始化仪表盘
+    if (this.config.dashboard?.enabled && this.performanceMonitor) {
+      const dashConfig = createDefaultDashboard()
+      dashConfig.refreshInterval = this.config.dashboard.refreshInterval
+      this.dashboard = new DashboardImpl(dashConfig)
+      await this.dashboard.initialize()
+    }
+
+    // 协作模块（懒加载，依赖浏览器 WebSocket）
+    if (this.config.collaboration?.enabled) {
+      try {
+        const { CollaborationRoomImpl } = await import('../collaboration/room.js')
+        this.collaborationRoom = new CollaborationRoomImpl({
+          serverUrl: this.config.collaboration.serverUrl,
+          userId: this.config.collaboration.userId,
+          userName: this.config.collaboration.userName,
+          autoReconnect: this.config.collaboration.autoReconnect,
+          heartbeatInterval: this.config.collaboration.heartbeatInterval,
+        })
+      } catch {
+        console.warn('协作模块在当前环境不可用')
+      }
+    }
+
+    // 语音模块（懒加载，依赖浏览器 API）
+    if (this.config.voice?.enabled) {
+      try {
+        const { VoiceEngineImpl } = await import('../voice/engine.js')
+        this.voiceEngine = new VoiceEngineImpl({
+          engine: this.config.voice.engine,
+          language: this.config.voice.language,
+          continuous: this.config.voice.continuous,
+          interimResults: this.config.voice.interimResults,
+        })
+      } catch {
+        console.warn('语音模块在当前环境不可用')
+      }
+    }
 
     // 初始化持久化 SessionManager
     this.sessionManager = SessionManager.create(process.cwd())
@@ -73,7 +183,25 @@ export class BumblebeeAgent {
   }
 
   // 释放资源
-  dispose(): void {
+  async dispose(): Promise<void> {
+    this.workflowEngine = null
+    this.agentOrchestrator = null
+    this.agentManager = null
+    if (this.dashboard) {
+      await this.dashboard.destroy()
+      this.dashboard = null
+    }
+    this.performanceMonitor = null
+    this.concurrency = null
+    this.cache = null
+    if (this.voiceEngine) {
+      await this.voiceEngine.destroy()
+      this.voiceEngine = null
+    }
+    if (this.collaborationRoom) {
+      await this.collaborationRoom.disconnect()
+      this.collaborationRoom = null
+    }
     // SessionManager 不需要显式 dispose
     this.sessionManager = null
   }
@@ -224,5 +352,73 @@ export class BumblebeeAgent {
   // 获取角色管理器
   getRoleManager(): RoleManager {
     return this.roleManager
+  }
+
+  // ========== 知识系统 ==========
+
+  // 获取知识图谱
+  getKnowledge(): KnowledgeGraph {
+    return this.knowledge
+  }
+
+  // 获取上下文管理器
+  getContext(): ContextManager {
+    return this.context
+  }
+
+  // 获取学习器
+  getLearner(): Learner {
+    return this.learner
+  }
+
+  // ========== Agent 系统 ==========
+
+  // 获取 Agent 管理器
+  getAgentManager(): AgentManager | null {
+    return this.agentManager
+  }
+
+  // 获取 Agent 编排器
+  getAgentOrchestrator(): AgentOrchestrator | null {
+    return this.agentOrchestrator
+  }
+
+  // 获取工作流引擎
+  getWorkflowEngine(): WorkflowEngine | null {
+    return this.workflowEngine
+  }
+
+  // ========== 性能系统 ==========
+
+  // 获取 LRU 缓存
+  getCache<T = any>(): LRUCache<T> | null {
+    return this.cache
+  }
+
+  // 获取并发控制器
+  getConcurrency(): ConcurrencyController | null {
+    return this.concurrency
+  }
+
+  // 获取性能监控器
+  getPerformanceMonitor(): PerformanceMonitor | null {
+    return this.performanceMonitor
+  }
+
+  // 获取仪表盘
+  getDashboard(): DashboardImpl | null {
+    return this.dashboard
+  }
+
+  // ========== 协作 + 语音 ==========
+
+  // 获取协作房间
+  getCollaborationRoom(): CollaborationRoomImpl | null {
+    return this.collaborationRoom
+  }
+
+  // 获取语音引擎
+  getVoiceEngine(): VoiceEngineImpl | null {
+    return this.voiceEngine
   }
 }

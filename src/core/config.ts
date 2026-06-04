@@ -55,6 +55,80 @@ export const ChannelsConfigSchema = z.object({
 
 export type ChannelsConfig = z.infer<typeof ChannelsConfigSchema>
 
+// 知识系统配置 Schema
+export const KnowledgeConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxRecords: z.number().min(100).max(10000).default(1000),
+}).default({})
+
+export type KnowledgeConfig = z.infer<typeof KnowledgeConfigSchema>
+
+// Agent 配置 Schema
+export const AgentsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  maxConcurrent: z.number().min(1).max(20).default(5),
+  defaultTemperature: z.number().min(0).max(2).default(0.7),
+}).default({})
+
+export type AgentsConfig = z.infer<typeof AgentsConfigSchema>
+
+// 工作流配置 Schema
+export const WorkflowsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  defaultTimeout: z.number().min(1000).max(3600000).default(300000),
+  maxConcurrentWorkflows: z.number().min(1).max(10).default(3),
+}).default({})
+
+export type WorkflowsConfig = z.infer<typeof WorkflowsConfigSchema>
+
+// 性能配置 Schema
+export const PerformanceConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  cache: z.object({
+    maxSize: z.number().min(10).max(10000).default(1000),
+    ttl: z.number().min(1000).max(3600000).default(300000),
+    evictionPolicy: z.enum(['lru', 'lfu', 'fifo']).default('lru'),
+  }).default({}),
+  concurrency: z.object({
+    maxConcurrent: z.number().min(1).max(100).default(10),
+    queueSize: z.number().min(1).max(1000).default(100),
+    timeout: z.number().min(1000).max(60000).default(30000),
+  }).default({}),
+}).default({})
+
+export type PerformanceConfig = z.infer<typeof PerformanceConfigSchema>
+
+// 仪表盘配置 Schema
+export const DashboardConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  refreshInterval: z.number().min(1000).max(60000).default(5000),
+}).default({})
+
+export type DashboardConfig = z.infer<typeof DashboardConfigSchema>
+
+// 协作配置 Schema
+export const CollaborationConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  serverUrl: z.string().optional(),
+  userId: z.string().default('local-user'),
+  userName: z.string().default('User'),
+  autoReconnect: z.boolean().default(true),
+  heartbeatInterval: z.number().min(1000).max(60000).default(30000),
+}).default({})
+
+export type CollaborationChannelConfig = z.infer<typeof CollaborationConfigSchema>
+
+// 语音配置 Schema
+export const VoiceConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  engine: z.enum(['browser', 'whisper', 'azure', 'google']).default('browser'),
+  language: z.string().default('zh-CN'),
+  continuous: z.boolean().default(false),
+  interimResults: z.boolean().default(true),
+}).default({})
+
+export type VoiceChannelConfig = z.infer<typeof VoiceConfigSchema>
+
 const EMPTY_CHANNELS = {
   wechat: { enabled: false },
   feishu: { enabled: false },
@@ -68,7 +142,14 @@ export const BumblebeeConfigSchema = z.object({
   personality: PersonalityConfigSchema,
   memory: MemoryConfigSchema,
   ai: AIConfigSchema,
-  channels: ChannelsConfigSchema
+  channels: ChannelsConfigSchema,
+  knowledge: KnowledgeConfigSchema,
+  agents: AgentsConfigSchema,
+  workflows: WorkflowsConfigSchema,
+  performance: PerformanceConfigSchema,
+  dashboard: DashboardConfigSchema,
+  collaboration: CollaborationConfigSchema,
+  voice: VoiceConfigSchema,
 })
 
 export type BumblebeeConfig = z.infer<typeof BumblebeeConfigSchema>
@@ -90,7 +171,52 @@ const DEFAULT_CONFIG: BumblebeeConfig = {
     temperature: 0.7,
     maxTokens: 4096
   },
-  channels: EMPTY_CHANNELS
+  channels: EMPTY_CHANNELS,
+  knowledge: {
+    enabled: true,
+    maxRecords: 1000
+  },
+  agents: {
+    enabled: true,
+    maxConcurrent: 5,
+    defaultTemperature: 0.7
+  },
+  workflows: {
+    enabled: true,
+    defaultTimeout: 300000,
+    maxConcurrentWorkflows: 3
+  },
+  performance: {
+    enabled: true,
+    cache: {
+      maxSize: 1000,
+      ttl: 300000,
+      evictionPolicy: 'lru' as const
+    },
+    concurrency: {
+      maxConcurrent: 10,
+      queueSize: 100,
+      timeout: 30000
+    }
+  },
+  dashboard: {
+    enabled: false,
+    refreshInterval: 5000
+  },
+  collaboration: {
+    enabled: false,
+    userId: 'local-user',
+    userName: 'User',
+    autoReconnect: true,
+    heartbeatInterval: 30000
+  },
+  voice: {
+    enabled: false,
+    engine: 'browser' as const,
+    language: 'zh-CN',
+    continuous: false,
+    interimResults: true
+  }
 }
 
 // 加载配置文件
@@ -118,7 +244,19 @@ function mergeConfig(base: BumblebeeConfig, override: Partial<BumblebeeConfig>):
       wechat: { ...base.channels?.wechat, ...override.channels?.wechat },
       feishu: { ...base.channels?.feishu, ...override.channels?.feishu },
       dingtalk: { ...base.channels?.dingtalk, ...override.channels?.dingtalk },
-    }
+    },
+    knowledge: { ...base.knowledge, ...override.knowledge },
+    agents: { ...base.agents, ...override.agents },
+    workflows: { ...base.workflows, ...override.workflows },
+    performance: {
+      ...base.performance,
+      ...override.performance,
+      cache: { ...base.performance?.cache, ...override.performance?.cache },
+      concurrency: { ...base.performance?.concurrency, ...override.performance?.concurrency },
+    },
+    dashboard: { ...base.dashboard, ...override.dashboard },
+    collaboration: { ...base.collaboration, ...override.collaboration },
+    voice: { ...base.voice, ...override.voice },
   }
 }
 
