@@ -17,9 +17,11 @@ import {
   MessageType,
   User
 } from './types.js'
+import QRCode from 'qrcode'
 
 // wechaty 模块（延迟加载）
 let WechatyClass: any
+let wechatyLoadPromise: Promise<void> | null = null
 
 interface WeChatConfig extends ChannelConfig {
   name?: string
@@ -54,13 +56,31 @@ export class WeChatAdapter implements ChannelAdapter {
     this.config = config
   }
 
-  // 初始化
+  // 预加载 wechaty 模块（后台进行，initialize() 会等待其完成）
+  static preload(): Promise<void> {
+    if (WechatyClass) return Promise.resolve()
+    if (!wechatyLoadPromise) {
+      wechatyLoadPromise = import('wechaty').then(mod => {
+        WechatyClass = mod.WechatyBuilder
+      }).catch(() => {
+        // wechaty 未安装，清空 promise（initialize 时会重新报错）
+        wechatyLoadPromise = null
+      })
+    }
+    return wechatyLoadPromise
+  }
+
+  // 初始化（等待预加载完成或重新加载）
   async initialize(): Promise<void> {
-    // 动态导入 wechaty（避免在不需要时加载）
+    if (WechatyClass) return
+    if (wechatyLoadPromise) {
+      await wechatyLoadPromise
+      if (WechatyClass) return
+    }
     try {
       const wechatyModule = await import('wechaty')
-      // wechaty v1.x 使用 WechatyBuilder
       WechatyClass = wechatyModule.WechatyBuilder
+      wechatyLoadPromise = Promise.resolve()
     } catch (error) {
       throw new Error(
         '请安装 wechaty: npm install wechaty\n' +
@@ -69,50 +89,53 @@ export class WeChatAdapter implements ChannelAdapter {
     }
   }
 
-  // 连接
+  // 连接（立即返回，bot 在后台启动）
   async connect(): Promise<void> {
-    if (this.bot) {
+    if (this.bot || this._status === 'connecting') {
       return
     }
 
     this._status = 'connecting'
 
     // 创建 wechaty 实例
-    const options: any = {
+    const builderOptions: any = {
       name: this.config.name || 'bumblebee'
     }
 
     if (this.config.puppet) {
-      options.puppet = this.config.puppet
+      builderOptions.puppet = this.config.puppet
     }
 
     if (this.config.token) {
-      options.puppetOptions = { token: this.config.token }
+      builderOptions.puppetOptions = { token: this.config.token }
     }
 
-    // 使用 WechatyBuilder 创建实例
     const builder = new WechatyClass()
-    if (options.name) builder.name(options.name)
-    if (options.puppet) builder.puppet(options.puppet)
-    this.bot = builder.build()
+    this.bot = builder.options(builderOptions).build()
 
     // 注册事件处理器
-    this.bot.on('scan', (qrcode: string, status: any) => {
-      // status 2 表示等待扫码
+    this.bot.on('scan', async (qrcodeValue: string, status: any) => {
       if (status === 2) {
-        this.qrCodeCallback?.(qrcode)
+        let qrDisplay: string
+        try {
+          qrDisplay = await QRCode.toString(qrcodeValue, { type: 'terminal', small: true })
+        } catch {
+          qrDisplay = `二维码链接: ${qrcodeValue}\n请用微信扫一扫`
+        }
+        this.qrCodeCallback?.(qrDisplay)
       }
     })
 
-    this.bot.on('login', (user: any) => {
+    this.bot.on('login', (_user: any) => {
       this._status = 'connected'
     })
 
-    this.bot.on('logout', (user: any) => {
+    this.bot.on('logout', (_user: any) => {
       this._status = 'disconnected'
     })
 
     this.bot.on('error', (error: Error) => {
+      this._status = 'error'
       console.error('微信错误:', error)
     })
 
@@ -120,8 +143,11 @@ export class WeChatAdapter implements ChannelAdapter {
       await this.handleMessage(msg)
     })
 
-    // 启动
-    await this.bot.start()
+    // fire-and-forget: 不 await bot.start()，让 bot 在后台自行启动
+    this.bot.start().catch((error: Error) => {
+      this._status = 'error'
+      console.error('微信启动失败:', error)
+    })
   }
 
   // 断开连接

@@ -4,7 +4,7 @@ export default defineConfig({
   entry: ['src/index.ts', 'src/cli.ts'],
   format: ['esm'],
   target: 'node22',
-  splitting: true,
+  splitting: false,
   sourcemap: true,
   clean: true,
   dts: true,

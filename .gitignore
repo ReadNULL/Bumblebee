@@ -18,6 +18,9 @@ tests/
 .DS_Store
 Thumbs.db
 
+# Wechaty session
+wechat.memory-card.json
+
 # Environment
 .env
 .env.local

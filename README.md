@@ -143,7 +143,10 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/role` | 显示当前角色详情 |
 | `/personality` | 显示人格状态 |
 | `/memory` | 显示记忆统计 |
+| `/memory summary` | 查看上次对话摘要 |
 | `/memory clear` | 清空记忆 |
+| `/resume` | 浏览并选择历史会话 |
+| `/new` | 开始新会话 |
 
 AI 在对话中可主动调用 `switch_role` / `list_roles` / `get_role_info` 工具。
 
@@ -170,6 +173,32 @@ node dist/cli.js
 npm link
 bumblebee
 ```
+
+### 会话管理
+
+Bumblebee 每次对话会自动保存到磁盘（`~/.pi/agent/sessions/`），退出后可恢复。
+
+```bash
+# 恢复最近一次会话（推荐）
+node dist/cli.js -c
+
+# 交互式选择历史会话
+node dist/cli.js -r
+
+# 恢复指定会话（ID 从退出时的提示中获取）
+node dist/cli.js --session <session-id>
+```
+
+全局安装后：
+
+```bash
+bumblebee -c    # 恢复最近会话
+bumblebee -r    # 交互式选择
+```
+
+TUI 内也可通过 `/resume`、`/new`、`/tree`、`/fork` 管理会话。
+
+> **会话 vs 记忆：** 会话（Session）是完整的对话历史，通过 `-c` / `-r` 恢复；记忆（Memory）是自动提取的用户画像 + 对话摘要，保存在 `~/.bumblebee/memory/profile.json`，启动新会话时自动注入上下文。即使启动新会话而非恢复旧会话，Bumblebee 也能记住你的偏好和上次讨论的要点。
 
 ### LLM 配置
 

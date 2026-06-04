@@ -1,0 +1,35 @@
+# 飞书渠道配置模板
+#
+# 前置条件:
+#   1. npm install @larksuiteoapi/node-sdk
+#   2. 拥有飞书开放平台账号 https://open.feishu.cn
+#
+# 申请步骤:
+#   1. 登录飞书开放平台 → 创建企业自建应用
+#   2. 进入应用详情 → 凭证与基础信息 → 获取 App ID 和 App Secret
+#   3. 左侧菜单 → 添加应用能力 → 机器人
+#   4. 左侧菜单 → 事件订阅 → 添加事件: im.message.receive_v1
+#   5. 事件订阅方式选择: 使用长连接接收事件（WebSocket，无需公网 IP）
+#   6. 左侧菜单 → 权限管理 → 开通: im:message / im:message:send_as_bot / im:chat:readonly
+#   7. 版本管理与发布 → 创建版本 → 申请发布
+#
+# 连接方式:
+#   配置完成后，TUI 中使用 /channel-connect feishu 连接
+#   使用 WebSocket 长连接模式，无需配置回调 URL
+
+channels:
+  feishu:
+    enabled: true
+
+    # 应用凭证（飞书开放平台 → 应用详情 → 凭证与基础信息）
+    appId: ${FEISHU_APP_ID}
+    appSecret: ${FEISHU_APP_SECRET}
+
+    # 事件加密密钥（可选，飞书开放平台 → 事件订阅 → 加密策略）
+    # encryptKey: your-encrypt-key
+
+    # 事件验证令牌（可选，飞书开放平台 → 事件订阅 → Verification Token）
+    # verificationToken: your-verification-token
+
+    # 支持的能力: 文本/图片/文件/音频/视频消息、表情回应、消息线程、@提及、富文本
+    # 是三个渠道中功能最全的

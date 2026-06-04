@@ -19,6 +19,10 @@ export interface UserProfile {
   environment: Record<string, string>
   facts: string[]
 
+  // 最近一次对话摘要（跨会话记忆）
+  lastConversationSummary?: string
+  lastSessionTimestamp?: string
+
   lastUpdated: string
 }
 
@@ -157,6 +161,33 @@ export class MemoryManager {
   async clear(): Promise<void> {
     this.profile = createEmptyProfile()
     await this.saveProfile()
+  }
+
+  // ========== 对话摘要 ==========
+
+  // 保存对话摘要（退出时调用）
+  async saveConversationSummary(summary: string): Promise<void> {
+    this.profile.lastConversationSummary = summary
+    this.profile.lastSessionTimestamp = new Date().toISOString()
+    this.profile.lastUpdated = new Date().toISOString()
+    await this.saveProfile()
+  }
+
+  // 获取对话摘要（用于注入 system prompt）
+  getConversationSummary(): string | undefined {
+    return this.profile.lastConversationSummary
+  }
+
+  // 获取对话摘要的 prompt 片段
+  getConversationSummaryPrompt(): string {
+    const summary = this.profile.lastConversationSummary
+    if (!summary) return ''
+
+    const timestamp = this.profile.lastSessionTimestamp
+      ? new Date(this.profile.lastSessionTimestamp).toLocaleString('zh-CN')
+      : '未知时间'
+
+    return `\n\n## 上次对话摘要 (${timestamp})\n${summary}\n\n请基于以上上下文继续对话，无需重复已讨论的内容。`
   }
 
   // ========== 画像持久化 ==========

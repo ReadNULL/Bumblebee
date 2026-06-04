@@ -5,6 +5,8 @@ import {
   Message,
   MessageHandler
 } from './types.js'
+import type { ChannelsConfig } from '../core/config.js'
+import { loadChannelAdapters } from './config-loader.js'
 
 export class ChannelManager {
   private channels: Map<string, ChannelAdapter> = new Map()
@@ -124,6 +126,14 @@ export class ChannelManager {
   // 获取已连接的渠道
   getConnectedChannels(): ChannelAdapter[] {
     return Array.from(this.channels.values())
+  }
+
+  // 从配置加载渠道
+  async loadFromConfig(config: ChannelsConfig): Promise<void> {
+    const adapters = await loadChannelAdapters(config)
+    for (const adapter of adapters) {
+      this.register(adapter)
+    }
   }
 
   // 触发事件
