@@ -7,6 +7,11 @@
 
 import type { UserProfile } from './manager.js'
 
+// 转义正则特殊字符
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * 从对话文本中规则提取用户画像信息
  *
@@ -32,9 +37,15 @@ export function extractProfileFromConversation(
 
   // 语言检测
   const languages = ['TypeScript', 'JavaScript', 'Python', 'Java', 'Go', 'Rust', 'C++', 'C#', 'PHP', 'Ruby']
-  const detectedLangs = languages.filter(lang =>
-    new RegExp(`\\b${lang}\\b`, 'i').test(conversationText)
-  )
+  const detectedLangs = languages.filter(lang => {
+    const pattern = escapeRegex(lang)
+    // \b 在非 word character 结尾的词（如 C++, C#）后不生效，改用 (?!\w)
+    const endsWithWordChar = /\w$/.test(lang)
+    const regex = endsWithWordChar
+      ? new RegExp(`\\b${pattern}\\b`, 'i')
+      : new RegExp(`\\b${pattern}(?!\\w)`, 'i')
+    return regex.test(conversationText)
+  })
   if (detectedLangs.length > 0) {
     environment.languages = detectedLangs.join(', ')
   }
@@ -42,7 +53,7 @@ export function extractProfileFromConversation(
   // 框架检测
   const frameworks = ['React', 'Vue', 'Angular', 'Next.js', 'Nuxt', 'Express', 'FastAPI', 'Django', 'Spring']
   const detectedFrameworks = frameworks.filter(fw =>
-    new RegExp(`\\b${fw.replace('.', '\\.')}`, 'i').test(conversationText)
+    new RegExp(`\\b${escapeRegex(fw)}`, 'i').test(conversationText)
   )
   if (detectedFrameworks.length > 0) {
     environment.frameworks = detectedFrameworks.join(', ')
@@ -51,7 +62,7 @@ export function extractProfileFromConversation(
   // 工具检测
   const tools = ['Git', 'Docker', 'VS Code', 'Vim', 'Neovim', 'npm', 'yarn', 'pnpm', 'Webpack', 'Vite']
   const detectedTools = tools.filter(tool =>
-    new RegExp(`\\b${tool.replace(' ', '\\s*')}`, 'i').test(conversationText)
+    new RegExp(`\\b${escapeRegex(tool).replace('\\ ', '\\s*')}`, 'i').test(conversationText)
   )
   if (detectedTools.length > 0) {
     environment.tools = detectedTools.join(', ')

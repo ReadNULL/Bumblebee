@@ -20,6 +20,8 @@ import {
 export class LRUCache<T> {
   private cache: Map<string, CacheEntry<T>> = new Map()
   private config: CacheConfig
+  private hits: number = 0
+  private misses: number = 0
 
   constructor(config: CacheConfig) {
     this.config = config
@@ -29,16 +31,19 @@ export class LRUCache<T> {
     const entry = this.cache.get(key)
 
     if (!entry) {
+      this.misses++
       return undefined
     }
 
     // 检查是否过期
     if (new Date() > entry.expiresAt) {
       this.cache.delete(key)
+      this.misses++
       return undefined
     }
 
     // 更新访问信息
+    this.hits++
     entry.accessCount++
     entry.lastAccessed = new Date()
 
@@ -96,17 +101,11 @@ export class LRUCache<T> {
   }
 
   getStats(): { size: number; hitRate: number; missRate: number } {
-    let totalHits = 0
-    let totalMisses = 0
-
-    for (const entry of this.cache.values()) {
-      totalHits += entry.accessCount
-    }
-
+    const total = this.hits + this.misses
     return {
       size: this.cache.size,
-      hitRate: totalHits / (totalHits + totalMisses) || 0,
-      missRate: totalMisses / (totalHits + totalMisses) || 0
+      hitRate: total > 0 ? this.hits / total : 0,
+      missRate: total > 0 ? this.misses / total : 0,
     }
   }
 

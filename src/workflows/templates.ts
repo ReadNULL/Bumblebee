@@ -416,7 +416,7 @@ export function createWorkflowFromTemplate(
   return {
     ...template,
     ...overrides,
-    id: overrides?.id || `${template.id}-${Date.now()}`,
+    id: overrides?.id || template.id,
     metadata: {
       ...template.metadata,
       ...overrides?.metadata

@@ -155,7 +155,7 @@ export const BumblebeeConfigSchema = z.object({
 export type BumblebeeConfig = z.infer<typeof BumblebeeConfigSchema>
 
 // 默认配置
-const DEFAULT_CONFIG: BumblebeeConfig = {
+export const DEFAULT_CONFIG: BumblebeeConfig = {
   personality: {
     intensity: 'moderate',
     theme: 'transformers',

@@ -163,8 +163,10 @@ export class BumblebeeAgent {
           continuous: this.config.voice.continuous,
           interimResults: this.config.voice.interimResults,
         })
+        await this.voiceEngine.initialize()
       } catch {
         console.warn('语音模块在当前环境不可用')
+        this.voiceEngine = null
       }
     }
 

@@ -9,6 +9,23 @@
 import { main } from '@earendil-works/pi-coding-agent'
 import bumblebeeExtension from './tui/extension.js'
 
-await main(process.argv.slice(2), {
+const args = process.argv.slice(2)
+const command = args[0]
+
+// 子命令：bumblebee init / bumblebee doctor
+if (command === 'init') {
+  const { runInit } = await import('./cli/init.js')
+  await runInit(args.slice(1))
+  process.exit(0)
+}
+
+if (command === 'doctor') {
+  const { runDoctor } = await import('./cli/init.js')
+  await runDoctor()
+  process.exit(0)
+}
+
+// 默认：启动 TUI
+await main(args, {
   extensionFactories: [bumblebeeExtension],
 })
