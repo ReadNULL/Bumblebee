@@ -36,5 +36,8 @@ coverage/
 # Plan (development only)
 plan/
 
+# Issue tracking (development only)
+issue.md
+
 # Lock file (optional, uncomment if preferred)
 # package-lock.json
