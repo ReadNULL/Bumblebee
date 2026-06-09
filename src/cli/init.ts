@@ -199,16 +199,37 @@ export async function runInit(args: string[]): Promise<void> {
   log(`  已设置: ${preset.ai.provider} / ${preset.ai.model}`)
   log('')
 
-  // API Key 和 Base URL（写入配置文件，优先级最高）
-  const apiKey = await prompt('  请输入 API Key (留跳过，稍后手动配置): ')
+  // API Key 和 Base URL（配置文件优先；也支持环境变量）
+  const envKeyName = preset.ai.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+  log(`  建议优先通过环境变量 ${envKeyName} 配置 API Key，避免写入本地配置文件。`)
+  const apiKey = await prompt(`  请输入 API Key (留空则使用环境变量 ${envKeyName}): `)
   if (apiKey) {
-    preset.ai.apiKey = apiKey
+    // 写入 .env.local 而非配置文件，避免意外泄露
+    const envPath = resolve('.env.local')
+    const envVarName = preset.ai.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'
+    const envContent = `${envVarName}=${apiKey}\n`
+    try {
+      const existing = await fileExists(envPath)
+      if (existing) {
+        const { readFile } = await import('fs/promises')
+        const content = await readFile(envPath, 'utf-8')
+        if (!content.includes(`${envVarName}=`)) {
+          const { appendFile } = await import('fs/promises')
+          await appendFile(envPath, envContent, 'utf-8')
+        }
+      } else {
+        await writeFile(envPath, envContent, 'utf-8')
+      }
+      log(`  API Key 已写入 .env.local（请确保 .env.local 在 .gitignore 中）`)
+    } catch {
+      log(`  ⚠ 写入 .env.local 失败，请手动设置环境变量 ${envKeyName}`)
+    }
     const baseUrl = await prompt('  API Base URL (留空使用默认): ')
     if (baseUrl) {
       preset.ai.baseUrl = baseUrl
     }
   } else {
-    log('  跳过 API Key 配置，请稍后手动设置')
+    log(`  跳过 API Key 配置，请设置环境变量 ${envKeyName}`)
   }
   log('')
 
@@ -228,6 +249,7 @@ export async function runInit(args: string[]): Promise<void> {
   const yaml = generateYaml(preset)
   await writeFile(configPath, yaml, 'utf-8')
   log(`  已生成 .bumblebee.yaml (${presetName} 预设)`)
+  log('  注意: .bumblebee.yaml 可能包含 API Key，已建议加入 .gitignore，请勿提交到远程仓库。')
   log('')
   printDone()
 }
@@ -250,7 +272,8 @@ ai:
   provider: ${ai.provider}
   model: ${ai.model}
   temperature: ${ai.temperature}
-  maxTokens: ${ai.maxTokens}${ai.apiKey ? `\n  apiKey: ${ai.apiKey}` : ''}${ai.baseUrl ? `\n  baseUrl: ${ai.baseUrl}` : ''}
+  maxTokens: ${ai.maxTokens}${ai.baseUrl ? `\n  baseUrl: ${ai.baseUrl}` : ''}
+  # apiKey 建议通过环境变量 ${ai.provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'} 设置
 
 knowledge:
   enabled: ${preset.knowledge.enabled}${'maxRecords' in preset.knowledge ? `\n  maxRecords: ${(preset.knowledge as any).maxRecords}` : ''}

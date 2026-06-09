@@ -176,6 +176,17 @@ export class AgentManager {
       task.input ? `输入数据:\n${JSON.stringify(task.input, null, 2)}` : '',
     ].filter(Boolean).join('\n')
 
+    if (!this.runtime.ai) {
+      return {
+        message: `[${agent.role.name}] 处理任务: ${task.description}`,
+        role: agent.role.name,
+        taskType: task.type,
+        simulated: true,
+        mode: 'simulated',
+        warning: '未配置 AI runtime，已返回模拟结果',
+      }
+    }
+
     try {
       const result = await callLLM({
         systemPrompt,
@@ -188,13 +199,19 @@ export class AgentManager {
         message: result.text,
         role: agent.role.name,
         taskType: task.type,
+        simulated: false,
+        mode: 'ai',
       }
-    } catch {
+    } catch (error) {
       // AI SDK 不可用时降级为模拟响应
+      const reason = error instanceof Error ? error.message : String(error)
       return {
         message: `[${agent.role.name}] 处理任务: ${task.description}`,
         role: agent.role.name,
         taskType: task.type,
+        simulated: true,
+        mode: 'simulated',
+        warning: `AI 调用不可用，已返回模拟结果: ${reason}`,
       }
     }
   }

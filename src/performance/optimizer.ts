@@ -15,9 +15,12 @@ import {
   OptimizationStrategy
 } from './types.js'
 
-// ========== LRU 缓存 ==========
-
-export class LRUCache<T> {
+/**
+ * 多策略缓存（支持 LRU / LFU / FIFO 淘汰策略）
+ *
+ * 为保持 API 兼容性，保留 LRUCache 别名
+ */
+export class Cache<T> {
   private cache: Map<string, CacheEntry<T>> = new Map()
   private config: CacheConfig
   private hits: number = 0
@@ -47,14 +50,27 @@ export class LRUCache<T> {
     entry.accessCount++
     entry.lastAccessed = new Date()
 
-    // 移到末尾（LRU）
-    this.cache.delete(key)
-    this.cache.set(key, entry)
+    if (this.config.evictionPolicy === 'lru') {
+      this.cache.delete(key)
+      this.cache.set(key, entry)
+    }
 
     return entry.value
   }
 
   set(key: string, value: T, ttl?: number): void {
+    const existing = this.cache.get(key)
+    if (existing) {
+      existing.value = value
+      existing.expiresAt = new Date(Date.now() + (ttl || this.config.ttl))
+      existing.lastAccessed = new Date()
+      if (this.config.evictionPolicy === 'lru') {
+        this.cache.delete(key)
+        this.cache.set(key, existing)
+      }
+      return
+    }
+
     // 如果缓存已满，删除最旧的条目
     if (this.cache.size >= this.config.maxSize) {
       this.evict()
@@ -110,13 +126,40 @@ export class LRUCache<T> {
   }
 
   private evict(): void {
-    // LRU: 删除最久未访问的条目
-    const firstKey = this.cache.keys().next().value
-    if (firstKey) {
-      this.cache.delete(firstKey)
+    if (this.cache.size === 0) return
+
+    let evictKey: string | undefined
+
+    if (this.config.evictionPolicy === 'lfu') {
+      let minAccessCount = Number.POSITIVE_INFINITY
+      let oldestCreatedAt = Number.POSITIVE_INFINITY
+      for (const [key, entry] of this.cache.entries()) {
+        const createdAt = entry.createdAt.getTime()
+        if (entry.accessCount < minAccessCount || (entry.accessCount === minAccessCount && createdAt < oldestCreatedAt)) {
+          evictKey = key
+          minAccessCount = entry.accessCount
+          oldestCreatedAt = createdAt
+        }
+      }
+    } else if (this.config.evictionPolicy === 'fifo') {
+      let oldestCreatedAt = Number.POSITIVE_INFINITY
+      for (const [key, entry] of this.cache.entries()) {
+        const createdAt = entry.createdAt.getTime()
+        if (createdAt < oldestCreatedAt) {
+          evictKey = key
+          oldestCreatedAt = createdAt
+        }
+      }
+    } else {
+      evictKey = this.cache.keys().next().value
     }
+
+    if (evictKey) this.cache.delete(evictKey)
   }
 }
+
+/** @deprecated 使用 Cache 代替 */
+export const LRUCache = Cache
 
 // ========== 并发控制器 ==========
 
@@ -161,14 +204,14 @@ export class ConcurrencyController {
   }
 
   release(): void {
-    this.activeCount--
-
-    // 从队列中取出下一个等待者
+    // 从队列中取出下一个等待者（先检查队列，避免 activeCount 临时为负）
     if (this.queue.length > 0) {
       const next = this.queue.shift()!
       clearTimeout(next.timeout)
-      this.activeCount++
+      // 不需要改变 activeCount：直接将槽位转交给等待者
       next.resolve()
+    } else {
+      this.activeCount--
     }
   }
 

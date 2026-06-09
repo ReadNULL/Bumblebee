@@ -24,7 +24,7 @@ import {
 
 // 生成唯一 ID
 function generateId(): string {
-  return `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  return `exec-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 }
 
 export class WorkflowEngine {

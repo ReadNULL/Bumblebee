@@ -1,7 +1,7 @@
 # 飞书渠道配置模板
 #
 # 前置条件:
-#   1. npm install @larksuiteoapi/node-sdk
+#   1. npm install
 #   2. 拥有飞书开放平台账号 https://open.feishu.cn
 #
 # 申请步骤:
@@ -14,7 +14,7 @@
 #   7. 版本管理与发布 → 创建版本 → 申请发布
 #
 # 连接方式:
-#   配置完成后，TUI 中使用 /channel-connect feishu 连接
+#   配置完成后，TUI 中使用 /channels connect feishu 连接
 #   使用 WebSocket 长连接模式，无需配置回调 URL
 
 channels:

@@ -12,7 +12,7 @@ import { AgentManager } from '../agents/manager.js'
 import { AgentOrchestrator } from '../agents/orchestrator.js'
 import { WorkflowEngine } from '../workflows/engine.js'
 import { getWorkflowTemplateIds, createWorkflowFromTemplate } from '../workflows/templates.js'
-import { LRUCache, ConcurrencyController, PerformanceMonitor } from '../performance/optimizer.js'
+import { Cache, ConcurrencyController, PerformanceMonitor } from '../performance/optimizer.js'
 import { DashboardImpl, createDefaultDashboard } from '../dashboard/dashboard.js'
 import type { CollaborationRoomImpl } from '../collaboration/room.js'
 import type { VoiceEngineImpl } from '../voice/engine.js'
@@ -48,7 +48,7 @@ export class BumblebeeAgent {
   private agentManager: AgentManager | null = null
   private agentOrchestrator: AgentOrchestrator | null = null
   private workflowEngine: WorkflowEngine | null = null
-  private cache: LRUCache<any> | null = null
+  private cache: Cache<any> | null = null
   private concurrency: ConcurrencyController | null = null
   private performanceMonitor: PerformanceMonitor | null = null
   private dashboard: DashboardImpl | null = null
@@ -82,7 +82,7 @@ export class BumblebeeAgent {
     // 初始化性能子系统
     const perf = config.performance
     if (perf?.enabled !== false && perf?.cache) {
-      this.cache = new LRUCache({
+      this.cache = new Cache({
         maxSize: perf.cache.maxSize,
         ttl: perf.cache.ttl,
         evictionPolicy: perf.cache.evictionPolicy,
@@ -399,8 +399,8 @@ export class BumblebeeAgent {
 
   // ========== 性能系统 ==========
 
-  // 获取 LRU 缓存
-  getCache<T = any>(): LRUCache<T> | null {
+  // 获取缓存
+  getCache<T = any>(): Cache<T> | null {
     return this.cache
   }
 

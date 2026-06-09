@@ -27,7 +27,7 @@
 #   6. 消息接收模式 → 配置回调 URL（需公网可达，或使用内网穿透）
 #
 # 连接方式:
-#   TUI 中使用 /channel-connect dingtalk 连接
+#   TUI 中使用 /channels connect dingtalk 连接
 
 channels:
   dingtalk:

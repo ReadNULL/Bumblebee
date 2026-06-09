@@ -37,3 +37,6 @@ export * from './performance/index.js'
 
 // 导出 TUI 模块
 export * from './tui/index.js'
+
+// 导出插件类型
+export * from './plugins/types.js'

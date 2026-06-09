@@ -28,7 +28,9 @@ node dist/cli.js init --preset full      # 完整功能
 配置向导会自动：
 - 检测 Node.js、npm、Git 环境
 - 引导选择 AI 提供商（OpenAI / Anthropic）
-- 生成 `.bumblebee.yaml`（含 API Key 和 Base URL）
+- 生成 `.bumblebee.yaml`
+
+建议优先通过环境变量配置 API Key，例如 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`。如果选择把 API Key 写入 `.bumblebee.yaml`，请勿提交该文件。
 
 ## 启动
 

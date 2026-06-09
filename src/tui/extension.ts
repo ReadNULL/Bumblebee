@@ -15,179 +15,11 @@ import { BumblebeePersonality } from '../personality/traits.js'
 import { extractProfileFromConversation } from '../memory/profile-extractor.js'
 import { ChannelManager } from '../channels/manager.js'
 import { WeChatAdapter } from '../channels/wechat.js'
-import type { Message } from '../channels/types.js'
 import { getSpecializedAgentTypes, createAgentTeam, RECOMMENDED_TEAMS } from '../agents/specialized.js'
 import { getWorkflowTemplateIds, createWorkflowFromTemplate } from '../workflows/templates.js'
 import type { KnowledgeNode } from '../knowledge/types.js'
-
-// 从对话中提取知识节点
-function extractKnowledgeFromConversation(messages: any[]): {
-  files: Map<string, string[]>   // filePath → contexts where it appeared
-  errors: Array<{ pattern: string; context: string }>
-  solutions: Array<{ errorPattern: string; solution: string }>
-  concepts: Map<string, string>  // concept → description
-} {
-  const files = new Map<string, string[]>()
-  const errors: Array<{ pattern: string; context: string }> = []
-  const solutions: Array<{ errorPattern: string; solution: string }> = []
-  const concepts = new Map<string, string>()
-
-  // 文件路径模式：只匹配项目内的实际代码路径
-  const FILE_REGEX = /\b((?:src|tests?|lib|app|dist|build|packages?)[\\/][\w./\\-]+\.(?:ts|tsx|js|jsx|py|go|rs|java))\b/g
-  // 错误模式
-  const ERROR_REGEX = /(?:Error|TypeError|ReferenceError|SyntaxError|错误|异常|失败|报错)[：:\s]*(.{10,120})/gi
-  // 解决方案模式
-  const SOLUTION_REGEX = /(?:修复|解决|改为|改成|使用|需要|应该|改用|替换成|换成)[：:\s]*(.{10,200})/gi
-
-  for (const msg of messages) {
-    const text = extractText(msg.content)
-    if (!text || text.length < 20) continue
-
-    // 跳过文档/README 类内容（包含 HTML 标签或大量 markdown 链接）
-    const htmlTagCount = (text.match(/<[a-zA-Z][^>]*>/g) || []).length
-    const mdLinkCount = (text.match(/\[.*?\]\(.*?\)/g) || []).length
-    if (htmlTagCount > 5 || mdLinkCount > 10) continue
-
-    let match
-
-    // 只从 assistant 消息中提取文件路径（代码分析上下文）
-    if (msg.role === 'assistant') {
-      const fileRegex = new RegExp(FILE_REGEX.source, 'g')
-      let fileCount = 0
-      while ((match = fileRegex.exec(text)) !== null && fileCount < 10) {
-        const filePath = match[1].replace(/\\/g, '/')
-        if (filePath.includes('node_modules') || filePath.startsWith('http')) continue
-        const existing = files.get(filePath) || []
-        if (existing.length < 2) {
-          // 存储文件路径附近的上下文，而非整段消息
-          const matchIndex = match.index
-          const contextStart = Math.max(0, matchIndex - 50)
-          const contextEnd = Math.min(text.length, matchIndex + filePath.length + 150)
-          existing.push(text.substring(contextStart, contextEnd))
-          files.set(filePath, existing)
-          fileCount++
-        }
-      }
-    }
-
-    // 提取错误（只从 assistant 消息中提取）
-    if (msg.role === 'assistant') {
-      const errorRegex = new RegExp(ERROR_REGEX.source, 'gi')
-      while ((match = errorRegex.exec(text)) !== null) {
-        errors.push({ pattern: match[0].substring(0, 80), context: text.substring(0, 200) })
-      }
-
-      // 提取解决方案
-      const solRegex = new RegExp(SOLUTION_REGEX.source, 'gi')
-      while ((match = solRegex.exec(text)) !== null) {
-        const solution = match[1].trim()
-        if (solution.length > 10) {
-          solutions.push({ errorPattern: '', solution })
-        }
-      }
-    }
-
-    // 提取概念定义（用户或 assistant 提到 "X 是..."、"X 指的是"）
-    if (msg.role === 'assistant') {
-      const conceptRegex = /(\w{2,20})\s*(?:是指|是|指的是|means|is)\s*[：:]\s*(.{10,150})/g
-      while ((match = conceptRegex.exec(text)) !== null) {
-        concepts.set(match[1], match[2])
-      }
-    }
-  }
-
-  return { files, errors, solutions, concepts }
-}
-
-// 生成确定性节点 ID
-function makeNodeId(type: string, name: string): string {
-  const safe = name.replace(/[^a-zA-Z0-9一-鿿]/g, '-').substring(0, 40)
-  return `${type}-${safe}`
-}
-
-// 从对话中提取知识并写入图谱
-function extractKnowledgeToGraph(agent: BumblebeeAgent, messages: any[]): void {
-  const knowledge = extractKnowledgeFromConversation(messages)
-  const kg = agent.getKnowledge()
-  const now = new Date()
-
-  // 写入文件节点
-  for (const [filePath, contexts] of knowledge.files) {
-    const id = makeNodeId('file', filePath)
-    const existing = kg.getNode(id)
-    if (existing) {
-      kg.updateNode(id, { updatedAt: now })
-    } else {
-      kg.addNode({
-        id,
-        type: 'file',
-        name: filePath,
-        content: contexts[0] || '',
-        metadata: { mentionCount: contexts.length },
-        relations: [],
-        importance: Math.min(0.5 + contexts.length * 0.1, 0.9),
-        confidence: 0.7,
-        tags: [filePath.split('.').pop() || 'file'],
-      })
-    }
-  }
-
-  // 写入错误节点
-  for (const err of knowledge.errors.slice(0, 5)) {
-    const id = makeNodeId('error', err.pattern)
-    if (!kg.getNode(id)) {
-      kg.addNode({
-        id,
-        type: 'bug',
-        name: err.pattern,
-        content: err.context,
-        metadata: {},
-        relations: [],
-        importance: 0.7,
-        confidence: 0.6,
-        tags: ['bug'],
-      })
-    }
-  }
-
-  // 写入解决方案节点
-  for (const sol of knowledge.solutions.slice(0, 5)) {
-    const id = makeNodeId('solution', sol.solution)
-    if (!kg.getNode(id)) {
-      kg.addNode({
-        id,
-        type: 'decision',
-        name: sol.solution.substring(0, 60),
-        content: sol.solution,
-        metadata: {},
-        relations: [],
-        importance: 0.8,
-        confidence: 0.7,
-        tags: ['solution'],
-      })
-    }
-  }
-
-  // 注：错误和解决方案节点已独立写入，不做自动关联（按数组下标配对无实际意义）
-
-  // 写入概念节点
-  for (const [concept, desc] of knowledge.concepts) {
-    const id = makeNodeId('concept', concept)
-    if (!kg.getNode(id)) {
-      kg.addNode({
-        id,
-        type: 'concept',
-        name: concept,
-        content: desc,
-        metadata: {},
-        relations: [],
-        importance: 0.6,
-        confidence: 0.7,
-        tags: ['concept'],
-      })
-    }
-  }
-}
+import { createChannelReply, getChannelReplyTarget, shouldHandleChannelMessage } from './channel-handler.js'
+import { extractKnowledgeToGraph, extractText } from './knowledge-extractor.js'
 
 // 自定义工具：切换角色
 const switchRoleTool = defineTool({
@@ -290,12 +122,6 @@ const getRoleInfoTool = defineTool({
   },
 })
 
-// 从消息内容中提取文本
-function extractText(content: string | Array<{ type: string; [key: string]: any }>): string {
-  if (typeof content === 'string') return content
-  return content?.filter(c => c.type === 'text' && 'text' in c).map(c => (c as any).text).join('\n') ?? ''
-}
-
 // 生成对话摘要（提取关键信息，限制长度）
 function generateConversationSummary(messages: Array<{ role: string; content: string | Array<{ type: string; text: string }> }>): string {
   const textMessages: string[] = []
@@ -332,63 +158,6 @@ let channelManager: ChannelManager
 
 // 对话消息缓冲（用于退出时提取画像和保存摘要）
 let sessionMessages: any[] = []
-
-function getChannelReplyTarget(message: Message): string {
-  const metadata = message.metadata || {}
-
-  if (message.sender.platform === 'wechat') {
-    return metadata.roomName || metadata.roomId || message.sender.id || message.sender.name
-  }
-
-  if (message.sender.platform === 'feishu') {
-    return metadata.chatId || message.sender.id
-  }
-
-  if (message.sender.platform === 'dingtalk') {
-    return message.sender.id || metadata.conversationId
-  }
-
-  return message.sender.id || message.sender.name
-}
-
-function shouldHandleChannelMessage(message: Message): boolean {
-  if (!message.content?.trim()) return false
-  if (message.type !== 'text' && message.type !== 'code') return false
-
-  const metadata = message.metadata || {}
-  if (message.sender.platform === 'wechat' && metadata.roomId && metadata.isMentionSelf === false) {
-    return false
-  }
-
-  if (
-    message.sender.platform === 'feishu' &&
-    metadata.chatType &&
-    metadata.chatType !== 'p2p' &&
-    Array.isArray(metadata.mentionKeys) &&
-    metadata.mentionKeys.length === 0
-  ) {
-    return false
-  }
-
-  return true
-}
-
-function createChannelReply(message: Message, content: string): Message {
-  return {
-    id: `reply-${message.id}-${Date.now()}`,
-    content,
-    type: 'text',
-    sender: {
-      id: 'bumblebee',
-      name: 'Bumblebee',
-      platform: message.sender.platform,
-    },
-    timestamp: new Date(),
-    metadata: {
-      replyTo: message.id,
-    },
-  }
-}
 
 async function persistChannelConfig(channelName: 'wechat' | 'feishu' | 'dingtalk', channelConfig: Record<string, any>): Promise<void> {
   const configPath = resolve('.bumblebee.yaml')
@@ -708,8 +477,8 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
       extractKnowledgeToGraph(agent, sessionMessages)
       await agent.getKnowledge().save()
       await agent.getLearner().save()
-    } catch {
-      // 退出时的错误静默忽略
+    } catch (error) {
+      console.error('会话关闭时保存记忆/知识失败:', error)
     }
   })
 

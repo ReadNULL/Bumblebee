@@ -18,6 +18,7 @@ import {
 export class KnowledgeGraph {
   private nodes: Map<string, KnowledgeNode> = new Map()
   private index: Map<string, Set<string>> = new Map()  // 倒排索引
+  private nodeIndexKeys: Map<string, Set<string>> = new Map()  // 反向映射：nodeId -> index keys
   private storagePath?: string
 
   constructor(storagePath?: string) {
@@ -255,11 +256,20 @@ export class KnowledgeGraph {
     return results
   }
 
-  // 文本搜索
+  // 文本搜索（利用倒排索引加速）
   private searchByText(text: string, candidates: KnowledgeNode[]): KnowledgeResult[] {
     const results: KnowledgeResult[] = []
 
-    for (const node of candidates) {
+    // 先利用倒排索引缩小候选集
+    const indexedCandidates = this.getCandidatesByIndex(text)
+    // 取索引结果和类型/标签过滤结果的交集（如果索引有结果的话）
+    const candidateSet = new Set(candidates.map(n => n.id))
+    const useIndexed = indexedCandidates.length > 0
+    const searchPool = useIndexed
+      ? indexedCandidates.filter(n => candidateSet.has(n.id))
+      : candidates
+
+    for (const node of searchPool) {
       const score = this.calculateTextScore(text, node)
       if (score > 0) {
         results.push({ node, score })
@@ -267,6 +277,29 @@ export class KnowledgeGraph {
     }
 
     return results
+  }
+
+  // 利用倒排索引获取候选节点
+  private getCandidatesByIndex(text: string): KnowledgeNode[] {
+    const candidateIds = new Set<string>()
+
+    // 按关键词查询倒排索引
+    const words = text.split(/\s+/).filter(w => w.length > 2)
+    for (const word of words) {
+      const byWord = this.index.get(`word:${word}`)
+      if (byWord) {
+        for (const id of byWord) candidateIds.add(id)
+      }
+      // 也检查标签索引
+      const byTag = this.index.get(`tag:${word}`)
+      if (byTag) {
+        for (const id of byTag) candidateIds.add(id)
+      }
+    }
+
+    return Array.from(candidateIds)
+      .map(id => this.nodes.get(id))
+      .filter((n): n is KnowledgeNode => n !== undefined)
   }
 
   // 计算文本相关性分数
@@ -422,15 +455,28 @@ export class KnowledgeGraph {
       this.index.set(key, new Set())
     }
     this.index.get(key)!.add(nodeId)
+
+    // 维护反向映射
+    if (!this.nodeIndexKeys.has(nodeId)) {
+      this.nodeIndexKeys.set(nodeId, new Set())
+    }
+    this.nodeIndexKeys.get(nodeId)!.add(key)
   }
 
-  // 从索引移除
+  // 从索引移除（利用反向映射，O(1) 查找）
   private removeFromIndex(nodeId: string): void {
-    for (const [key, nodeIds] of this.index.entries()) {
-      nodeIds.delete(nodeId)
-      if (nodeIds.size === 0) {
-        this.index.delete(key)
+    const keys = this.nodeIndexKeys.get(nodeId)
+    if (keys) {
+      for (const key of keys) {
+        const nodeIds = this.index.get(key)
+        if (nodeIds) {
+          nodeIds.delete(nodeId)
+          if (nodeIds.size === 0) {
+            this.index.delete(key)
+          }
+        }
       }
+      this.nodeIndexKeys.delete(nodeId)
     }
   }
 
@@ -461,6 +507,7 @@ export class KnowledgeGraph {
   clear(): void {
     this.nodes.clear()
     this.index.clear()
+    this.nodeIndexKeys.clear()
   }
 
   // ========== 持久化 ==========
@@ -476,8 +523,8 @@ export class KnowledgeGraph {
         index: Array.from(this.index.entries()).map(([key, ids]) => [key, Array.from(ids)])
       }
       await writeFile(this.storagePath, JSON.stringify(data, null, 2), 'utf-8')
-    } catch {
-      // 写入失败静默忽略
+    } catch (error) {
+      console.error('保存知识图谱失败:', error)
     }
   }
 
@@ -499,8 +546,16 @@ export class KnowledgeGraph {
 
       // 恢复索引
       this.index.clear()
+      this.nodeIndexKeys.clear()
       for (const [key, ids] of data.index ?? []) {
         this.index.set(key, new Set(ids))
+        // 重建反向映射
+        for (const id of ids) {
+          if (!this.nodeIndexKeys.has(id)) {
+            this.nodeIndexKeys.set(id, new Set())
+          }
+          this.nodeIndexKeys.get(id)!.add(key)
+        }
       }
     } catch {
       // 文件不存在或解析失败，使用空图谱

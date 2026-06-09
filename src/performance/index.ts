@@ -3,6 +3,7 @@
  */
 
 export {
+  Cache,
   LRUCache,
   ConcurrencyController,
   ResourcePool,

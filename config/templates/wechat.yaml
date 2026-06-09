@@ -1,29 +1,29 @@
 # 微信渠道配置模板
 #
 # 前置条件:
-#   1. npm install wechaty
-#   2. 安装 puppet 包（三选一）:
-#      - wechaty-puppet-padlocal  ★ 推荐，需要 token，最稳定
-#      - wechaty-puppet-xp        免费，Windows 桌面版，需保持微信运行
-#      - wechaty-puppet-wechat4u  ⚠️ 基于 Web 微信协议，多数账号已无法登录
+#   1. npm install
+#   2. 项目默认安装 wechaty、Wechat4U，以及可选的 PadLocal puppet
+#   3. XP puppet 为实验性方案，Node 22 下可能需要用户自行处理原生依赖
 #
 # 获取 PadLocal Token:
-#   访问 https://pad-local.com 购买 token
+#   需要向 PadLocal / Wechaty 社区或服务方申请/购买 token。
+#   旧入口 pad-local.com 可能不可用，不要把它视为稳定自助注册路径。
 #
 # 连接方式:
 #   启动后会显示二维码，用微信扫码登录
-#   TUI 中使用 /channel-connect wechat 连接
+#   TUI 中使用 /channels connect wechat 连接
 
 channels:
   wechat:
     enabled: true
 
     # Puppet 类型（决定登录方式和稳定性）
-    # 推荐: wechaty-puppet-padlocal（稳定）或 wechaty-puppet-xp（免费）
+    # 有 PadLocal token 时优先使用 wechaty-puppet-padlocal
+    # XP 为实验性方案，Node 22 下可能无法安装
     # 注意: wechaty-puppet-wechat4u 已基本不可用（Web 微信协议被腾讯限制）
     puppet: wechaty-puppet-padlocal
 
-    # Puppet Token（padlocal 必填，从 https://pad-local.com 获取）
+    # Puppet Token（padlocal 必填；建议通过环境变量注入）
     token: ${WECHAT_TOKEN}
 
     # 支持的能力: 文本消息、图片、语音、@提及、文件传输

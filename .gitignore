@@ -25,6 +25,9 @@ wechat.memory-card.json
 .env
 .env.local
 .env.*.local
+.bumblebee.yaml
+.bumblebee.yml
+.bumblebee.json
 
 # Logs
 *.log

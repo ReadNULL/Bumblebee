@@ -32,7 +32,7 @@ export class Learner {
   record(entry: Omit<LearningRecord, 'id' | 'timestamp'>): LearningRecord {
     const record: LearningRecord = {
       ...entry,
-      id: `lr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `lr-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
       timestamp: new Date()
     }
 
@@ -146,7 +146,15 @@ export class Learner {
   // 提取纠正模式
   private extractCorrectionPattern(record: LearningRecord): string | null {
     const input = record.input
-    if (typeof input === 'object' && input.wrong && input.correct) {
+    if (typeof input === 'string') {
+      // extension.ts 传入的 input 是字符串，从中提取关键词
+      const keywords = input.match(/(?:不要|别|不需要|不用)(.{2,20})/)
+      if (keywords) {
+        return `correction:${keywords[1].trim()}`
+      }
+      return `correction:${input.substring(0, 40)}`
+    }
+    if (typeof input === 'object' && input !== null && input.wrong && input.correct) {
       return `correction:${input.wrong}:${input.correct}`
     }
     return null
@@ -363,8 +371,8 @@ export class Learner {
         patterns: Array.from(this.patterns.values())
       }
       await writeFile(this.storagePath, JSON.stringify(data, null, 2), 'utf-8')
-    } catch {
-      // 写入失败静默忽略
+    } catch (error) {
+      console.error('保存学习记录失败:', error)
     }
   }
 

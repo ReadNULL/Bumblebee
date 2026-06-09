@@ -38,6 +38,8 @@ export interface AgentConfig {
     createdAt?: string
     updatedAt?: string
     tags?: string[]
+    priority?: number
+    description?: string
   }
 }
 

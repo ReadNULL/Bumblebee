@@ -128,7 +128,15 @@ export async function callLLM(options: LLMCallOptions): Promise<LLMCallResult> {
   try {
     // 模型未找到时提前报错
     if (ai && !runtime.model) {
-      throw new Error(`模型不可用: ${ai.provider}/${ai.model} — 请检查 apiKey 和 baseUrl 配置`)
+      const envHint = ai.provider === 'openai'
+        ? 'OPENAI_API_KEY'
+        : ai.provider === 'anthropic'
+          ? 'ANTHROPIC_API_KEY'
+          : ai.provider === 'gemini'
+            ? 'GEMINI_API_KEY'
+            : '对应 provider 的环境变量'
+      const baseUrlHint = ai.baseUrl ? '；同时检查 baseUrl 是否正确' : ''
+      throw new Error(`模型不可用: ${ai.provider}/${ai.model}。请运行 bumblebee init 配置 API Key，或设置 ${envHint}${baseUrlHint}`)
     }
 
     const created = await createAgentSession({

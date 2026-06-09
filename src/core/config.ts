@@ -156,18 +156,65 @@ export const BumblebeeConfigSchema = z.object({
 
 export type BumblebeeConfig = z.infer<typeof BumblebeeConfigSchema>
 
-/**
- * 获取指定 provider 的 API Key（仅从配置文件读取）
- */
-export function getProviderApiKey(provider: string, configApiKey?: string): string | undefined {
-  return configApiKey
+const PROVIDER_API_KEY_ENV: Record<string, string[]> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_OAUTH_TOKEN'],
+  openai: ['OPENAI_API_KEY'],
+  gemini: ['GEMINI_API_KEY'],
+  bedrock: ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID'],
+}
+
+const PROVIDER_BASE_URL_ENV: Record<string, string[]> = {
+  anthropic: ['ANTHROPIC_BASE_URL'],
+  openai: ['OPENAI_BASE_URL', 'AZURE_OPENAI_BASE_URL'],
+  gemini: ['GEMINI_BASE_URL'],
+}
+
+function firstEnvValue(names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]
+    if (value?.trim()) {
+      return value.trim()
+    }
+  }
+  return undefined
+}
+
+function resolveEnvString(value: string): string {
+  return value.replace(/\$\{([A-Z0-9_]+)\}/gi, (_match, name) => process.env[name] || '')
+}
+
+function resolveEnvValues<T>(value: T): T {
+  if (typeof value === 'string') {
+    return resolveEnvString(value) as T
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => resolveEnvValues(item)) as T
+  }
+
+  if (isPlainObject(value)) {
+    const resolved: Record<string, unknown> = {}
+    for (const [key, nested] of Object.entries(value)) {
+      resolved[key] = resolveEnvValues(nested)
+    }
+    return resolved as T
+  }
+
+  return value
 }
 
 /**
- * 获取指定 provider 的 Base URL（仅从配置文件读取）
+ * 获取指定 provider 的 API Key（配置文件优先，环境变量兜底）
+ */
+export function getProviderApiKey(provider: string, configApiKey?: string): string | undefined {
+  return configApiKey || firstEnvValue(PROVIDER_API_KEY_ENV[provider] || [])
+}
+
+/**
+ * 获取指定 provider 的 Base URL（配置文件优先，环境变量兜底）
  */
 export function getProviderBaseUrl(provider: string, configBaseUrl?: string): string | undefined {
-  return configBaseUrl
+  return configBaseUrl || firstEnvValue(PROVIDER_BASE_URL_ENV[provider] || [])
 }
 
 // 默认配置
@@ -246,10 +293,10 @@ async function loadConfigFile(path: string): Promise<Partial<BumblebeeConfig>> {
         console.warn(`  配置文件 ${path} 解析结果为空，请检查 YAML 语法。`)
         return {}
       }
-      return parsed
+      return resolveEnvValues(parsed) as Partial<BumblebeeConfig>
     }
 
-    return JSON.parse(content)
+    return resolveEnvValues(JSON.parse(content)) as Partial<BumblebeeConfig>
   } catch (err: any) {
     // 仅文件不存在时静默；解析错误应提示用户
     if (err?.code !== 'ENOENT') {
@@ -259,30 +306,36 @@ async function loadConfigFile(path: string): Promise<Partial<BumblebeeConfig>> {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function deepMerge<T>(base: T, override: unknown): T {
+  if (!isPlainObject(base) || !isPlainObject(override)) {
+    return (override === undefined ? base : override) as T
+  }
+
+  const merged: Record<string, unknown> = { ...base }
+  for (const [key, value] of Object.entries(override)) {
+    merged[key] = deepMerge(merged[key], value)
+  }
+  return merged as T
+}
+
+function applyEnvironmentConfig(config: BumblebeeConfig): BumblebeeConfig {
+  return {
+    ...config,
+    ai: {
+      ...config.ai,
+      apiKey: getProviderApiKey(config.ai.provider, config.ai.apiKey),
+      baseUrl: getProviderBaseUrl(config.ai.provider, config.ai.baseUrl),
+    },
+  }
+}
+
 // 合并配置
 function mergeConfig(base: BumblebeeConfig, override: Partial<BumblebeeConfig>): BumblebeeConfig {
-  return {
-    personality: { ...base.personality, ...override.personality },
-    memory: { ...base.memory, ...override.memory },
-    ai: { ...base.ai, ...override.ai },
-    channels: {
-      wechat: { ...base.channels?.wechat, ...override.channels?.wechat },
-      feishu: { ...base.channels?.feishu, ...override.channels?.feishu },
-      dingtalk: { ...base.channels?.dingtalk, ...override.channels?.dingtalk },
-    },
-    knowledge: { ...base.knowledge, ...override.knowledge },
-    agents: { ...base.agents, ...override.agents },
-    workflows: { ...base.workflows, ...override.workflows },
-    performance: {
-      ...base.performance,
-      ...override.performance,
-      cache: { ...base.performance?.cache, ...override.performance?.cache },
-      concurrency: { ...base.performance?.concurrency, ...override.performance?.concurrency },
-    },
-    dashboard: { ...base.dashboard, ...override.dashboard },
-    collaboration: { ...base.collaboration, ...override.collaboration },
-    voice: { ...base.voice, ...override.voice },
-  }
+  return deepMerge(base, override)
 }
 
 // 加载配置
@@ -316,5 +369,5 @@ export async function loadConfig(configPath?: string): Promise<BumblebeeConfig> 
 
   // 合并并验证配置
   const merged = mergeConfig(DEFAULT_CONFIG, userConfig)
-  return BumblebeeConfigSchema.parse(merged)
+  return applyEnvironmentConfig(BumblebeeConfigSchema.parse(merged))
 }

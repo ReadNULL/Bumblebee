@@ -196,8 +196,10 @@ export class MemoryManager {
   private async ensureDirectory(): Promise<void> {
     try {
       await mkdir(this.storageDir, { recursive: true })
-    } catch {
-      // 目录已存在，忽略
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') {
+        console.error('创建记忆目录失败:', error)
+      }
     }
   }
 
@@ -218,8 +220,8 @@ export class MemoryManager {
       await this.ensureDirectory()
       const filePath = join(this.storageDir, PROFILE_FILE)
       await writeFile(filePath, JSON.stringify(this.profile, null, 2), 'utf-8')
-    } catch {
-      // 写入失败，静默忽略
+    } catch (error) {
+      console.error('保存用户记忆失败:', error)
     }
   }
 }

@@ -2,7 +2,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Tests-195%20passed-brightgreen?style=flat-square" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-204%20passed-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/Architecture-Plugin--based-ff6b35?style=flat-square" alt="Architecture">
 </p>
 
@@ -290,7 +290,15 @@ TUI 内也可通过 `/resume`、`/new`、`/tree`、`/fork` 管理会话。
 
 ### LLM 配置
 
-`bumblebee init` 会将 API Key 和 Base URL 写入 `.bumblebee.yaml` 配置文件：
+建议优先使用环境变量配置 API Key，避免把密钥写入项目文件：
+
+```bash
+OPENAI_API_KEY=sk-xxxxxxxxxxxx
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
+GEMINI_API_KEY=xxxxxxxxxxxx
+```
+
+也可以在 `.bumblebee.yaml` 中配置 API Key 和 Base URL：
 
 ```yaml
 # .bumblebee.yaml
@@ -302,6 +310,7 @@ ai:
 ```
 
 > 如使用第三方 API 代理，将 `baseUrl` 指向代理地址即可。
+> `.bumblebee.yaml` 可能包含密钥，项目 `.gitignore` 默认忽略该文件，请勿提交到远程仓库。
 
 ### 配置文件
 

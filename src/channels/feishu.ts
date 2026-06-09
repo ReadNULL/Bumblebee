@@ -255,48 +255,6 @@ export class FeishuAdapter implements ChannelAdapter {
     }
   }
 
-  // 处理接收到的消息
-  private async handleMessage(data: any): Promise<void> {
-    await this.handleIncomingMessage(data)
-    return
-
-    if (!this.messageHandler) {
-      return
-    }
-
-    const event = data?.event || data
-    if (!event?.message) {
-      return
-    }
-    const message = event.message
-    const sender = event.sender || {}
-
-    // 获取消息内容
-    const content = this.parseMessageContent(message.content)
-    const senderId = sender.sender_id?.open_id || sender.sender_id?.user_id || sender.sender_id?.union_id || 'unknown'
-    const createTime = Number.parseInt(message.create_time, 10)
-
-    // 构建统一消息格式
-    const unifiedMessage: Message = {
-      id: message.message_id,
-      content: this.extractContent(message.message_type, content),
-      type: this.getMessageType(message.message_type),
-      sender: {
-        id: sender.sender_id.open_id,
-        name: sender.sender_id.open_id, // 需要额外 API 获取用户名
-        platform: 'feishu'
-      },
-      timestamp: new Date(parseInt(message.create_time)),
-      metadata: {
-        chatId: message.chat_id,
-        chatType: message.chat_type,
-        mentionKeys: message.mentions
-      }
-    }
-
-    await this.messageHandler?.(unifiedMessage)
-  }
-
   // 获取消息类型
   private getMessageType(messageType: string): MessageType {
     switch (messageType) {
