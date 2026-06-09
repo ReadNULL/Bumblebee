@@ -20,7 +20,8 @@ export const AIConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
   temperature: z.number().min(0).max(2).default(0.7),
   maxTokens: z.number().min(1).max(100000).default(4096),
-  apiKey: z.string().optional()
+  apiKey: z.string().optional(),
+  baseUrl: z.string().optional(),
 }).default({})
 
 // 渠道配置 Schema
@@ -45,6 +46,7 @@ export const DingTalkChannelConfigSchema = z.object({
   appKey: z.string().optional(),
   appSecret: z.string().optional(),
   robotCode: z.string().optional(),
+  port: z.number().min(1).max(65535).optional(),
 }).default({})
 
 export const ChannelsConfigSchema = z.object({
@@ -154,6 +156,20 @@ export const BumblebeeConfigSchema = z.object({
 
 export type BumblebeeConfig = z.infer<typeof BumblebeeConfigSchema>
 
+/**
+ * 获取指定 provider 的 API Key（仅从配置文件读取）
+ */
+export function getProviderApiKey(provider: string, configApiKey?: string): string | undefined {
+  return configApiKey
+}
+
+/**
+ * 获取指定 provider 的 Base URL（仅从配置文件读取）
+ */
+export function getProviderBaseUrl(provider: string, configBaseUrl?: string): string | undefined {
+  return configBaseUrl
+}
+
 // 默认配置
 export const DEFAULT_CONFIG: BumblebeeConfig = {
   personality: {
@@ -225,11 +241,20 @@ async function loadConfigFile(path: string): Promise<Partial<BumblebeeConfig>> {
     const content = await readFile(resolve(path), 'utf-8')
 
     if (path.endsWith('.yaml') || path.endsWith('.yml')) {
-      return parseYaml(content)
+      const parsed = parseYaml(content)
+      if (!parsed || typeof parsed !== 'object') {
+        console.warn(`  配置文件 ${path} 解析结果为空，请检查 YAML 语法。`)
+        return {}
+      }
+      return parsed
     }
 
     return JSON.parse(content)
-  } catch {
+  } catch (err: any) {
+    // 仅文件不存在时静默；解析错误应提示用户
+    if (err?.code !== 'ENOENT') {
+      console.warn(`  配置文件 ${path} 解析失败: ${err.message}`)
+    }
     return {}
   }
 }

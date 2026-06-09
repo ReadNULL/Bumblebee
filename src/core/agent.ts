@@ -79,12 +79,6 @@ export class BumblebeeAgent {
     this.context = new ContextManager()
     this.learner = new Learner(config.knowledge?.maxRecords ?? 1000, join(memDir, 'learner.json'))
 
-    // 初始化 Agent 系统（依赖 roleManager）
-    if (config.agents?.enabled !== false) {
-      this.agentManager = new AgentManager(this.roleManager)
-      this.agentOrchestrator = new AgentOrchestrator(this.agentManager)
-    }
-
     // 初始化性能子系统
     const perf = config.performance
     if (perf?.enabled !== false && perf?.cache) {
@@ -99,6 +93,16 @@ export class BumblebeeAgent {
         timeout: perf.concurrency.timeout,
       })
       this.performanceMonitor = new PerformanceMonitor()
+    }
+
+    // 初始化 Agent 系统（依赖 roleManager）
+    if (config.agents?.enabled !== false) {
+      this.agentManager = new AgentManager(this.roleManager, {
+        ai: this.config.ai,
+        concurrency: this.concurrency,
+        performanceMonitor: this.performanceMonitor,
+      })
+      this.agentOrchestrator = new AgentOrchestrator(this.agentManager)
     }
   }
 
@@ -256,6 +260,9 @@ export class BumblebeeAgent {
     return callLLM({
       systemPrompt,
       userPrompt,
+      ai: this.config.ai,
+      concurrency: this.concurrency,
+      performanceMonitor: this.performanceMonitor,
       sessionManager: this.sessionManager ?? undefined,
       disposeAfter: !this.sessionManager,
     })

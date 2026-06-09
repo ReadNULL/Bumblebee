@@ -30,7 +30,7 @@
 | **开源透明性** (可自托管)         | ✅ 完全开源，无供应商锁定                       | ❌ 闭源商业产品               | ❌ 闭源商业产品                       | ❌ 闭源商业产品         |
 | **Agent编排灵活性**               | 4种协作模式，内置8种专业模板                   | 采用主从协调模式             | 运行时并行调度                       | 多任务并行管理         |
 | **长期记忆与学习**                | 三位一体架构：知识图谱 + 上下文管理器 + 学习器 | 支持跨会话的自动记忆         | 无公开系统级记忆方案，依赖对话上下文 | 采用验证的记忆系统     |
-| **开发可观测性**                  | 内置性能监控看板，提供p50/99等指标             | 无同类内置通用仪表板         | 监控指标公开信息较少                 | 监控指标对第三方不透明 |
+| **开发可观测性**                  | 内置性能状态看板，提供p50/99等指标             | 无同类内置通用状态面板       | 监控指标公开信息较少                 | 监控指标对第三方不透明 |
 
 ---
 
@@ -87,6 +87,7 @@ Bumblebee 不是一个固定人格的 Agent。它支持**用户自定义角色**
 
 ```typescript
 await agent.createRole({
+  id: 'security-auditor',
   name: '安全审计专家',
   description: '专注于代码安全审查和漏洞检测',
   personality: {
@@ -133,7 +134,7 @@ agent.switchRole('security-auditor')
 
 ```typescript
 // 通过 TUI 快速启动团队
-// /agent-run code-review 审查当前项目的代码质量
+// /agents run code-review 审查当前项目的代码质量
 
 // 通过 API 编排
 const result = await agent.getAgentOrchestrator()!.executeTeamTask(
@@ -168,9 +169,9 @@ const result = await agent.getWorkflowEngine()!.trigger('pr-review')
 - **并发控制器** — 限制最大并发数，队列溢出自动排队
 - **性能监控** — 响应时间百分位（p50/p90/p99）、吞吐量、缓存命中率
 
-### 可视化仪表板
+### 状态仪表板
 
-`DashboardImpl` 提供可配置的 Widget 系统，支持指标卡片、时序图表、日志面板等组件，默认包含 Agent 数量、任务计数、成功率、响应时间等预设 Widget。
+`DashboardImpl` 提供可配置的 Widget 元数据和状态面板，默认包含 Agent 数量、任务计数、成功率、响应时间等预设 Widget。当前 TUI 以状态列表方式展示，完整图表渲染留给后续前端/面板集成。
 
 ### 协作与语音（实验性）
 
@@ -196,8 +197,8 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 
 | 斜杠命令 | 功能 |
 |----------|------|
-| `/help` | 显示所有命令（分组显示） |
-| `/help <命令>` | 显示具体命令用法 |
+| `/help` | 显示 Bumblebee 命令和常用 pi 会话命令 |
+| `/help <命令>` | 显示命令用法 |
 | `/status` | 系统健康状态概览 |
 | `/roles` | 列出所有可用角色 |
 | `/switch <id>` | 切换角色（支持 Tab 补全，无参数弹出选择窗口） |
@@ -206,21 +207,22 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/memory` | 记忆管理（无参数弹出选择窗口） |
 | `/knowledge` | 知识图谱统计 |
 | `/knowledge search <词>` | 搜索知识节点 |
-| `/knowledge-cleanup` | 清理重复和无效节点 |
+| `/knowledge cleanup` | 清理重复和无效节点 |
 | `/context` | 显示当前项目上下文（语言、框架、依赖） |
 | `/learn` | 学习系统管理（无参数弹出选择窗口） |
-| `/agents` | Agent 系统状态和列表 |
-| `/agent-run <team> [task]` | 运行专业 Agent 团队（无参数弹出选择窗口） |
-| `/workflows` | 工作流系统状态 |
-| `/workflow-run <id>` | 触发工作流执行（无参数弹出选择窗口） |
+| `/agents` | Agent 管理（无参数弹出选择窗口） |
+| `/agents run <team> [task]` | 运行专业 Agent 团队 |
+| `/workflows` | 工作流管理（无参数弹出选择窗口） |
+| `/workflows run <id> [payload JSON]` | 触发工作流执行 |
 | `/perf` | 性能指标（响应时间、缓存命中率、并发） |
 | `/cache` | 缓存管理（无参数弹出选择窗口） |
 | `/dashboard` | 仪表盘状态 |
-| `/channel-connect` | 连接渠道（无参数弹出选择窗口） |
-| `/channel-disconnect` | 断开渠道（无参数弹出选择窗口） |
+| `/channels` | 渠道管理（无参数弹出选择窗口） |
+| `/channels setup` | 配置渠道 |
+| `/channels connect [name]` | 连接渠道 |
+| `/channels disconnect [name]` | 断开渠道 |
 | `/collab` | 协作管理（无参数弹出选择窗口） |
 | `/voice` | 语音管理（无参数弹出选择窗口） |
-| `/history` | 显示最近会话历史 |
 | `/resume` | 浏览并选择历史会话 |
 | `/new` | 开始新会话 |
 
@@ -245,13 +247,13 @@ npm install
 npm run build
 
 # 交互式配置向导
-npx bumblebee init           # 或 npx bumblebee init --preset mini/dev/full
+node dist/cli.js init        # 或 node dist/cli.js init --preset mini/dev/full
 
 # 环境诊断
-npx bumblebee doctor
+node dist/cli.js doctor
 
 # 启动 TUI
-npx bumblebee
+node dist/cli.js
 
 # 或全局链接
 npm link
@@ -288,19 +290,18 @@ TUI 内也可通过 `/resume`、`/new`、`/tree`、`/fork` 管理会话。
 
 ### LLM 配置
 
-Bumblebee 通过环境变量配置 LLM 连接。在项目根目录创建 `.env` 文件：
+`bumblebee init` 会将 API Key 和 Base URL 写入 `.bumblebee.yaml` 配置文件：
 
-```bash
-# Anthropic 直连
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-
-# 或 OpenAI 兼容接口
-OPENAI_API_KEY=sk-xxxxxxxxxxxx
-OPENAI_BASE_URL=https://your-proxy.com/v1
+```yaml
+# .bumblebee.yaml
+ai:
+  provider: openai
+  model: gpt-4o
+  apiKey: sk-xxxxxxxxxxxx
+  baseUrl: https://your-proxy.com/v1
 ```
 
-> **说明：** 也可以直接设置系统环境变量，无需 `.env` 文件。如使用第三方 API 代理，将 `BASE_URL` 指向代理地址即可。
+> 如使用第三方 API 代理，将 `baseUrl` 指向代理地址即可。
 
 ### 配置文件
 
@@ -324,6 +325,8 @@ ai:
   model: gpt-4o
   temperature: 0.7
   maxTokens: 4096
+  apiKey: sk-xxx         # 可选，也可通过环境变量配置
+  baseUrl: https://...   # 可选，第三方代理地址
 
 knowledge:
   enabled: true
@@ -389,8 +392,8 @@ await agent.initialize()
 // 基础对话
 const response = await agent.processMessage('帮我审查这段代码')
 
-// 角色切换
-agent.switchRole('code-reviewer')
+// 角色切换（使用已创建或默认角色）
+agent.switchRole('bumblebee')
 
 // 多 Agent 编排
 const orch = agent.getAgentOrchestrator()!
@@ -402,7 +405,9 @@ const result = await orch.executeTeamTask(
 )
 
 // 触发工作流
-const workflow = await agent.getWorkflowEngine()!.trigger('pr-review')
+const workflow = await agent.getWorkflowEngine()!.trigger('pr-review', {
+  payload: { prId: 1, repo: 'current', files: ['src/core/'] },
+})
 
 // 查询知识图谱
 const nodes = agent.getKnowledge().query({ text: 'authentication', limit: 5 })
@@ -419,7 +424,7 @@ await agent.dispose()
 src/
 ├── core/           # 核心模块（Agent 主类、配置加载、LLM 调用工厂）
 ├── tui/            # TUI 集成（pi-coding-agent Extension，25+ 命令/工具）
-├── roles/          # 角色系统（存储、管理、创建向导，8 种内置模板）
+├── roles/          # 角色系统（存储、管理、创建向导、默认角色）
 ├── personality/    # 人格系统（情绪分析、人格注入）
 ├── memory/         # 记忆系统（用户画像持久化、对话画像提取、跨会话摘要）
 ├── channels/       # 渠道系统（微信 / 飞书 / 钉钉适配器）
@@ -427,7 +432,7 @@ src/
 ├── workflows/      # 工作流引擎（DAG 调度、重试/超时/条件，4 种内置模板）
 ├── knowledge/      # 知识系统（图谱 + 上下文 + 学习器，三合一智能引擎）
 ├── performance/    # 性能优化（LRU 缓存、并发控制、性能监控）
-├── dashboard/      # 可视化仪表板（Widget 系统、指标卡片、时序图表）
+├── dashboard/      # 状态仪表板（Widget 系统、指标卡片元数据）
 ├── collaboration/  # 实时协作（WebSocket 房间、光标同步、多人编辑）
 ├── voice/          # 语音交互（语音识别、语音合成、多语言支持）
 ├── cli.ts          # CLI 入口
@@ -443,7 +448,7 @@ src/
 | AI 引擎 | pi-coding-agent | Agent 会话管理、TUI 框架、Extension API |
 | TUI 渲染 | pi-tui | 终端 UI 差分渲染、Markdown 渲染、交互组件 |
 | 类型校验 | Zod + TypeBox | 配置校验、工具参数 Schema |
-| 渠道 SDK | wechaty / @larksuiteoapi | 平台接入（懒加载） |
+| 渠道 SDK | wechaty / @larksuiteoapi / PadLocal optional | 平台接入（懒加载；钉钉使用 Node 内置 fetch/http） |
 | 构建 | tsup | ESM 打包、Tree-shaking |
 | 测试 | vitest | 单元测试、集成测试 |
 

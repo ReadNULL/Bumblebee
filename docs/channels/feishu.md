@@ -10,6 +10,10 @@
 ## 第一步：安装依赖
 
 ```bash
+# 项目 npm install 已包含 @larksuiteoapi/node-sdk
+npm install
+
+# 如果只单独安装飞书 SDK:
 npm install @larksuiteoapi/node-sdk
 ```
 
@@ -62,7 +66,7 @@ npm install @larksuiteoapi/node-sdk
 node dist/cli.js
 
 # 在 TUI 中执行
-/channel-setup
+/channels setup
 # 选择 "飞书"，按提示输入 App ID 和 App Secret
 ```
 
@@ -80,11 +84,7 @@ channels:
 
 ### 方式三：使用环境变量
 
-```bash
-# .env 文件
-FEISHU_APP_ID=cli_xxxxx
-FEISHU_APP_SECRET=your-app-secret
-```
+配置文件支持 `${ENV_VAR}` 语法引用系统环境变量：
 
 ```yaml
 # .bumblebee.yaml
@@ -102,7 +102,7 @@ channels:
 node dist/cli.js
 
 # 连接飞书
-/channel-connect feishu
+/channels connect feishu
 ```
 
 连接成功后，在飞书中给机器人发消息即可开始对话。

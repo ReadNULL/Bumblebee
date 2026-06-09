@@ -4,16 +4,25 @@
  * 自动检测环境、引导用户配置、生成 .bumblebee.yaml
  */
 
-import { writeFile, readFile, access } from 'fs/promises'
+import { writeFile, access } from 'fs/promises'
 import { resolve } from 'path'
-import { homedir } from 'os'
 import { execSync } from 'child_process'
+import { getProviderApiKey } from '../core/config.js'
+
+interface PresetAI {
+  provider: string
+  model: string
+  temperature: number
+  maxTokens: number
+  apiKey?: string
+  baseUrl?: string
+}
 
 const PRESETS = {
   mini: {
     personality: { intensity: 'moderate', theme: 'transformers', roleId: 'bumblebee' },
     memory: { enabled: true, maxHistory: 50 },
-    ai: { provider: 'openai', model: 'gpt-4o', temperature: 0.7, maxTokens: 4096 },
+    ai: { provider: 'openai', model: 'gpt-4o', temperature: 0.7, maxTokens: 4096 } as PresetAI,
     knowledge: { enabled: false },
     agents: { enabled: false },
     workflows: { enabled: false },
@@ -25,7 +34,7 @@ const PRESETS = {
   dev: {
     personality: { intensity: 'high', theme: 'transformers', roleId: 'bumblebee' },
     memory: { enabled: true, maxHistory: 200 },
-    ai: { provider: 'openai', model: 'gpt-4o', temperature: 0.7, maxTokens: 8192 },
+    ai: { provider: 'openai', model: 'gpt-4o', temperature: 0.7, maxTokens: 8192 } as PresetAI,
     knowledge: { enabled: true, maxRecords: 2000 },
     agents: { enabled: true, maxConcurrent: 5, defaultTemperature: 0.7 },
     workflows: { enabled: true, defaultTimeout: 300000, maxConcurrentWorkflows: 3 },
@@ -41,7 +50,7 @@ const PRESETS = {
   full: {
     personality: { intensity: 'high', theme: 'transformers', roleId: 'bumblebee' },
     memory: { enabled: true, maxHistory: 500 },
-    ai: { provider: 'anthropic', model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 8192 },
+    ai: { provider: 'anthropic', model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 8192 } as PresetAI,
     knowledge: { enabled: true, maxRecords: 5000 },
     agents: { enabled: true, maxConcurrent: 10, defaultTemperature: 0.7 },
     workflows: { enabled: true, defaultTimeout: 600000, maxConcurrentWorkflows: 5 },
@@ -62,7 +71,7 @@ async function fileExists(path: string): Promise<boolean> {
   try { await access(path); return true } catch { return false }
 }
 
-function detectEnv() {
+function detectEnv(configApiKey?: string) {
   const checks: Array<{ name: string; ok: boolean; detail: string }> = []
 
   // Node.js 版本
@@ -86,8 +95,8 @@ function detectEnv() {
     checks.push({ name: 'Git', ok: false, detail: '未安装（可选）' })
   }
 
-  // API Key
-  const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY)
+  // API Key（配置文件优先，环境变量兜底）
+  const hasKey = ['anthropic', 'openai', 'gemini', 'bedrock'].some(provider => !!getProviderApiKey(provider, configApiKey))
   checks.push({ name: 'API Key', ok: hasKey, detail: hasKey ? '已检测到' : '未设置（稍后配置）' })
 
   return checks
@@ -122,6 +131,14 @@ async function prompt(question: string): Promise<string> {
 }
 
 export async function runInit(args: string[]): Promise<void> {
+  // 尝试读取已有配置文件中的 apiKey
+  let configApiKey: string | undefined
+  try {
+    const { loadConfig } = await import('../core/config.js')
+    const config = await loadConfig()
+    configApiKey = config.ai?.apiKey
+  } catch { /* 配置文件不存在或解析失败，忽略 */ }
+
   const presetFlag = args.indexOf('--preset')
   let presetName: string | null = null
   if (presetFlag >= 0 && args[presetFlag + 1]) {
@@ -135,7 +152,7 @@ export async function runInit(args: string[]): Promise<void> {
 
   // 环境检测
   log('  检测环境...')
-  const envChecks = detectEnv()
+  const envChecks = detectEnv(configApiKey)
   for (const c of envChecks) {
     const icon = c.ok ? '✓' : '✗'
     log(`    ${icon} ${c.name}: ${c.detail}`)
@@ -182,32 +199,16 @@ export async function runInit(args: string[]): Promise<void> {
   log(`  已设置: ${preset.ai.provider} / ${preset.ai.model}`)
   log('')
 
-  // 检查已有的 .env
-  const envPath = resolve('.env')
-  const hasEnv = await fileExists(envPath)
-  if (!hasEnv) {
-    const apiKey = await prompt('  请输入 API Key (留跳过，稍后手动配置 .env): ')
-    if (apiKey) {
-      const baseUrl = await prompt('  API Base URL (留空使用默认): ')
-      const envLines = [
-        preset.ai.provider === 'anthropic'
-          ? `ANTHROPIC_API_KEY=${apiKey}`
-          : `OPENAI_API_KEY=${apiKey}`,
-      ]
-      if (baseUrl) {
-        envLines.push(
-          preset.ai.provider === 'anthropic'
-            ? `ANTHROPIC_BASE_URL=${baseUrl}`
-            : `OPENAI_BASE_URL=${baseUrl}`
-        )
-      }
-      await writeFile(envPath, envLines.join('\n') + '\n', 'utf-8')
-      log('  已生成 .env 文件')
-    } else {
-      log('  跳过 API Key 配置，请稍后手动创建 .env 文件')
+  // API Key 和 Base URL（写入配置文件，优先级最高）
+  const apiKey = await prompt('  请输入 API Key (留跳过，稍后手动配置): ')
+  if (apiKey) {
+    preset.ai.apiKey = apiKey
+    const baseUrl = await prompt('  API Base URL (留空使用默认): ')
+    if (baseUrl) {
+      preset.ai.baseUrl = baseUrl
     }
   } else {
-    log('  .env 文件已存在，跳过')
+    log('  跳过 API Key 配置，请稍后手动设置')
   }
   log('')
 
@@ -232,6 +233,7 @@ export async function runInit(args: string[]): Promise<void> {
 }
 
 function generateYaml(preset: typeof PRESETS.mini): string {
+  const ai = preset.ai
   return `# Bumblebee 配置文件
 # 文档: https://github.com/your-org/bumblebee
 
@@ -245,10 +247,10 @@ memory:
   maxHistory: ${preset.memory.maxHistory}
 
 ai:
-  provider: ${preset.ai.provider}
-  model: ${preset.ai.model}
-  temperature: ${preset.ai.temperature}
-  maxTokens: ${preset.ai.maxTokens}
+  provider: ${ai.provider}
+  model: ${ai.model}
+  temperature: ${ai.temperature}
+  maxTokens: ${ai.maxTokens}${ai.apiKey ? `\n  apiKey: ${ai.apiKey}` : ''}${ai.baseUrl ? `\n  baseUrl: ${ai.baseUrl}` : ''}
 
 knowledge:
   enabled: ${preset.knowledge.enabled}${'maxRecords' in preset.knowledge ? `\n  maxRecords: ${(preset.knowledge as any).maxRecords}` : ''}
@@ -296,7 +298,7 @@ function printDone() {
   log('  配置完成！')
   log('')
   log('  下一步:')
-  log('    1. 确保 .env 中的 API Key 正确')
+  log('    1. 确保 .bumblebee.yaml 中的 API Key 正确')
   log('    2. 运行 bumblebee 启动 TUI')
   log('    3. 输入 /help 查看所有命令')
   log('')
@@ -305,12 +307,20 @@ function printDone() {
 // ========== bumblebee doctor ==========
 
 export async function runDoctor(): Promise<void> {
+  // 尝试读取配置文件中的 apiKey
+  let configApiKey: string | undefined
+  try {
+    const { loadConfig } = await import('../core/config.js')
+    const config = await loadConfig()
+    configApiKey = config.ai?.apiKey
+  } catch { /* 配置文件不存在或解析失败，忽略 */ }
+
   log('')
   log('  Bumblebee 环境诊断')
   log('  ─────────────────────────────')
   log('')
 
-  const checks = detectEnv()
+  const checks = detectEnv(configApiKey)
   let allOk = true
 
   for (const c of checks) {
@@ -323,10 +333,6 @@ export async function runDoctor(): Promise<void> {
   // 检查配置文件
   const configExists = await fileExists(resolve('.bumblebee.yaml'))
   log(`    ${configExists ? '✓' : '✗'} 配置文件: ${configExists ? '.bumblebee.yaml' : '未找到（运行 bumblebee init 创建）'}`)
-
-  // 检查 .env
-  const envExists = await fileExists(resolve('.env'))
-  log(`    ${envExists ? '✓' : '~'} .env 文件: ${envExists ? '已存在' : '未找到（可选）'}`)
 
   // 检查 node_modules
   const nmExists = await fileExists(resolve('node_modules'))

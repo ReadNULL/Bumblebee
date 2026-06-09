@@ -21,6 +21,19 @@ import {
 // 飞书 SDK 模块（延迟加载）
 let lark: any
 
+const silentLarkLogger = {
+  fatal: () => {},
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+  trace: () => {},
+}
+
+function getLarkLoggerLevel(): number {
+  return lark?.LoggerLevel?.fatal ?? 0
+}
+
 interface FeishuConfig extends ChannelConfig {
   name?: string
   appId: string           // 飞书应用 App ID
@@ -35,7 +48,7 @@ export class FeishuAdapter implements ChannelAdapter {
   type: 'messaging' = 'messaging'
   description = '飞书渠道适配器（基于 @larksuiteoapi/node-sdk）'
   supports: ChannelCapabilities = {
-    files: true,
+    files: false,
     reactions: true,
     threads: true,
     mentions: true,
@@ -55,6 +68,55 @@ export class FeishuAdapter implements ChannelAdapter {
     this.config = config
   }
 
+  private async handleIncomingMessage(data: any): Promise<void> {
+    if (!this.messageHandler) {
+      return
+    }
+
+    const event = data?.event || data
+    const message = event?.message
+    if (!message) {
+      return
+    }
+
+    const content = this.parseMessageContent(message.content)
+    const senderId =
+      event?.sender?.sender_id?.open_id ||
+      event?.sender?.sender_id?.user_id ||
+      event?.sender?.sender_id?.union_id ||
+      'unknown'
+    const createTime = Number.parseInt(message.create_time, 10)
+
+    await this.messageHandler({
+      id: message.message_id,
+      content: this.extractContent(message.message_type, content),
+      type: this.getMessageType(message.message_type),
+      sender: {
+        id: senderId,
+        name: senderId,
+        platform: 'feishu',
+      },
+      timestamp: Number.isFinite(createTime) ? new Date(createTime) : new Date(),
+      metadata: {
+        chatId: message.chat_id,
+        chatType: message.chat_type,
+        mentionKeys: message.mentions || [],
+      },
+    })
+  }
+
+  private parseMessageContent(content: unknown): any {
+    if (typeof content !== 'string') {
+      return content || {}
+    }
+
+    try {
+      return JSON.parse(content)
+    } catch {
+      return { text: content }
+    }
+  }
+
   // 初始化
   async initialize(): Promise<void> {
     try {
@@ -67,7 +129,9 @@ export class FeishuAdapter implements ChannelAdapter {
     this.client = new lark.Client({
       appId: this.config.appId,
       appSecret: this.config.appSecret,
-      disableTokenCache: false
+      disableTokenCache: false,
+      logger: silentLarkLogger,
+      loggerLevel: getLarkLoggerLevel()
     })
   }
 
@@ -84,17 +148,20 @@ export class FeishuAdapter implements ChannelAdapter {
       this.wsClient = new lark.WSClient({
         appId: this.config.appId,
         appSecret: this.config.appSecret,
-        loggerLevel: lark.LoggerLevel.INFO
+        logger: silentLarkLogger,
+        loggerLevel: getLarkLoggerLevel()
       })
 
       // 注册消息事件处理器
       this.wsClient.start({
         eventDispatcher: new lark.EventDispatcher({
           encryptKey: this.config.encryptKey,
-          verificationToken: this.config.verificationToken
+          verificationToken: this.config.verificationToken,
+          logger: silentLarkLogger,
+          loggerLevel: getLarkLoggerLevel()
         }).register({
           'im.message.receive_v1': async (data: any) => {
-            await this.handleMessage(data)
+            await this.handleIncomingMessage(data)
           }
         })
       })
@@ -190,16 +257,24 @@ export class FeishuAdapter implements ChannelAdapter {
 
   // 处理接收到的消息
   private async handleMessage(data: any): Promise<void> {
+    await this.handleIncomingMessage(data)
+    return
+
     if (!this.messageHandler) {
       return
     }
 
-    const event = data.event
+    const event = data?.event || data
+    if (!event?.message) {
+      return
+    }
     const message = event.message
-    const sender = event.sender
+    const sender = event.sender || {}
 
     // 获取消息内容
-    const content = JSON.parse(message.content)
+    const content = this.parseMessageContent(message.content)
+    const senderId = sender.sender_id?.open_id || sender.sender_id?.user_id || sender.sender_id?.union_id || 'unknown'
+    const createTime = Number.parseInt(message.create_time, 10)
 
     // 构建统一消息格式
     const unifiedMessage: Message = {
@@ -219,7 +294,7 @@ export class FeishuAdapter implements ChannelAdapter {
       }
     }
 
-    await this.messageHandler(unifiedMessage)
+    await this.messageHandler?.(unifiedMessage)
   }
 
   // 获取消息类型

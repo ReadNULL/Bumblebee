@@ -18,10 +18,18 @@ import {
   User
 } from './types.js'
 import QRCode from 'qrcode'
+import { createRequire } from 'node:module'
 
 // wechaty 模块（延迟加载）
 let WechatyClass: any
 let wechatyLoadPromise: Promise<void> | null = null
+const requireFromModule = createRequire(import.meta.url)
+
+const KNOWN_WECHAT_PUPPETS = new Set([
+  'wechaty-puppet-padlocal',
+  'wechaty-puppet-wechat4u',
+  'wechaty-puppet-xp',
+])
 
 interface WeChatConfig extends ChannelConfig {
   name?: string
@@ -31,17 +39,51 @@ interface WeChatConfig extends ChannelConfig {
   autoReply?: boolean
 }
 
+export function getWeChatPuppetInstallHint(puppet?: string): string {
+  if (!puppet) {
+    return '未配置 puppet。请在 .bumblebee.yaml 的 channels.wechat.puppet 中指定一个 Wechaty puppet。'
+  }
+
+  const installCommand = `npm.cmd install ${puppet}`
+  const puppetNote = puppet === 'wechaty-puppet-xp'
+    ? '\n注意: XP puppet 依赖 frida 原生模块，在 Node 22 上可能无法安装；Bumblebee 不会在 npm install 时默认预装它。优先使用 PadLocal，或在兼容环境中手动安装 XP。'
+    : KNOWN_WECHAT_PUPPETS.has(puppet)
+      ? ''
+      : '\n该 puppet 不在 Bumblebee 的常用列表中，请确认包名是否正确。'
+
+  return [
+    `微信 Puppet 依赖未安装: ${puppet}`,
+    `当前配置选择了 ${puppet}，但项目 node_modules 中没有找到这个包。`,
+    `请在项目根目录运行: ${installCommand}`,
+    '安装后重新启动 Bumblebee 再连接微信；或把 channels.wechat.puppet 改为已安装的 puppet。',
+    puppetNote,
+  ].filter(Boolean).join('\n')
+}
+
+export function ensureWeChatPuppetInstalled(puppet?: string): void {
+  if (!puppet) return
+
+  try {
+    requireFromModule.resolve(puppet)
+  } catch (error: any) {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND' || String(error?.message || error).includes(puppet)) {
+      throw new Error(getWeChatPuppetInstallHint(puppet))
+    }
+    throw error
+  }
+}
+
 export class WeChatAdapter implements ChannelAdapter {
   name: string
   type: 'messaging' = 'messaging'
   description = '微信渠道适配器（基于 wechaty）'
   supports: ChannelCapabilities = {
-    files: true,
+    files: false,
     reactions: false,
     threads: false,
     mentions: true,
     richText: false,
-    voice: true,
+    voice: false,
     video: false
   }
 
@@ -97,6 +139,9 @@ export class WeChatAdapter implements ChannelAdapter {
 
     this._status = 'connecting'
 
+    await this.initialize()
+    ensureWeChatPuppetInstalled(this.config.puppet)
+
     // 创建 wechaty 实例
     const builderOptions: any = {
       name: this.config.name || 'bumblebee'
@@ -146,6 +191,10 @@ export class WeChatAdapter implements ChannelAdapter {
     // fire-and-forget: 不 await bot.start()，让 bot 在后台自行启动
     this.bot.start().catch((error: Error) => {
       this._status = 'error'
+      if (this.config.puppet && String(error?.message || error).includes(this.config.puppet)) {
+        console.error('微信启动失败:', getWeChatPuppetInstallHint(this.config.puppet))
+        return
+      }
       console.error('微信启动失败:', error)
     })
   }

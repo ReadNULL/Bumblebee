@@ -113,7 +113,7 @@ export class ChannelWizard {
       // 保存到 .bumblebee.yaml
       await this.saveToConfig(platform, config)
       console.log(`\n✅ ${platform} 渠道配置已保存到 .bumblebee.yaml`)
-      console.log('   启动 TUI 后使用 /channel-connect 连接')
+      console.log('   启动 TUI 后使用 /channels connect 连接')
 
       return { type: platform as ChannelSetupResult['type'], config }
 
@@ -126,22 +126,24 @@ export class ChannelWizard {
   // 微信配置
   private async setupWeChat(): Promise<Record<string, any>> {
     console.log('\n--- 微信渠道配置 ---')
-    console.log('前置条件: npm install wechaty')
+    console.log('前置条件: npm install 会安装 wechaty、Wechat4U 和 PadLocal；XP 需兼容环境手动安装')
     console.log('')
 
     const puppet = await this.askChoice(
       '选择 Puppet 类型:',
       [
-        { value: 'wechaty-puppet-padlocal', label: 'PadLocal (推荐，稳定，需要 token)' },
-        { value: 'wechaty-puppet-wechat4u', label: 'Wechat4U (免费，基于 Web 协议)' },
-        { value: 'wechaty-puppet-xp', label: 'XP (Windows 微信桌面版)' },
+        { value: 'wechaty-puppet-padlocal', label: 'PadLocal (需向 PadLocal/Wechaty 社区申请 token；旧官网可能不可用)' },
+        { value: 'wechaty-puppet-wechat4u', label: 'Wechat4U (wechaty 自带，基于 Web 协议，多数账号不可用)' },
+        { value: 'wechaty-puppet-xp', label: 'XP (实验性，Node 22 可能无法安装，需手动处理)' },
       ],
       'wechaty-puppet-wechat4u'
     )
 
     let token: string | undefined
     if (puppet === 'wechaty-puppet-padlocal') {
-      token = await this.ask('PadLocal Token (从 https://pad-local.com 获取)', '')
+      console.log('PadLocal token 需要向 PadLocal/Wechaty 社区或服务方申请/购买；旧入口 pad-local.com 可能已不可用。')
+      console.log('没有 token 时，建议先使用飞书或钉钉渠道完成 IM 接入验证。')
+      token = await this.ask('PadLocal Token', '')
       if (!token) {
         console.log('⚠️  PadLocal 需要 token，否则无法登录')
       }

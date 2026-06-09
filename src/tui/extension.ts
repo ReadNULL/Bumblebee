@@ -5,6 +5,9 @@
  */
 
 import { Type } from 'typebox'
+import { readFile, writeFile } from 'fs/promises'
+import { resolve } from 'path'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { defineTool, convertToLlm, serializeConversation, type ExtensionAPI } from '@earendil-works/pi-coding-agent'
 import { BumblebeeAgent } from '../core/agent.js'
 import { loadConfig } from '../core/config.js'
@@ -12,6 +15,7 @@ import { BumblebeePersonality } from '../personality/traits.js'
 import { extractProfileFromConversation } from '../memory/profile-extractor.js'
 import { ChannelManager } from '../channels/manager.js'
 import { WeChatAdapter } from '../channels/wechat.js'
+import type { Message } from '../channels/types.js'
 import { getSpecializedAgentTypes, createAgentTeam, RECOMMENDED_TEAMS } from '../agents/specialized.js'
 import { getWorkflowTemplateIds, createWorkflowFromTemplate } from '../workflows/templates.js'
 import type { KnowledgeNode } from '../knowledge/types.js'
@@ -329,6 +333,85 @@ let channelManager: ChannelManager
 // 对话消息缓冲（用于退出时提取画像和保存摘要）
 let sessionMessages: any[] = []
 
+function getChannelReplyTarget(message: Message): string {
+  const metadata = message.metadata || {}
+
+  if (message.sender.platform === 'wechat') {
+    return metadata.roomName || metadata.roomId || message.sender.id || message.sender.name
+  }
+
+  if (message.sender.platform === 'feishu') {
+    return metadata.chatId || message.sender.id
+  }
+
+  if (message.sender.platform === 'dingtalk') {
+    return message.sender.id || metadata.conversationId
+  }
+
+  return message.sender.id || message.sender.name
+}
+
+function shouldHandleChannelMessage(message: Message): boolean {
+  if (!message.content?.trim()) return false
+  if (message.type !== 'text' && message.type !== 'code') return false
+
+  const metadata = message.metadata || {}
+  if (message.sender.platform === 'wechat' && metadata.roomId && metadata.isMentionSelf === false) {
+    return false
+  }
+
+  if (
+    message.sender.platform === 'feishu' &&
+    metadata.chatType &&
+    metadata.chatType !== 'p2p' &&
+    Array.isArray(metadata.mentionKeys) &&
+    metadata.mentionKeys.length === 0
+  ) {
+    return false
+  }
+
+  return true
+}
+
+function createChannelReply(message: Message, content: string): Message {
+  return {
+    id: `reply-${message.id}-${Date.now()}`,
+    content,
+    type: 'text',
+    sender: {
+      id: 'bumblebee',
+      name: 'Bumblebee',
+      platform: message.sender.platform,
+    },
+    timestamp: new Date(),
+    metadata: {
+      replyTo: message.id,
+    },
+  }
+}
+
+async function persistChannelConfig(channelName: 'wechat' | 'feishu' | 'dingtalk', channelConfig: Record<string, any>): Promise<void> {
+  const configPath = resolve('.bumblebee.yaml')
+  let rawConfig: Record<string, any> = {}
+
+  try {
+    const content = await readFile(configPath, 'utf-8')
+    rawConfig = parseYaml(content) || {}
+  } catch {
+    rawConfig = {}
+  }
+
+  rawConfig.channels = {
+    ...(rawConfig.channels || {}),
+    [channelName]: {
+      ...(rawConfig.channels?.[channelName] || {}),
+      ...channelConfig,
+    },
+  }
+
+  await writeFile(configPath, stringifyYaml(rawConfig), 'utf-8')
+}
+
 export default async function bumblebeeExtension(pi: ExtensionAPI) {
   // 预加载 wechaty 模块（后台进行，不阻塞启动）
   WeChatAdapter.preload().catch(() => {})
@@ -371,6 +454,126 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
   if (config.channels) {
     await channelManager.loadFromConfig(config.channels)
   }
+
+  // 渠道消息去重（保留 5 分钟，防止飞书等平台重试导致重复处理）
+  const processedMessages = new Map<string, number>()
+  const DEDUP_TTL = 5 * 60 * 1000
+
+  // 渠道消息历史（显示在 TUI widget 中）
+  const MAX_CHANNEL_LOG = 10
+  const channelLog: string[] = []
+
+  // UI 引用（在 session_start 中赋值）
+  let extensionUI: any = null
+
+  function updateChannelWidget() {
+    if (!extensionUI?.setWidget || channelLog.length === 0) return
+    extensionUI.setWidget('channel-messages', [...channelLog], { placement: 'aboveEditor' })
+  }
+
+  function appendChannelLog(line: string) {
+    channelLog.push(line)
+    if (channelLog.length > MAX_CHANNEL_LOG) channelLog.shift()
+    updateChannelWidget()
+  }
+
+  channelManager.onMessage(async (message) => {
+    const key = `${message.sender.platform}:${message.id}`
+    const now = Date.now()
+
+    // 清理过期记录
+    for (const [k, t] of processedMessages) {
+      if (now - t > DEDUP_TTL) processedMessages.delete(k)
+    }
+
+    if (processedMessages.has(key) || !shouldHandleChannelMessage(message)) return
+
+    processedMessages.set(key, now)
+    try {
+      const sender = message.sender.name || message.sender.id
+      const preview = message.content.length > 60 ? message.content.substring(0, 60) + '...' : message.content
+      const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+
+      appendChannelLog(`${time} [${message.sender.platform}] ${sender}: ${preview}`)
+
+      const response = await agent.processMessage(message.content)
+      const target = getChannelReplyTarget(message)
+      await channelManager.send(message.sender.platform, target, createChannelReply(message, response))
+
+      const replyPreview = response.length > 60 ? response.substring(0, 60) + '...' : response
+      appendChannelLog(`${time} [回复] ${replyPreview}`)
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error)
+      appendChannelLog(`[错误] ${message.sender.platform}: ${errMsg}`)
+      try {
+        const target = getChannelReplyTarget(message)
+        await channelManager.send(message.sender.platform, target, createChannelReply(message, '处理消息时出错，请稍后重试。'))
+      } catch { /* ignore */ }
+    }
+  })
+
+  let welcomeShown = false
+
+  pi.on('session_start', async (_event, ctx) => {
+    // 保存 UI 引用，供渠道消息处理使用
+    extensionUI = ctx.ui
+
+    // 在 SDK 的 modelRegistry 中注册自定义 provider
+    // 分两步：先注册认证，再注册自定义模型（避免 SDK 验证冲突）
+    if (config.ai.apiKey) {
+      ctx.modelRegistry.registerProvider(config.ai.provider, { apiKey: config.ai.apiKey })
+    }
+    if (config.ai.baseUrl) {
+      ctx.modelRegistry.registerProvider(config.ai.provider, { baseUrl: config.ai.baseUrl })
+    }
+
+    // 对于非 SDK 内置模型（如 mimo-v2.5-pro），需要显式注册模型定义
+    let model = ctx.modelRegistry.find(config.ai.provider, config.ai.model)
+    if (!model && config.ai.baseUrl) {
+      ctx.modelRegistry.registerProvider(config.ai.provider, {
+        baseUrl: config.ai.baseUrl,
+        apiKey: config.ai.apiKey,
+        models: [{
+          id: config.ai.model,
+          name: config.ai.model,
+          api: config.ai.provider === 'anthropic' ? 'anthropic-messages' : 'openai-completions',
+          baseUrl: config.ai.baseUrl,
+          contextWindow: 128000,
+          reasoning: false,
+          input: ['text'],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          maxTokens: config.ai.maxTokens || 4096,
+        }],
+      })
+      model = ctx.modelRegistry.find(config.ai.provider, config.ai.model)
+    }
+
+    if (model) {
+      const selected = await pi.setModel(model)
+      if (!selected) {
+        ctx.ui.notify(`配置的模型不可用或缺少认证: ${config.ai.provider}/${config.ai.model}`, 'warning')
+      }
+    } else {
+      ctx.ui.notify(`未找到模型: ${config.ai.provider}/${config.ai.model}，请检查配置`, 'warning')
+    }
+
+    const memStats = agent.getMemoryStats()
+    if (!welcomeShown && memStats.preferences === 0 && memStats.facts === 0) {
+      welcomeShown = true
+      const role = agent.getCurrentRole()
+      ctx.ui.notify([
+        `欢迎使用 Bumblebee！当前角色: ${role.name}`,
+        '',
+        '快速开始:',
+        '  /help          查看所有命令',
+        '  /roles         列出可用角色',
+        '  /switch <id>   切换角色',
+        '  /status        系统状态概览',
+        '',
+        '直接输入消息即可开始对话。',
+      ].join('\n'), 'info')
+    }
+  })
 
   // 注入角色 system prompt + 用户画像 + 上次对话摘要 + 知识上下文
   pi.on('before_agent_start', async (event) => {
@@ -465,8 +668,18 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
     sessionMessages = event.messages
   })
 
-  // 退出时提取画像并保存对话摘要
+  // 退出时清理资源
   pi.on('session_shutdown', async (_event) => {
+    // 断开所有渠道连接（释放 WebSocket 等资源）
+    try {
+      await channelManager.disconnectAll()
+    } catch { /* ignore */ }
+
+    // 释放 Agent 资源（清除 dashboard 定时器等）
+    try {
+      await agent.dispose()
+    } catch { /* ignore */ }
+
     if (sessionMessages.length === 0) return
 
     try {
@@ -634,13 +847,10 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
 
   // ========== 渠道管理命令 ==========
 
-  // 注册斜杠命令：/channels
-  pi.registerCommand('channels', {
-    description: '列出所有渠道及其连接状态',
-    handler: async (_args, ctx) => {
+  const showChannelStatus = async (ctx: any) => {
       const channels = channelManager.getChannels()
       if (channels.length === 0) {
-        ctx.ui.notify('未配置任何渠道。使用 /channel-setup 添加渠道。', 'info')
+        ctx.ui.notify('未配置任何渠道。使用 /channels setup 添加渠道。', 'info')
         return
       }
       const items = await Promise.all(channels.map(async ch => {
@@ -649,13 +859,9 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         return `${icon} ${ch.name} (${ch.type}) — ${ch.description || ''}`
       }))
       ctx.ui.notify(`渠道列表 (${channels.length}):\n${items.join('\n')}`, 'info')
-    },
-  })
+  }
 
-  // 注册斜杠命令：/channel-setup
-  pi.registerCommand('channel-setup', {
-    description: '交互式设置渠道连接',
-    handler: async (_args, ctx) => {
+  const setupChannel = async (ctx: any) => {
       const platform = await ctx.ui.select('选择渠道平台', [
         'wechat: 微信 (基于 wechaty，扫码登录)',
         'feishu: 飞书 (基于飞书开放平台，WebSocket 长连接)',
@@ -670,15 +876,19 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
 
       if (platformId === 'wechat') {
         const puppet = await ctx.ui.select('选择 Puppet 类型', [
-          'wechaty-puppet-padlocal: PadLocal (推荐，稳定，需要 token)',
-          'wechaty-puppet-xp: XP (免费，Windows 桌面版)',
-          'wechaty-puppet-wechat4u: Wechat4U (⚠️ 多数账号已不可用)',
+          'wechaty-puppet-padlocal: PadLocal (需向 PadLocal/Wechaty 社区申请 token，旧官网可能不可用)',
+          'wechaty-puppet-wechat4u: Wechat4U (wechaty 自带，多数账号不可用)',
+          'wechaty-puppet-xp: XP (实验性，Node 22 可能无法安装，需手动处理)',
         ])
         if (!puppet) return
         config.puppet = puppet.split(':')[0].trim()
 
         if (config.puppet === 'wechaty-puppet-padlocal') {
-          const token = await ctx.ui.input('PadLocal Token', '从 https://pad-local.com 获取')
+          ctx.ui.notify(
+            'PadLocal token 需要向 PadLocal/Wechaty 社区或服务方申请/购买；旧入口 pad-local.com 可能已不可用。没有 token 时建议先使用飞书或钉钉渠道。',
+            'warning'
+          )
+          const token = await ctx.ui.input('PadLocal Token', 'puppet_padlocal_xxxxxxxxxxxxxxxxxx')
           if (token) config.token = token
         }
       } else if (platformId === 'feishu') {
@@ -719,6 +929,9 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
 
           const robotCode = await ctx.ui.input('Robot Code (可选)', '')
           if (robotCode) config.robotCode = robotCode
+
+          const port = await ctx.ui.input('回调监听端口', '3001')
+          config.port = Number(port) || 3001
         }
       }
 
@@ -727,23 +940,15 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         const { createAdapterFromConfig } = await import('../channels/config-loader.js')
         const adapter = await createAdapterFromConfig(platformId, config)
         channelManager.register(adapter)
-        ctx.ui.notify(`渠道 ${platformId} 已添加。使用 /channel-connect ${adapter.name} 连接。`, 'info')
+        await persistChannelConfig(platformId, config)
+        ctx.ui.notify(`渠道 ${platformId} 已保存。使用 /channels connect ${adapter.name} 连接。`, 'info')
       } catch (error) {
         ctx.ui.notify(`创建渠道适配器失败: ${error}`, 'error')
       }
-    },
-  })
+  }
 
-  // 注册斜杠命令：/channel-connect
-  pi.registerCommand('channel-connect', {
-    description: '连接指定渠道或所有渠道（用法: /channel-connect [渠道名]）',
-    getArgumentCompletions: (prefix) => {
-      return channelManager.getChannels()
-        .filter(ch => ch.name.startsWith(prefix))
-        .map(ch => ({ value: ch.name, label: ch.description || ch.name }))
-    },
-    handler: async (args, ctx) => {
-      const name = args.trim()
+  const connectChannel = async (target: string, ctx: any) => {
+      const name = target.trim()
       if (name) {
         const ch = channelManager.getChannel(name)
         if (!ch) {
@@ -795,21 +1000,17 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
           ctx.ui.notify(`连接 ${selectedName} 失败: ${error}`, 'error')
         }
       }
-    },
-  })
+  }
 
-  // 注册斜杠命令：/channel-disconnect
-  pi.registerCommand('channel-disconnect', {
-    description: '断开指定渠道或所有渠道',
-    getArgumentCompletions: (prefix) => {
-      return channelManager.getChannels()
-        .filter(ch => ch.name.startsWith(prefix))
-        .map(ch => ({ value: ch.name, label: ch.description || ch.name }))
-    },
-    handler: async (args, ctx) => {
-      const name = args.trim()
+  const disconnectChannel = async (target: string, ctx: any) => {
+      const name = target.trim()
       if (name) {
-        await channelManager.unregister(name)
+        const ch = channelManager.getChannel(name)
+        if (!ch) {
+          ctx.ui.notify(`渠道 "${name}" 不存在`, 'error')
+          return
+        }
+        await ch.disconnect()
         ctx.ui.notify(`已断开: ${name}`, 'info')
       } else {
         // 无参数，弹出选择列表
@@ -826,9 +1027,59 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
           ctx.ui.notify('已断开所有渠道', 'info')
         } else {
           const selectedName = selected.split(':')[0].trim()
-          await channelManager.unregister(selectedName)
+          const ch = channelManager.getChannel(selectedName)
+          if (!ch) {
+            ctx.ui.notify(`渠道 "${selectedName}" 不存在`, 'error')
+            return
+          }
+          await ch.disconnect()
           ctx.ui.notify(`已断开: ${selectedName}`, 'info')
         }
+      }
+  }
+
+  pi.registerCommand('channels', {
+    description: '渠道管理（用法: /channels、/channels setup、/channels connect [name]、/channels disconnect [name]）',
+    getArgumentCompletions: (prefix) => {
+      const actions = ['status', 'setup', 'connect', 'disconnect']
+      const trimmed = prefix.trimStart()
+      const parts = trimmed.split(/\s+/)
+      if ((parts[0] === 'connect' || parts[0] === 'disconnect') && parts.length >= 2) {
+        const namePrefix = parts.slice(1).join(' ')
+        return channelManager.getChannels()
+          .filter(ch => ch.name.startsWith(namePrefix))
+          .map(ch => ({ value: `${parts[0]} ${ch.name}`, label: ch.description || ch.name }))
+      }
+      return actions
+        .filter(action => action.startsWith(trimmed))
+        .map(action => ({ value: action, label: `channels ${action}` }))
+    },
+    handler: async (args, ctx) => {
+      const [actionArg, ...rest] = args.trim().split(/\s+/).filter(Boolean)
+      let action = actionArg
+      let target = rest.join(' ')
+
+      if (!action) {
+        const selected = await ctx.ui.select('渠道管理', [
+          'status: 查看渠道状态',
+          'setup: 配置渠道',
+          'connect: 连接渠道',
+          'disconnect: 断开渠道',
+        ])
+        if (!selected) return
+        action = selected.split(':')[0].trim()
+      }
+
+      if (action === 'status' || action === 'list') {
+        await showChannelStatus(ctx)
+      } else if (action === 'setup') {
+        await setupChannel(ctx)
+      } else if (action === 'connect') {
+        await connectChannel(target, ctx)
+      } else if (action === 'disconnect') {
+        await disconnectChannel(target, ctx)
+      } else {
+        ctx.ui.notify(`未知渠道操作: ${action}\n用法: /channels status | setup | connect [name] | disconnect [name]`, 'warning')
       }
     },
   })
@@ -839,7 +1090,24 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
   pi.registerCommand('knowledge', {
     description: '知识图谱管理（用法: /knowledge、/knowledge search <关键词>、/knowledge cleanup）',
     handler: async (args, ctx) => {
-      const sub = args.trim()
+      let sub = args.trim()
+
+      if (!sub) {
+        const selected = await ctx.ui.select('知识图谱管理', [
+          'stats: 查看统计',
+          'search: 搜索知识节点',
+          'cleanup: 清理重复和无效节点',
+        ])
+        if (!selected) return
+        const action = selected.split(':')[0].trim()
+        if (action === 'search') {
+          const keyword = await ctx.ui.input('输入搜索关键词', '')
+          if (!keyword) return
+          sub = `search ${keyword}`
+        } else {
+          sub = action
+        }
+      }
 
       if (sub.startsWith('search ')) {
         const keyword = sub.slice(7).trim()
@@ -909,46 +1177,6 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         `知识图谱统计:\n  节点: ${stats.nodeCount}\n  关系: ${stats.relationCount}\n类型分布:\n${typeEntries || '  (空)'}`,
         'info'
       )
-    },
-  })
-
-  // /knowledge-cleanup — 独立命令，清理重复和无效节点
-  pi.registerCommand('knowledge-cleanup', {
-    description: '清理知识图谱中的重复和无效节点',
-    handler: async (_args, ctx) => {
-      const kg = agent.getKnowledge()
-      const nodes = kg.getAllNodes()
-      const before = nodes.length
-
-      const contentMap = new Map<string, string[]>()
-      for (const node of nodes) {
-        const key = (node.content || '').substring(0, 200)
-        if (!key) continue
-        const existing = contentMap.get(key) || []
-        existing.push(node.id)
-        contentMap.set(key, existing)
-      }
-
-      let removed = 0
-      for (const [, ids] of contentMap) {
-        if (ids.length <= 1) continue
-        for (const id of ids.slice(1)) {
-          kg.removeNode(id)
-          removed++
-        }
-      }
-
-      for (const node of kg.getAllNodes()) {
-        const content = node.content || ''
-        if (content.length < 10 || content.startsWith('<p align')) {
-          kg.removeNode(node.id)
-          removed++
-        }
-      }
-
-      await kg.save()
-      const after = kg.getAllNodes().length
-      ctx.ui.notify(`清理完成: 删除 ${removed} 个重复/无效节点 (${before} → ${after})`, 'info')
     },
   })
 
@@ -1134,10 +1362,7 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
 
   // ========== Batch 1: Agent + Workflow 命令 ==========
 
-  // 命令：/agents
-  pi.registerCommand('agents', {
-    description: '显示 Agent 系统状态和列表',
-    handler: async (_args, ctx) => {
+  const showAgentStatus = async (ctx: any) => {
       const mgr = agent.getAgentManager()
       if (!mgr) {
         ctx.ui.notify('Agent 系统未启用', 'warning')
@@ -1150,18 +1375,9 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         `Agent 系统:\n  总计: ${stats.total}  空闲: ${stats.idle}  忙碌: ${stats.busy}  错误: ${stats.error}\n\nAgent 列表:\n${lines.join('\n') || '  (无已注册 Agent)'}`,
         'info'
       )
-    },
-  })
+  }
 
-  // 命令：/agent-run
-  pi.registerCommand('agent-run', {
-    description: '运行专业 Agent 团队（用法: /agent-run <team> [task]）',
-    getArgumentCompletions: (prefix) => {
-      return Object.keys(RECOMMENDED_TEAMS)
-        .filter(name => name.startsWith(prefix))
-        .map(name => ({ value: name, label: `${name} 团队` }))
-    },
-    handler: async (args, ctx) => {
+  const runAgentTeam = async (args: string, ctx: any) => {
       const orch = agent.getAgentOrchestrator()
       if (!orch) {
         ctx.ui.notify('Agent 编排系统未启用', 'warning')
@@ -1218,13 +1434,48 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         `团队执行完成 (耗时 ${(result.metrics.duration / 1000).toFixed(1)}s):\n${lines.join('\n')}`,
         'info'
       )
+  }
+
+  // 命令：/agents
+  pi.registerCommand('agents', {
+    description: 'Agent 管理（用法: /agents、/agents run <team> [task]）',
+    getArgumentCompletions: (prefix) => {
+      const actions = ['status', 'run']
+      const trimmed = prefix.trimStart()
+      if (trimmed.startsWith('run ')) {
+        const teamPrefix = trimmed.slice(4).trimStart()
+        return Object.keys(RECOMMENDED_TEAMS)
+          .filter(name => name.startsWith(teamPrefix))
+          .map(name => ({ value: `run ${name}`, label: `${name} 团队` }))
+      }
+      return actions
+        .filter(action => action.startsWith(trimmed))
+        .map(action => ({ value: action, label: `agents ${action}` }))
+    },
+    handler: async (args, ctx) => {
+      const [actionArg, ...rest] = args.trim().split(/\s+/).filter(Boolean)
+      let action = actionArg
+
+      if (!action) {
+        const selected = await ctx.ui.select('Agent 管理', [
+          'status: 查看 Agent 状态',
+          'run: 运行专业 Agent 团队',
+        ])
+        if (!selected) return
+        action = selected.split(':')[0].trim()
+      }
+
+      if (action === 'status' || action === 'list') {
+        await showAgentStatus(ctx)
+      } else if (action === 'run') {
+        await runAgentTeam(rest.join(' '), ctx)
+      } else {
+        ctx.ui.notify(`未知 Agent 操作: ${action}\n用法: /agents run <team> [task]`, 'warning')
+      }
     },
   })
 
-  // 命令：/workflows
-  pi.registerCommand('workflows', {
-    description: '显示工作流系统状态',
-    handler: async (_args, ctx) => {
+  const showWorkflowStatus = async (ctx: any) => {
       const engine = agent.getWorkflowEngine()
       if (!engine) {
         ctx.ui.notify('工作流系统未启用', 'warning')
@@ -1237,26 +1488,44 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         `工作流系统:\n  已注册: ${workflows.length}\n\n工作流列表:\n${lines.join('\n') || '  (空)'}\n\n可用模板: ${templates.join(', ')}`,
         'info'
       )
-    },
-  })
+  }
 
-  // 命令：/workflow-run
-  pi.registerCommand('workflow-run', {
-    description: '触发工作流执行（用法: /workflow-run <workflowId>）',
-    getArgumentCompletions: (prefix) => {
-      const engine = agent.getWorkflowEngine()
-      if (!engine) return []
-      return engine.getAllWorkflows()
-        .filter(w => w.id.startsWith(prefix))
-        .map(w => ({ value: w.id, label: w.name }))
-    },
-    handler: async (args, ctx) => {
+  const getWorkflowPayloadExample = (workflowId: string): string => {
+    switch (workflowId) {
+      case 'pr-review':
+        return JSON.stringify({ payload: { prId: 1, repo: 'current', files: ['src/'] } })
+      case 'issue-triage':
+        return JSON.stringify({ payload: { title: '示例 Issue', body: '需要分析的问题描述', labels: [] } })
+      case 'release':
+        return JSON.stringify({ version: '1.0.0', branch: 'main', dryRun: true })
+      case 'code-quality':
+        return JSON.stringify({ files: ['src/'] })
+      default:
+        return '{}'
+    }
+  }
+
+  const parseWorkflowRunArgs = (args: string): { workflowId: string; payloadText: string } => {
+    const trimmed = args.trim()
+    if (!trimmed) return { workflowId: '', payloadText: '' }
+    const firstJson = trimmed.search(/[\[{]/)
+    if (firstJson === -1) {
+      const [workflowId, ...rest] = trimmed.split(/\s+/)
+      return { workflowId, payloadText: rest.join(' ') }
+    }
+    return {
+      workflowId: trimmed.slice(0, firstJson).trim(),
+      payloadText: trimmed.slice(firstJson).trim(),
+    }
+  }
+
+  const runWorkflow = async (args: string, ctx: any) => {
       const engine = agent.getWorkflowEngine()
       if (!engine) {
         ctx.ui.notify('工作流系统未启用', 'warning')
         return
       }
-      let workflowId = args.trim()
+      let { workflowId, payloadText } = parseWorkflowRunArgs(args)
       if (!workflowId) {
         // 无参数，弹出选择列表
         const workflows = engine.getAllWorkflows()
@@ -1269,16 +1538,86 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
         if (!selected) return
         workflowId = selected.split(':')[0].trim()
       }
+
+      const workflow = engine.getWorkflow(workflowId)
+      if (!workflow) {
+        ctx.ui.notify(`工作流不存在: ${workflowId}`, 'error')
+        return
+      }
+
+      if (!payloadText) {
+        payloadText = await ctx.ui.input('输入工作流 payload JSON（留空使用示例）', getWorkflowPayloadExample(workflowId))
+        if (!payloadText) {
+          payloadText = getWorkflowPayloadExample(workflowId)
+        }
+      }
+
+      let payload: Record<string, unknown> | undefined
+      try {
+        const parsed = JSON.parse(payloadText)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          ctx.ui.notify('工作流 payload 必须是 JSON 对象', 'warning')
+          return
+        }
+        payload = parsed as Record<string, unknown>
+      } catch (error) {
+        ctx.ui.notify(`工作流 payload JSON 解析失败: ${error instanceof Error ? error.message : String(error)}`, 'error')
+        return
+      }
+
       ctx.ui.notify(`正在执行工作流: ${workflowId}...`, 'info')
       try {
-        const result = await engine.trigger(workflowId)
-        const stepLines = Object.entries(result.steps).map(([id, s]: [string, any]) => `  ${id}: ${s.status}`).join('\n')
+        const result = await engine.trigger(workflowId, payload)
+        const stepLines = Object.entries(result.steps).map(([id, s]: [string, any]) => {
+          const suffix = s.error ? ` (${s.error})` : ''
+          return `  ${id}: ${s.status}${suffix}`
+        }).join('\n')
         ctx.ui.notify(
           `工作流执行完成 [${result.status}]:\n${stepLines}`,
-          'info'
+          result.status === 'completed' ? 'info' : 'warning'
         )
       } catch (err: any) {
         ctx.ui.notify(`工作流执行失败: ${err.message}`, 'error')
+      }
+  }
+
+  // 命令：/workflows
+  pi.registerCommand('workflows', {
+    description: '工作流管理（用法: /workflows、/workflows run <workflowId> [payload JSON]）',
+    getArgumentCompletions: (prefix) => {
+      const actions = ['status', 'run']
+      const trimmed = prefix.trimStart()
+      if (trimmed.startsWith('run ')) {
+        const workflowPrefix = trimmed.slice(4).trimStart()
+        const engine = agent.getWorkflowEngine()
+        if (!engine) return []
+        return engine.getAllWorkflows()
+          .filter(w => w.id.startsWith(workflowPrefix))
+          .map(w => ({ value: `run ${w.id}`, label: w.name }))
+      }
+      return actions
+        .filter(action => action.startsWith(trimmed))
+        .map(action => ({ value: action, label: `workflows ${action}` }))
+    },
+    handler: async (args, ctx) => {
+      const [actionArg, ...rest] = args.trim().split(/\s+/).filter(Boolean)
+      let action = actionArg
+
+      if (!action) {
+        const selected = await ctx.ui.select('工作流管理', [
+          'status: 查看工作流状态',
+          'run: 运行工作流',
+        ])
+        if (!selected) return
+        action = selected.split(':')[0].trim()
+      }
+
+      if (action === 'status' || action === 'list') {
+        await showWorkflowStatus(ctx)
+      } else if (action === 'run') {
+        await runWorkflow(rest.join(' '), ctx)
+      } else {
+        ctx.ui.notify(`未知工作流操作: ${action}\n用法: /workflows run <workflowId>`, 'warning')
       }
     },
   })
@@ -1597,12 +1936,10 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
     },
   })
 
-  // ========== Issue #3 + #5: /help 帮助系统（分组显示） ==========
-
-  // 命令分组定义
-  const COMMAND_GROUPS = [
+  // Bumblebee keeps /help as an extension command because pi does not expose one.
+  const HELP_GROUPS: Array<{ name: string; commands: Array<{ cmd: string; desc: string }> }> = [
     {
-      name: '角色管理',
+      name: 'Bumblebee 角色',
       commands: [
         { cmd: '/roles', desc: '列出所有可用角色' },
         { cmd: '/switch <id>', desc: '切换角色' },
@@ -1611,118 +1948,93 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
       ],
     },
     {
-      name: '记忆系统',
+      name: 'Bumblebee 记忆与知识',
       commands: [
-        { cmd: '/memory', desc: '显示记忆统计' },
-        { cmd: '/memory summary', desc: '查看上次对话摘要' },
-        { cmd: '/memory clear', desc: '清空记忆' },
+        { cmd: '/memory', desc: '记忆管理' },
         { cmd: '/knowledge', desc: '知识图谱统计' },
         { cmd: '/knowledge search <词>', desc: '搜索知识节点' },
-        { cmd: '/knowledge-cleanup', desc: '清理重复和无效节点' },
+        { cmd: '/knowledge cleanup', desc: '清理重复和无效节点' },
         { cmd: '/context', desc: '显示项目上下文' },
-        { cmd: '/learn', desc: '学习系统统计' },
-        { cmd: '/learn clear', desc: '清空学习数据' },
+        { cmd: '/learn', desc: '学习系统管理' },
       ],
     },
     {
-      name: 'Agent 系统',
+      name: 'Bumblebee Agent 与工作流',
       commands: [
-        { cmd: '/agents', desc: 'Agent 系统状态和列表' },
-        { cmd: '/agent-run <team> [task]', desc: '运行专业 Agent 团队' },
+        { cmd: '/agents', desc: 'Agent 管理' },
+        { cmd: '/agents run <team> [task]', desc: '运行专业 Agent 团队' },
+        { cmd: '/workflows', desc: '工作流管理' },
+        { cmd: '/workflows run <id> [payload JSON]', desc: '触发工作流执行' },
       ],
     },
     {
-      name: '工作流',
+      name: 'Bumblebee 状态与渠道',
       commands: [
-        { cmd: '/workflows', desc: '工作流系统状态' },
-        { cmd: '/workflow-run <id>', desc: '触发工作流执行' },
-      ],
-    },
-    {
-      name: '监控',
-      commands: [
-        { cmd: '/perf', desc: '性能指标' },
-        { cmd: '/cache', desc: '缓存状态' },
-        { cmd: '/cache clear', desc: '清空缓存' },
-        { cmd: '/dashboard', desc: '仪表盘状态' },
         { cmd: '/status', desc: '系统健康概览' },
+        { cmd: '/perf', desc: '性能指标' },
+        { cmd: '/cache', desc: '缓存管理' },
+        { cmd: '/dashboard', desc: '仪表盘状态' },
+        { cmd: '/channels', desc: '渠道管理' },
+        { cmd: '/channels setup', desc: '配置渠道' },
+        { cmd: '/channels connect [name]', desc: '连接渠道' },
+        { cmd: '/channels disconnect [name]', desc: '断开渠道' },
       ],
     },
     {
-      name: '渠道',
+      name: 'Bumblebee 高级功能',
       commands: [
-        { cmd: '/channels', desc: '渠道状态' },
-        { cmd: '/channel-setup <name>', desc: '配置渠道' },
-        { cmd: '/channel-connect [name]', desc: '连接渠道' },
-        { cmd: '/channel-disconnect [name]', desc: '断开渠道' },
+        { cmd: '/collab', desc: '协作管理' },
+        { cmd: '/voice', desc: '语音管理' },
       ],
     },
     {
-      name: '高级功能',
+      name: 'pi 会话管理',
       commands: [
-        { cmd: '/collab', desc: '协作状态' },
-        { cmd: '/voice', desc: '语音引擎状态' },
         { cmd: '/resume', desc: '恢复历史会话' },
         { cmd: '/new', desc: '开始新会话' },
+        { cmd: '/tree', desc: '浏览会话分支' },
+        { cmd: '/fork', desc: '从历史消息创建分支' },
       ],
     },
   ]
 
-  // 命令详情映射
-  const COMMAND_DETAILS: Record<string, string> = {
-    '/roles': '列出所有可用的 Bumblebee 角色。\n用法: /roles\n示例: /roles',
-    '/switch': '切换到指定角色，角色决定 AI 的专业领域和沟通风格。\n用法: /switch <角色ID>\n示例: /switch code-reviewer\n支持 Tab 补全。',
-    '/role': '显示当前角色的详细信息，包括人格特征、专业领域和能力。\n用法: /role',
-    '/personality': '显示当前人格状态（情绪、强度、主题）。\n用法: /personality',
-    '/memory': '显示记忆系统统计（偏好数、事实数、环境键数）。\n用法: /memory\n子命令: /memory summary, /memory clear',
-    '/knowledge': '知识图谱管理。显示节点数、关系数和类型分布。\n用法: /knowledge\n子命令:\n  /knowledge search <关键词> — 搜索知识节点\n  /knowledge cleanup — 清理重复和无效节点',
-    '/context': '显示当前项目上下文（语言、框架、依赖、环境）。\n用法: /context',
-    '/learn': '学习系统管理。显示记录数、模式数和成功率。\n用法: /learn\n子命令: /learn clear',
-    '/agents': '显示 Agent 系统状态和已注册 Agent 列表。\n用法: /agents',
-    '/agent-run': '运行专业 Agent 团队执行任务。\n用法: /agent-run <团队名> [任务描述]\n可用团队: code-review, testing, development, quality, full\n示例: /agent-run code-review 审查 src/ 目录',
-    '/workflows': '显示工作流系统状态和已注册工作流列表。\n用法: /workflows',
-    '/workflow-run': '触发执行指定工作流。\n用法: /workflow-run <工作流ID>\n可用: pr-review, issue-triage, release, code-quality\n示例: /workflow-run pr-review\n支持 Tab 补全。',
-    '/perf': '显示系统性能指标（响应时间、缓存命中率、并发状态）。\n用法: /perf',
-    '/cache': '缓存管理。\n用法: /cache (查看状态)\n子命令: /cache clear (清空缓存)',
-    '/dashboard': '显示仪表盘状态和组件列表。\n用法: /dashboard\n需要 dashboard.enabled: true',
-    '/status': '显示系统整体健康状态概览。\n用法: /status',
-    '/channels': '显示所有渠道的连接状态。\n用法: /channels',
-    '/collab': '协作模块管理。\n用法: /collab (查看状态)\n子命令: /collab connect, /collab disconnect, /collab join <roomId>',
-    '/voice': '语音模块管理。\n用法: /voice (查看状态)\n子命令: /voice start, /voice stop, /voice speak <文本>',
-    '/resume': '浏览并选择历史会话恢复。\n用法: /resume',
-    '/new': '开始一个新会话。\n用法: /new',
-    '/history': '显示最近的会话历史。\n用法: /history',
-  }
+  const getHelpKey = (cmd: string) => cmd
+    .split(/\s+/)
+    .filter(part => !part.startsWith('<') && !part.startsWith('['))
+    .join(' ')
+
+  const HELP_DETAILS: Record<string, string> = Object.fromEntries(
+    HELP_GROUPS.flatMap(group =>
+      group.commands.map(command => [
+        getHelpKey(command.cmd),
+        `${command.desc}\n用法: ${command.cmd}`,
+      ])
+    )
+  )
 
   pi.registerCommand('help', {
-    description: '显示帮助信息（用法: /help 或 /help <命令>）',
+    description: '显示 Bumblebee 命令和常用 pi 会话命令',
     handler: async (args, ctx) => {
       const target = args.trim()
-
-      // /help <command> — 显示具体命令详情
       if (target) {
-        // 模糊匹配：去掉前缀 /
         const normalized = target.startsWith('/') ? target : `/${target}`
-        const detail = COMMAND_DETAILS[normalized]
-        if (detail) {
-          ctx.ui.notify(`${normalized}\n${detail}`, 'info')
-        } else {
-          ctx.ui.notify(`未知命令: ${normalized}\n输入 /help 查看所有可用命令。`, 'warning')
-        }
+        const detail = HELP_DETAILS[normalized]
+        ctx.ui.notify(
+          detail ? `${normalized}\n${detail}` : `未知命令: ${normalized}\n输入 /help 查看可用命令。`,
+          detail ? 'info' : 'warning'
+        )
         return
       }
 
-      // /help — 分组显示所有命令
       const lines: string[] = ['可用命令:\n']
-      for (const group of COMMAND_GROUPS) {
+      for (const group of HELP_GROUPS) {
         lines.push(`${group.name}:`)
-        for (const c of group.commands) {
-          lines.push(`  ${c.cmd.padEnd(30)} ${c.desc}`)
+        for (const command of group.commands) {
+          lines.push(`  ${command.cmd.padEnd(30)} ${command.desc}`)
         }
         lines.push('')
       }
-      lines.push('输入 /help <命令> 查看详细用法。')
-      lines.push('快速开始: docs/quick-start.md')
+      lines.push('恢复或查看历史会话请使用 pi 提供的 /resume。')
       ctx.ui.notify(lines.join('\n'), 'info')
     },
   })
@@ -1781,84 +2093,4 @@ export default async function bumblebeeExtension(pi: ExtensionAPI) {
     },
   })
 
-  // ========== Issue #12: /history 会话历史 ==========
-
-  pi.registerCommand('history', {
-    description: '显示最近的会话历史',
-    handler: async (_args, ctx) => {
-      try {
-        const { readdir, readFile } = await import('fs/promises')
-        const { join } = await import('path')
-        const { homedir } = await import('os')
-
-        const sessionsDir = join(homedir(), '.pi', 'agent', 'sessions')
-        try {
-          const files = await readdir(sessionsDir)
-          const sessionFiles = files
-            .filter(f => f.endsWith('.json'))
-            .sort()
-            .reverse()
-            .slice(0, 10)
-
-          if (sessionFiles.length === 0) {
-            ctx.ui.notify('没有找到历史会话。', 'info')
-            return
-          }
-
-          const lines = ['最近会话:\n']
-          for (const file of sessionFiles) {
-            try {
-              const content = await readFile(join(sessionsDir, file), 'utf-8')
-              const session = JSON.parse(content)
-              const date = session.createdAt || session.updatedAt || '未知时间'
-              const msgCount = session.messages?.length || 0
-              const id = session.id || file.replace('.json', '')
-              lines.push(`  ${id.substring(0, 12)}  ${date}  ${msgCount} 条消息`)
-            } catch {
-              lines.push(`  ${file.replace('.json', '')}  (无法解析)`)
-            }
-          }
-          lines.push('\n使用 /resume 恢复会话。')
-          ctx.ui.notify(lines.join('\n'), 'info')
-        } catch {
-          ctx.ui.notify('会话目录不存在。', 'info')
-        }
-      } catch {
-        ctx.ui.notify('无法读取会话历史。', 'warning')
-      }
-    },
-  })
-
-  // ========== Issue #9: 首次运行检测 ==========
-
-  // 检查是否首次运行（记忆目录为空）
-  const memStats = agent.getMemoryStats()
-  if (memStats.preferences === 0 && memStats.facts === 0) {
-    // 延迟显示，等 TUI 就绪
-    setTimeout(() => {
-      const role = agent.getCurrentRole()
-      const welcome = [
-        `欢迎使用 Bumblebee！当前角色: ${role.name}`,
-        '',
-        '快速开始:',
-        '  /help          查看所有命令',
-        '  /roles         列出可用角色',
-        '  /switch <id>   切换角色',
-        '  /status        系统状态概览',
-        '',
-        '直接输入消息即可开始对话。',
-      ].join('\n')
-      // 通过 pi.ui 输出欢迎消息（如果 API 支持）
-      try {
-        pi.registerCommand('__welcome', {
-          description: '首次运行欢迎信息',
-          handler: async (_args, ctx) => {
-            ctx.ui.notify(welcome, 'info')
-          },
-        })
-      } catch {
-        // 静默忽略
-      }
-    }, 500)
-  }
 }

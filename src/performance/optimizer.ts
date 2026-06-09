@@ -293,6 +293,8 @@ export class PerformanceMonitor {
   private eventHandlers: PerformanceEventHandler[] = []
   private strategies: OptimizationStrategy[] = []
   private startTime: Date
+  private responseSamples: number[] = []
+  private completedRequests: number = 0
 
   constructor() {
     this.startTime = new Date()
@@ -306,9 +308,29 @@ export class PerformanceMonitor {
 
   // 记录响应时间
   recordResponseTime(duration: number): void {
-    // 简化的统计更新
-    this.metrics.responseTime.avg =
-      (this.metrics.responseTime.avg * 0.9) + (duration * 0.1)
+    this.completedRequests++
+    this.responseSamples.push(duration)
+    if (this.responseSamples.length > 1000) {
+      this.responseSamples = this.responseSamples.slice(-1000)
+    }
+
+    const sorted = [...this.responseSamples].sort((a, b) => a - b)
+    const percentile = (p: number) => {
+      if (sorted.length === 0) return 0
+      const index = Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))
+      return sorted[index]
+    }
+
+    const total = this.responseSamples.reduce((sum, value) => sum + value, 0)
+    this.metrics.responseTime.avg = total / this.responseSamples.length
+    this.metrics.responseTime.p50 = percentile(0.5)
+    this.metrics.responseTime.p90 = percentile(0.9)
+    this.metrics.responseTime.p99 = percentile(0.99)
+    this.metrics.concurrency.completed = this.completedRequests
+
+    const elapsedSeconds = Math.max((Date.now() - this.startTime.getTime()) / 1000, 1)
+    this.metrics.throughput.requestsPerSecond = this.completedRequests / elapsedSeconds
+    this.metrics.throughput.operationsPerSecond = this.completedRequests / elapsedSeconds
 
     // 检查阈值
     if (duration > 1000) {
@@ -319,6 +341,8 @@ export class PerformanceMonitor {
         threshold: 1000
       })
     }
+
+    this.emitEvent({ type: 'metric-update', metrics: this.getMetrics() })
   }
 
   // 更新缓存统计

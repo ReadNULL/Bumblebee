@@ -16,6 +16,7 @@ import {
   MessageType,
   User
 } from './types.js'
+import { createServer, type Server } from 'http'
 
 interface DingTalkConfig extends ChannelConfig {
   name?: string
@@ -31,7 +32,7 @@ export class DingTalkAdapter implements ChannelAdapter {
   type: 'messaging' = 'messaging'
   description = '钉钉渠道适配器'
   supports: ChannelCapabilities = {
-    files: true,
+    files: false,
     reactions: false,
     threads: false,
     mentions: true,
@@ -45,6 +46,7 @@ export class DingTalkAdapter implements ChannelAdapter {
   private _status: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected'
   private accessToken: string | null = null
   private tokenExpireTime: number = 0
+  private callbackServer: Server | null = null
 
   constructor(config: DingTalkConfig) {
     this.name = config.name || 'dingtalk'
@@ -87,6 +89,12 @@ export class DingTalkAdapter implements ChannelAdapter {
 
   // 断开连接
   async disconnect(): Promise<void> {
+    if (this.callbackServer) {
+      await new Promise<void>((resolve, reject) => {
+        this.callbackServer!.close((error) => error ? reject(error) : resolve())
+      })
+      this.callbackServer = null
+    }
     this._status = 'disconnected'
     this.accessToken = null
   }
@@ -297,8 +305,42 @@ export class DingTalkAdapter implements ChannelAdapter {
 
   // 启动消息监听（企业应用模式）
   private async startMessageListener(): Promise<void> {
-    // 钉钉企业应用通常通过回调 URL 接收消息
-    // 这里需要配合 HTTP 服务器使用
+    if (this.callbackServer) return
+
+    const port = this.config.port || 3001
+    this.callbackServer = createServer(async (req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not_found' }))
+        return
+      }
+
+      try {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        }
+        const payload = Buffer.concat(chunks).toString('utf-8')
+        const data = payload ? JSON.parse(payload) : {}
+        await this.handleCallback(data)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true }))
+      } catch (error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+      }
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      this.callbackServer!.once('error', reject)
+      this.callbackServer!.listen(port, () => {
+        this.callbackServer!.off('error', reject)
+        resolve()
+      })
+    })
   }
 
   // 处理回调消息（供 HTTP 服务器调用）

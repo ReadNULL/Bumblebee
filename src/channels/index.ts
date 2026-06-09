@@ -16,6 +16,11 @@ export { ChannelWizard } from './wizard.js'
 export type { ChannelSetupResult } from './wizard.js'
 
 // 官方渠道适配器
-export { WeChatAdapter, createWeChatAdapter } from './wechat.js'
+export {
+  WeChatAdapter,
+  createWeChatAdapter,
+  ensureWeChatPuppetInstalled,
+  getWeChatPuppetInstallHint,
+} from './wechat.js'
 export { FeishuAdapter, createFeishuAdapter } from './feishu.js'
 export { DingTalkAdapter, createDingTalkAdapter } from './dingtalk.js'

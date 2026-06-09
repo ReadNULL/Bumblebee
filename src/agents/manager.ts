@@ -2,13 +2,27 @@ import { AgentConfig, AgentInstance, AgentTask, AgentResult } from './types.js'
 import { RoleManager } from '../roles/manager.js'
 import { RoleConfig } from '../roles/types.js'
 import { callLLM } from '../core/session-factory.js'
+import type { BumblebeeConfig } from '../core/config.js'
+import type { ConcurrencyController, PerformanceMonitor } from '../performance/optimizer.js'
+
+export interface AgentManagerRuntime {
+  ai?: BumblebeeConfig['ai']
+  concurrency?: ConcurrencyController | null
+  performanceMonitor?: PerformanceMonitor | null
+}
 
 export class AgentManager {
   private agents: Map<string, AgentInstance> = new Map()
   private roleManager: RoleManager
+  private runtime: AgentManagerRuntime
 
-  constructor(roleManager: RoleManager) {
+  constructor(roleManager: RoleManager, runtime: AgentManagerRuntime = {}) {
     this.roleManager = roleManager
+    this.runtime = runtime
+  }
+
+  setRuntime(runtime: AgentManagerRuntime): void {
+    this.runtime = runtime
   }
 
   // 初始化
@@ -163,7 +177,13 @@ export class AgentManager {
     ].filter(Boolean).join('\n')
 
     try {
-      const result = await callLLM({ systemPrompt, userPrompt })
+      const result = await callLLM({
+        systemPrompt,
+        userPrompt,
+        ai: this.runtime.ai,
+        concurrency: this.runtime.concurrency,
+        performanceMonitor: this.runtime.performanceMonitor,
+      })
       return {
         message: result.text,
         role: agent.role.name,

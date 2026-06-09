@@ -4,6 +4,8 @@
 
 ## 模式选择
 
+钉钉渠道当前使用 Node.js 22 内置的 `fetch` 和 `http`，不需要额外安装 npm SDK。
+
 | 特性 | Webhook 模式 | 企业应用模式 |
 |------|:------------:|:----------:|
 | 发送消息到群 | ✅ | ✅ |
@@ -52,7 +54,7 @@ channels:
 
 ```bash
 node dist/cli.js
-/channel-connect dingtalk
+/channels connect dingtalk
 ```
 
 ### 注意事项
@@ -84,7 +86,7 @@ node dist/cli.js
 
 ### 第四步：配置消息接收
 
-企业应用需要一个 HTTP 服务器来接收钉钉的回调消息。
+Bumblebee 会在连接企业应用渠道时启动一个本地 HTTP 回调监听器，默认端口为 `3001`。需要将该地址暴露给钉钉开放平台作为回调 URL。
 
 **方式一：公网部署**
 
@@ -95,7 +97,7 @@ node dist/cli.js
 
 使用 ngrok 或类似工具：
 ```bash
-ngrok http 3000
+ngrok http 3001
 ```
 
 ### 第五步：配置
@@ -108,13 +110,14 @@ channels:
     appKey: your-app-key
     appSecret: your-app-secret
     robotCode: your-robot-code
+    port: 3001
 ```
 
 ### 第六步：连接
 
 ```bash
 node dist/cli.js
-/channel-connect dingtalk
+/channels connect dingtalk
 ```
 
 ## 支持的功能
@@ -142,10 +145,10 @@ node dist/cli.js
 ## TUI 命令
 
 ```bash
-/channel-setup           # 交互式配置
-/channel-connect dingtalk    # 连接
-/channel-disconnect dingtalk # 断开
-/channels                # 查看状态
+/channels setup              # 交互式配置
+/channels connect dingtalk   # 连接
+/channels disconnect dingtalk # 断开
+/channels status             # 查看状态
 ```
 
 ## 常见问题

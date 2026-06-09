@@ -82,6 +82,7 @@ export async function createAdapterFromConfig(
     webhook: resolveEnv(config.webhook),
     appKey: resolveEnv(config.appKey),
     robotCode: resolveEnv(config.robotCode),
+    port: config.port,
   }
 
   switch (type) {
@@ -113,6 +114,7 @@ export async function createAdapterFromConfig(
           appKey: resolved.appKey,
           appSecret: resolved.appSecret,
           robotCode: resolved.robotCode,
+          port: resolved.port,
         })
       }
       return createDingTalkAdapter({
