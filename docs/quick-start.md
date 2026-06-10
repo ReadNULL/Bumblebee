@@ -1,105 +1,242 @@
 # Bumblebee 快速开始
 
-## 安装（3 步）
+这份指南按从零开始的顺序写，适合第一次运行 Bumblebee。
+
+## 1. 环境要求
+
+- Node.js `>= 22`
+- npm
+- Git，可选但推荐
+
+检查版本：
 
 ```bash
-# 1. 克隆项目
-git clone <repo-url> && cd bumblebee
+node --version
+npm --version
+git --version
+```
 
-# 2. 安装依赖
+## 2. 安装和构建
+
+```bash
+git clone https://github.com/ReadNULL/Bumblebee.git
+cd Bumblebee
 npm install
-
-# 3. 构建
 npm run build
 ```
 
-## 配置
+构建成功后会生成 `dist/cli.js`。
+
+## 3. 配置 API Key
+
+Bumblebee 的模型认证由 pi-coding-agent SDK 统一管理，只从环境变量读取 API Key。不要把密钥写进 `.bumblebee.yaml`。
+
+PowerShell：
+
+```powershell
+$env:OPENAI_API_KEY = "sk-..."
+# 或
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+需要持久保存时：
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "sk-...", "User")
+```
+
+bash/zsh：
 
 ```bash
-# 运行交互式配置向导
+export OPENAI_API_KEY="sk-..."
+# 或
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+SDK 内置支持 30 个 Provider，常用环境变量：
+
+| Provider | API Key 环境变量 | 备注 |
+| --- | --- | --- |
+| Anthropic | `ANTHROPIC_API_KEY` | 也支持 `ANTHROPIC_OAUTH_TOKEN` |
+| OpenAI | `OPENAI_API_KEY` | |
+| Google Gemini | `GEMINI_API_KEY` | |
+| DeepSeek | `DEEPSEEK_API_KEY` | |
+| xAI | `XAI_API_KEY` | |
+| Groq | `GROQ_API_KEY` | |
+| Mistral | `MISTRAL_API_KEY` | |
+| Moonshot AI | `MOONSHOT_API_KEY` | |
+| Xiaomi MiMo | `XIAOMI_API_KEY` | |
+| Xiaomi MiMo (国内) | `XIAOMI_TOKEN_PLAN_CN_API_KEY` | |
+| Cerebras | `CEREBRAS_API_KEY` | |
+| Fireworks | `FIREWORKS_API_KEY` | |
+| Together AI | `TOGETHER_API_KEY` | |
+| OpenRouter | `OPENROUTER_API_KEY` | |
+| Hugging Face | `HF_TOKEN` | |
+| Kimi | `KIMI_API_KEY` | |
+| MiniMax | `MINIMAX_API_KEY` | |
+| MiniMax (国内) | `MINIMAX_CN_API_KEY` | |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY` | 需额外设置 `AZURE_OPENAI_BASE_URL` |
+| Amazon Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | 或 `AWS_BEARER_TOKEN_BEDROCK` |
+| Google Vertex | 使用 GCP ADC | `gcloud auth application-default login` |
+| Cloudflare | `CLOUDFLARE_API_KEY` | 需 `CLOUDFLARE_ACCOUNT_ID` |
+
+完整列表和高级配置见 pi-coding-agent 的 `providers.md` 文档。启动后可使用 `/model` 命令切换模型。
+
+## 4. 生成配置
+
+运行交互式向导：
+
+```bash
 node dist/cli.js init
-
-# 或使用预设快速配置
-node dist/cli.js init --preset mini      # 最小配置，仅基础对话
-node dist/cli.js init --preset dev       # 开发模式（默认）
-node dist/cli.js init --preset full      # 完整功能
 ```
 
-配置向导会自动：
-- 检测 Node.js、npm、Git 环境
-- 引导选择 AI 提供商（OpenAI / Anthropic）
-- 生成 `.bumblebee.yaml`
-
-建议优先通过环境变量配置 API Key，例如 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`。如果选择把 API Key 写入 `.bumblebee.yaml`，请勿提交该文件。
-
-## 启动
+也可以使用预设：
 
 ```bash
-node dist/cli.js
+node dist/cli.js init --preset mini
+node dist/cli.js init --preset dev
+node dist/cli.js init --preset full
 ```
 
-## 环境诊断
+预设区别：
+
+| 预设 | 说明 |
+| --- | --- |
+| `mini` | 最小配置，只启用基础对话 |
+| `dev` | 默认推荐，启用知识、Agent、工作流、性能模块 |
+| `full` | 启用更多实验功能和仪表盘配置 |
+
+向导会生成 `.bumblebee.yaml`。API Key 不会写入配置文件，由 pi-coding-agent SDK 通过环境变量管理。
+
+## 5. 检查环境
 
 ```bash
 node dist/cli.js doctor
 ```
 
-检查 Node.js 版本、API Key、配置文件、依赖安装等。
+`doctor` 会检查 Node.js、npm、API Key、配置文件和依赖安装状态。
 
-## 常见场景
+## 6. 启动 TUI
 
-### 1. 代码审查
-
-```
-请审查 src/auth.ts 的安全性
+```bash
+node dist/cli.js
 ```
 
-### 2. 写测试
+全局使用：
 
-```
-为 UserService 类编写单元测试
-```
-
-### 3. 使用 Agent 团队
-
-```
-/agents run code-review 请检查项目的安全漏洞
+```bash
+npm link
+bumblebee
 ```
 
-可用团队：`code-review`、`testing`、`development`、`quality`、`full`
+## 7. 第一次对话
 
-### 4. 运行工作流
+启动后直接输入自然语言：
 
+```text
+请审查 src/core 目录的实现，指出潜在用户体验问题
 ```
+
+常用命令：
+
+```text
+/help
+/status
+/roles
+/switch
+/agents
+/workflows
+/channels
+/resume
+```
+
+会话历史由 pi 框架管理。恢复历史会话请使用 `/resume`，不要找 `/history`。
+
+## 8. 运行 Agent 团队
+
+```text
+/agents run code-review 请检查当前项目的安全风险
+```
+
+可用团队：
+
+| 团队 | 说明 |
+| --- | --- |
+| `code-review` | 代码审查 |
+| `testing` | 测试设计 |
+| `development` | 开发协作 |
+| `quality` | 质量检查 |
+| `full` | 综合团队 |
+
+## 9. 运行工作流
+
+```text
 /workflows run pr-review
 ```
 
-不带 payload 时会弹出 JSON 输入框，可直接使用默认示例。
+可用工作流：
 
-可用工作流：`pr-review`、`issue-triage`、`release`、`code-quality`
+| 工作流 | 说明 |
+| --- | --- |
+| `pr-review` | PR 审查 |
+| `issue-triage` | Issue 分流 |
+| `release` | 发布流程 |
+| `code-quality` | 代码质量检查 |
 
-### 5. 知识管理
+如果工作流需要输入，TUI 会提示你填写 JSON。
 
+## 10. 连接 IM 渠道
+
+进入 TUI 后：
+
+```text
+/channels setup
+/channels connect feishu
 ```
-/knowledge search 认证流程     # 搜索项目知识
-/learn                          # 查看学习统计
-/context                        # 查看项目上下文
+
+推荐先用飞书或钉钉验证 IM 接入。微信支持两种模式：公众号官方接口（需公网回调 URL）和个人号 weixinbot 扫码（ilink API，无需额外配置）。
+
+详细步骤见：
+
+- [渠道总览](channels/README.md)
+- [微信](channels/wechat.md)
+- [飞书](channels/feishu.md)
+- [钉钉](channels/dingtalk.md)
+
+## 常见问题
+
+### 如何切换模型
+
+启动 TUI 后使用 `/model` 命令：
+
+```text
+/model                    # 查看当前模型
+/model claude-opus-4-7    # 切换到指定模型
 ```
 
-## 常用命令速查
+模型认证由 pi-coding-agent SDK 管理，确保对应的环境变量已设置。
 
-| 命令 | 说明 |
-|------|------|
-| `/help` | 查看 Bumblebee 命令和常用 pi 会话命令 |
-| `/help <命令>` | 查看命令用法 |
-| `/status` | 系统健康状态 |
-| `/roles` | 查看可用角色 |
-| `/switch <角色>` | 切换角色 |
-| `/memory` | 查看记忆 |
-| `/knowledge search <关键词>` | 搜索知识 |
-| `/agents` | Agent 管理 |
-| `/agents run <team> [task]` | 运行 Agent 团队 |
-| `/workflows` | 工作流管理 |
-| `/workflows run <id>` | 运行工作流 |
-| `/perf` | 性能指标 |
-| `/cache` | 缓存状态 |
+### 配置了 API Key 但提示认证失败
+
+Bumblebee 不在配置文件中存储密钥。请确保已设置对应的环境变量（如 `ANTHROPIC_API_KEY` 或 `OPENAI_API_KEY`），然后重启 TUI。
+
+### 长任务 60 秒就超时
+
+当前默认超时是 `300000ms`。如果你仍然需要更长时间，可以在 `.bumblebee.yaml` 中设置：
+
+```yaml
+ai:
+  timeoutMs: 900000
+```
+
+最大允许 `3600000ms`。
+
+### Vitest 在受限沙箱里无法读取配置
+
+本地开发时直接运行：
+
+```bash
+npm test -- --run
+```
+
+在受限环境中，Vitest/esbuild 可能需要额外文件系统权限。

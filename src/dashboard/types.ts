@@ -47,6 +47,7 @@ export interface Widget {
   size: WidgetSize
   config: WidgetConfig
   dataSource?: DataSource
+  data?: unknown
 }
 
 // 组件位置

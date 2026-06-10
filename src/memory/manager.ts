@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
+import { stringifyJsonAsync } from '../utils/async-json.js'
 
 export interface MemoryConfig {
   enabled: boolean
@@ -219,7 +220,8 @@ export class MemoryManager {
     try {
       await this.ensureDirectory()
       const filePath = join(this.storageDir, PROFILE_FILE)
-      await writeFile(filePath, JSON.stringify(this.profile, null, 2), 'utf-8')
+      const content = await stringifyJsonAsync(this.profile, { space: 2 })
+      await writeFile(filePath, content, 'utf-8')
     } catch (error) {
       console.error('保存用户记忆失败:', error)
     }

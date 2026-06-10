@@ -17,6 +17,7 @@ import {
   User
 } from './types.js'
 import { createServer, type Server } from 'http'
+import type { Socket } from 'net'
 
 interface DingTalkConfig extends ChannelConfig {
   name?: string
@@ -47,6 +48,7 @@ export class DingTalkAdapter implements ChannelAdapter {
   private accessToken: string | null = null
   private tokenExpireTime: number = 0
   private callbackServer: Server | null = null
+  private callbackSockets: Set<Socket> = new Set()
 
   constructor(config: DingTalkConfig) {
     this.name = config.name || 'dingtalk'
@@ -90,6 +92,11 @@ export class DingTalkAdapter implements ChannelAdapter {
   // 断开连接
   async disconnect(): Promise<void> {
     if (this.callbackServer) {
+      for (const socket of this.callbackSockets) {
+        socket.destroy()
+      }
+      this.callbackSockets.clear()
+
       await new Promise<void>((resolve, reject) => {
         this.callbackServer!.close((error) => error ? reject(error) : resolve())
       })
@@ -97,6 +104,7 @@ export class DingTalkAdapter implements ChannelAdapter {
     }
     this._status = 'disconnected'
     this.accessToken = null
+    this.tokenExpireTime = 0
   }
 
   // 注册消息处理器
@@ -132,9 +140,11 @@ export class DingTalkAdapter implements ChannelAdapter {
 
   // 获取可用目标（群组列表）
   async getTargets(): Promise<Array<{ id: string; name: string }>> {
-    if (!this.accessToken) {
+    if (!this.config.appKey || !this.config.appSecret) {
       return []
     }
+
+    await this.ensureAccessToken()
 
     try {
       const response = await fetch(
@@ -185,9 +195,7 @@ export class DingTalkAdapter implements ChannelAdapter {
 
   // 通过企业应用发送消息
   private async sendAppMessage(target: string, message: Message): Promise<void> {
-    if (!this.accessToken) {
-      await this.refreshAccessToken()
-    }
+    await this.ensureAccessToken()
 
     const body = this.buildAppBody(target, message)
 
@@ -303,6 +311,16 @@ export class DingTalkAdapter implements ChannelAdapter {
     }
   }
 
+  private async ensureAccessToken(): Promise<void> {
+    if (!this.config.appKey || !this.config.appSecret) {
+      throw new Error('未配置钉钉企业应用 AppKey/AppSecret')
+    }
+
+    if (!this.accessToken || Date.now() >= this.tokenExpireTime) {
+      await this.refreshAccessToken()
+    }
+  }
+
   // 启动消息监听（企业应用模式）
   private async startMessageListener(): Promise<void> {
     if (this.callbackServer) return
@@ -332,6 +350,12 @@ export class DingTalkAdapter implements ChannelAdapter {
           error: error instanceof Error ? error.message : String(error),
         }))
       }
+    })
+    this.callbackServer.on('connection', socket => {
+      this.callbackSockets.add(socket)
+      socket.on('close', () => {
+        this.callbackSockets.delete(socket)
+      })
     })
 
     await new Promise<void>((resolve, reject) => {

@@ -20,14 +20,18 @@ export const AIConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
   temperature: z.number().min(0).max(2).default(0.7),
   maxTokens: z.number().min(1).max(100000).default(4096),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
+  timeoutMs: z.number().min(1000).max(3600000).default(300000),
 }).default({})
 
 // 渠道配置 Schema
 export const WeChatChannelConfigSchema = z.object({
   enabled: z.boolean().default(false),
-  puppet: z.string().optional(),
+  mode: z.enum(['official-account', 'weixinbot']).default('official-account'),
+  appId: z.string().optional(),
+  appSecret: z.string().optional(),
+  port: z.number().min(1).max(65535).optional(),
+  path: z.string().optional(),
+  responseTimeoutMs: z.number().min(1000).max(30000).optional(),
   token: z.string().optional(),
 }).default({})
 
@@ -83,23 +87,6 @@ export const WorkflowsConfigSchema = z.object({
 
 export type WorkflowsConfig = z.infer<typeof WorkflowsConfigSchema>
 
-// 性能配置 Schema
-export const PerformanceConfigSchema = z.object({
-  enabled: z.boolean().default(true),
-  cache: z.object({
-    maxSize: z.number().min(10).max(10000).default(1000),
-    ttl: z.number().min(1000).max(3600000).default(300000),
-    evictionPolicy: z.enum(['lru', 'lfu', 'fifo']).default('lru'),
-  }).default({}),
-  concurrency: z.object({
-    maxConcurrent: z.number().min(1).max(100).default(10),
-    queueSize: z.number().min(1).max(1000).default(100),
-    timeout: z.number().min(1000).max(60000).default(30000),
-  }).default({}),
-}).default({})
-
-export type PerformanceConfig = z.infer<typeof PerformanceConfigSchema>
-
 // 仪表盘配置 Schema
 export const DashboardConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -131,8 +118,16 @@ export const VoiceConfigSchema = z.object({
 
 export type VoiceChannelConfig = z.infer<typeof VoiceConfigSchema>
 
+export const PluginsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  modules: z.array(z.string()).default([]),
+  directory: z.string().optional(),
+}).default({})
+
+export type PluginsConfig = z.infer<typeof PluginsConfigSchema>
+
 const EMPTY_CHANNELS = {
-  wechat: { enabled: false },
+  wechat: { enabled: false, mode: 'official-account' as const },
   feishu: { enabled: false },
   dingtalk: { enabled: false, mode: 'webhook' as const },
 }
@@ -148,36 +143,13 @@ export const BumblebeeConfigSchema = z.object({
   knowledge: KnowledgeConfigSchema,
   agents: AgentsConfigSchema,
   workflows: WorkflowsConfigSchema,
-  performance: PerformanceConfigSchema,
   dashboard: DashboardConfigSchema,
   collaboration: CollaborationConfigSchema,
   voice: VoiceConfigSchema,
+  plugins: PluginsConfigSchema,
 })
 
 export type BumblebeeConfig = z.infer<typeof BumblebeeConfigSchema>
-
-const PROVIDER_API_KEY_ENV: Record<string, string[]> = {
-  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_OAUTH_TOKEN'],
-  openai: ['OPENAI_API_KEY'],
-  gemini: ['GEMINI_API_KEY'],
-  bedrock: ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID'],
-}
-
-const PROVIDER_BASE_URL_ENV: Record<string, string[]> = {
-  anthropic: ['ANTHROPIC_BASE_URL'],
-  openai: ['OPENAI_BASE_URL', 'AZURE_OPENAI_BASE_URL'],
-  gemini: ['GEMINI_BASE_URL'],
-}
-
-function firstEnvValue(names: string[]): string | undefined {
-  for (const name of names) {
-    const value = process.env[name]
-    if (value?.trim()) {
-      return value.trim()
-    }
-  }
-  return undefined
-}
 
 function resolveEnvString(value: string): string {
   return value.replace(/\$\{([A-Z0-9_]+)\}/gi, (_match, name) => process.env[name] || '')
@@ -203,20 +175,6 @@ function resolveEnvValues<T>(value: T): T {
   return value
 }
 
-/**
- * 获取指定 provider 的 API Key（配置文件优先，环境变量兜底）
- */
-export function getProviderApiKey(provider: string, configApiKey?: string): string | undefined {
-  return configApiKey || firstEnvValue(PROVIDER_API_KEY_ENV[provider] || [])
-}
-
-/**
- * 获取指定 provider 的 Base URL（配置文件优先，环境变量兜底）
- */
-export function getProviderBaseUrl(provider: string, configBaseUrl?: string): string | undefined {
-  return configBaseUrl || firstEnvValue(PROVIDER_BASE_URL_ENV[provider] || [])
-}
-
 // 默认配置
 export const DEFAULT_CONFIG: BumblebeeConfig = {
   personality: {
@@ -232,7 +190,8 @@ export const DEFAULT_CONFIG: BumblebeeConfig = {
     provider: 'anthropic',
     model: 'claude-sonnet-4-6',
     temperature: 0.7,
-    maxTokens: 4096
+    maxTokens: 4096,
+    timeoutMs: 300000
   },
   channels: EMPTY_CHANNELS,
   knowledge: {
@@ -248,19 +207,6 @@ export const DEFAULT_CONFIG: BumblebeeConfig = {
     enabled: true,
     defaultTimeout: 300000,
     maxConcurrentWorkflows: 3
-  },
-  performance: {
-    enabled: true,
-    cache: {
-      maxSize: 1000,
-      ttl: 300000,
-      evictionPolicy: 'lru' as const
-    },
-    concurrency: {
-      maxConcurrent: 10,
-      queueSize: 100,
-      timeout: 30000
-    }
   },
   dashboard: {
     enabled: false,
@@ -279,6 +225,10 @@ export const DEFAULT_CONFIG: BumblebeeConfig = {
     language: 'zh-CN',
     continuous: false,
     interimResults: true
+  },
+  plugins: {
+    enabled: false,
+    modules: []
   }
 }
 
@@ -298,11 +248,10 @@ async function loadConfigFile(path: string): Promise<Partial<BumblebeeConfig>> {
 
     return resolveEnvValues(JSON.parse(content)) as Partial<BumblebeeConfig>
   } catch (err: any) {
-    // 仅文件不存在时静默；解析错误应提示用户
-    if (err?.code !== 'ENOENT') {
-      console.warn(`  配置文件 ${path} 解析失败: ${err.message}`)
-    }
-    return {}
+    // 仅文件不存在时静默；解析错误或读取错误必须向上抛出，避免静默使用默认配置。
+    if (err?.code === 'ENOENT') return {}
+    err.message = `配置文件 ${path} 解析失败: ${err.message}`
+    throw err
   }
 }
 
@@ -320,17 +269,6 @@ function deepMerge<T>(base: T, override: unknown): T {
     merged[key] = deepMerge(merged[key], value)
   }
   return merged as T
-}
-
-function applyEnvironmentConfig(config: BumblebeeConfig): BumblebeeConfig {
-  return {
-    ...config,
-    ai: {
-      ...config.ai,
-      apiKey: getProviderApiKey(config.ai.provider, config.ai.apiKey),
-      baseUrl: getProviderBaseUrl(config.ai.provider, config.ai.baseUrl),
-    },
-  }
 }
 
 // 合并配置
@@ -369,5 +307,5 @@ export async function loadConfig(configPath?: string): Promise<BumblebeeConfig> 
 
   // 合并并验证配置
   const merged = mergeConfig(DEFAULT_CONFIG, userConfig)
-  return applyEnvironmentConfig(BumblebeeConfigSchema.parse(merged))
+  return BumblebeeConfigSchema.parse(merged)
 }

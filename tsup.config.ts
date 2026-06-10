@@ -11,7 +11,6 @@ export default defineConfig({
   external: [
     '@earendil-works/pi-coding-agent',
     '@earendil-works/pi-tui',
-    'wechaty',
     '@larksuiteoapi/node-sdk',
     'xstate',
     'zod',

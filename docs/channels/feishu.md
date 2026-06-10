@@ -1,166 +1,149 @@
 # 飞书渠道接入指南
 
-通过飞书开放平台将 Bumblebee 接入飞书，支持私聊、群聊、消息卡片和文件传输。这是功能最全的渠道。
+飞书渠道基于 `@larksuiteoapi/node-sdk`，通过飞书开放平台的长连接事件接收消息。它不需要公网回调地址，适合作为第一个 IM 渠道验证。
 
-## 前置条件
-
-- Node.js >= 22
-- 飞书开放平台账号 https://open.feishu.cn
-
-## 第一步：安装依赖
+## 依赖
 
 ```bash
-# 项目 npm install 已包含 @larksuiteoapi/node-sdk
 npm install
-
-# 如果只单独安装飞书 SDK:
-npm install @larksuiteoapi/node-sdk
 ```
 
-## 第二步：创建飞书应用
+项目依赖中已包含 `@larksuiteoapi/node-sdk`，无需单独安装。
 
-### 2.1 创建应用
+## 1. 创建飞书应用
 
-1. 登录 [飞书开放平台](https://open.feishu.cn)
-2. 点击「创建企业自建应用」
-3. 填写应用名称和描述
+1. 打开飞书开放平台：`https://open.feishu.cn`
+2. 创建企业自建应用
+3. 进入应用详情
+4. 在“凭证与基础信息”中记录：
+   - App ID
+   - App Secret
 
-### 2.2 获取凭证
+## 2. 添加机器人能力
 
-1. 进入应用详情页
-2. 左侧菜单 →「凭证与基础信息」
-3. 记录 **App ID** 和 **App Secret**
+1. 进入“添加应用能力”
+2. 添加“机器人”
+3. 保存配置
 
-### 2.3 添加机器人能力
+## 3. 配置事件订阅
 
-1. 左侧菜单 →「添加应用能力」
-2. 选择「机器人」
+1. 进入“事件订阅”
+2. 接收方式选择“使用长连接接收事件”
+3. 添加事件：
+   - `im.message.receive_v1`
 
-### 2.4 配置事件订阅
+如果你选择了 HTTP 回调而不是长连接，Bumblebee 这边不会收到消息。
 
-1. 左侧菜单 →「事件订阅」
-2. 点击「添加事件」
-3. 搜索并添加: `im.message.receive_v1`（接收消息）
-4. **事件订阅方式选择: 「使用长连接接收事件」**（WebSocket 模式，无需公网 IP）
+## 4. 开通权限
 
-### 2.5 开通权限
+至少需要以下权限：
 
-1. 左侧菜单 →「权限管理」
-2. 搜索并开通以下权限：
-   - `im:message` — 获取与发送单聊、群组消息
-   - `im:message:send_as_bot` — 以应用的身份发消息
-   - `im:chat:readonly` — 获取群组信息
+| 权限 | 用途 |
+| --- | --- |
+| `im:message` | 读取消息 |
+| `im:message:send_as_bot` | 以机器人身份发送消息 |
+| `im:chat:readonly` | 获取群聊信息 |
 
-### 2.6 发布应用
+开通权限后，需要发布应用版本并等待管理员审批生效。
 
-1. 左侧菜单 →「版本管理与发布」
-2. 点击「创建版本」
-3. 填写版本号和更新说明
-4. 提交审核（企业管理员审批后生效）
+## 5. 配置 Bumblebee
 
-## 第三步：配置
+推荐用环境变量保存敏感信息。
 
-### 方式一：TUI 交互式设置
+PowerShell：
+
+```powershell
+$env:FEISHU_APP_ID = "cli_xxx"
+$env:FEISHU_APP_SECRET = "xxx"
+```
+
+bash/zsh：
 
 ```bash
-node dist/cli.js
-
-# 在 TUI 中执行
-/channels setup
-# 选择 "飞书"，按提示输入 App ID 和 App Secret
+export FEISHU_APP_ID="cli_xxx"
+export FEISHU_APP_SECRET="xxx"
 ```
 
-### 方式二：手动编辑 .bumblebee.yaml
+`.bumblebee.yaml`：
 
 ```yaml
-channels:
-  feishu:
-    enabled: true
-    appId: cli_xxxxx
-    appSecret: your-app-secret
-    # encryptKey: your-encrypt-key         # 可选
-    # verificationToken: your-token         # 可选
-```
-
-### 方式三：使用环境变量
-
-配置文件支持 `${ENV_VAR}` 语法引用系统环境变量：
-
-```yaml
-# .bumblebee.yaml
 channels:
   feishu:
     enabled: true
     appId: ${FEISHU_APP_ID}
     appSecret: ${FEISHU_APP_SECRET}
+    # encryptKey: ${FEISHU_ENCRYPT_KEY}
+    # verificationToken: ${FEISHU_VERIFICATION_TOKEN}
 ```
 
-## 第四步：连接
+也可以在 TUI 里执行：
+
+```text
+/channels setup
+```
+
+然后选择飞书并按提示填写。
+
+## 6. 连接和测试
 
 ```bash
-# 启动 TUI
 node dist/cli.js
+```
 
-# 连接飞书
+在 TUI 中执行：
+
+```text
 /channels connect feishu
 ```
 
-连接成功后，在飞书中给机器人发消息即可开始对话。
+看到 `已连接: feishu` 后：
 
-## 支持的功能
+1. 把机器人添加到飞书群
+2. 在群里 @ 机器人并发送消息
+3. 或直接给机器人发私聊消息
 
-| 功能 | 支持 | 说明 |
-|------|:----:|------|
-| 文本消息 | ✅ | 发送和接收 |
-| 图片 | ✅ | 通过 image_key |
-| 文件 | ✅ | 通过 file_key |
-| 音频 | ✅ | 接收为语音消息 |
-| 视频 | ✅ | 接收为视频消息 |
-| @提及 | ✅ | 群聊中检测 @ |
-| 消息线程 | ✅ | 支持回复线程 |
-| 表情回应 | ✅ | 支持 emoji 反应 |
-| 富文本 | ✅ | 支持 post 格式 |
-| 消息卡片 | ✅ | 通过 sendCard() 方法 |
-| 群聊列表 | ✅ | 自动获取机器人加入的群 |
+## 支持能力
 
-## 在群聊中使用
-
-1. 将机器人添加到飞书群
-2. 在群内 @机器人 发送消息
-3. 机器人会自动回复
+| 能力 | 支持 | 说明 |
+| --- | :---: | --- |
+| 文本消息 | 是 | 发送和接收 |
+| 群聊 | 是 | 机器人加入群后可用 |
+| 私聊 | 是 | 取决于应用权限和发布状态 |
+| @ 检测 | 是 | 群聊中可识别 mention |
+| 富文本/卡片 | 部分 | 适配器提供卡片发送能力；普通对话主要走文本 |
+| 图片/文件/语音 | 部分 | 当前主要转成占位文本进入统一消息模型 |
 
 ## 常见问题
 
-### Q: 连接后收不到消息
+### 连接后命令行输出看起来很乱
 
-A: 检查以下几点：
-- 应用是否已发布并通过审核
-- 事件订阅是否配置了 `im.message.receive_v1`
-- 事件订阅方式是否选择了「长连接」
-- 权限是否已开通（im:message, im:message:send_as_bot）
+飞书 SDK 的长连接日志可能和 TUI 渲染同时输出。当前代码已尽量减少对输入状态的影响，但如果日志仍然干扰操作，可以先完成连接，再继续输入命令；后续会继续收敛 SDK 日志输出。
 
-### Q: 提示 "appId or appSecret is invalid"
+### 收不到消息
 
-A: 确认：
-- App ID 和 App Secret 是否正确复制（注意前后空格）
-- 应用是否已保存
+按顺序检查：
 
-### Q: 机器人在群里不响应
+1. 应用是否已经发布并审批生效
+2. 事件订阅是否选择“长连接”
+3. 是否添加了 `im.message.receive_v1`
+4. 权限是否包含 `im:message` 和 `im:message:send_as_bot`
+5. 机器人是否已经加入目标群
+6. 群聊中是否 @ 了机器人
 
-A: 确保：
-- 机器人已被添加到群里
-- 消息中 @了机器人
-- 应用权限 `im:message` 已开通
+### 报 `appId or appSecret is invalid`
 
-### Q: 如何发送消息卡片
+检查 App ID、App Secret 是否复制完整，确认没有额外空格，并确认 `.bumblebee.yaml` 中的环境变量是否成功展开。
 
-A: 在代码中使用 `FeishuAdapter` 的 `sendCard()` 方法：
-```typescript
-const feishu = channelManager.getChannel('feishu')
-if (feishu instanceof FeishuAdapter) {
-  await feishu.sendCard(target, {
-    header: { title: { content: '标题', tag: 'plain_text' } },
-    elements: [{ tag: 'div', text: { content: '内容', tag: 'plain_text' } }]
-  })
-}
+### 如何确认环境变量是否生效？
+
+PowerShell：
+
+```powershell
+echo $env:FEISHU_APP_ID
+```
+
+bash/zsh：
+
+```bash
+echo "$FEISHU_APP_ID"
 ```

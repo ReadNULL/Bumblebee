@@ -1,4 +1,4 @@
-# Bumblebee 配置文件示例
+# Bumblebee configuration example
 
 personality:
   intensity: moderate  # low | moderate | high
@@ -13,27 +13,38 @@ ai:
   model: claude-sonnet-4-6
   temperature: 0.7
   maxTokens: 4096
-  # apiKey: your-api-key-here
+  # Do not store plaintext API keys here. Use environment variables instead:
+  # ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / AWS credentials.
 
-# 渠道配置（按需启用，详见 docs/channels/）
-channels: {}
+# Channel configuration. Enable only the channels you need.
+channels:
   # wechat:
   #   enabled: true
-  #   puppet: wechaty-puppet-padlocal    # 可选: padlocal / wechat4u / wechat-openai
-  #   token: your-padlocal-token          # padlocal 需要 token
+  #   mode: official-account
+  #   token: ${WECHAT_OFFICIAL_TOKEN}
+  #   appId: ${WECHAT_OFFICIAL_APP_ID}
+  #   appSecret: ${WECHAT_OFFICIAL_APP_SECRET}
+  #   port: 3002
+  #   path: /wechat
+  #
+  # # Personal account via ilink API (QR login, no extra config):
+  # # wechat:
+  # #   enabled: true
+  # #   mode: weixinbot
   #
   # feishu:
   #   enabled: true
-  #   appId: cli_xxxxx                    # 飞书开放平台 → 应用详情 → 凭证
-  #   appSecret: xxxxx                    # 飞书开放平台 → 应用详情 → 凭证
-  #   # encryptKey: xxxxx                 # 可选，事件加密密钥
-  #   # verificationToken: xxxxx          # 可选，事件验证令牌
+  #   appId: ${FEISHU_APP_ID}
+  #   appSecret: ${FEISHU_APP_SECRET}
+  #   # encryptKey: ${FEISHU_ENCRYPT_KEY}
+  #   # verificationToken: ${FEISHU_VERIFICATION_TOKEN}
   #
   # dingtalk:
   #   enabled: true
-  #   mode: webhook                       # webhook（仅发送）| enterprise（双向）
-  #   webhook: https://oapi.dingtalk.com/robot/send?access_token=xxxxx
-  #   # 企业应用模式:
-  #   # appKey: xxxxx
-  #   # appSecret: xxxxx
-  #   # robotCode: xxxxx
+  #   mode: webhook
+  #   webhook: ${DINGTALK_WEBHOOK}
+  #   # Enterprise mode:
+  #   # mode: enterprise
+  #   # appKey: ${DINGTALK_APP_KEY}
+  #   # appSecret: ${DINGTALK_APP_SECRET}
+  #   # robotCode: ${DINGTALK_ROBOT_CODE}

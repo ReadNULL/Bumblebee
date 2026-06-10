@@ -32,6 +32,17 @@ export interface OrchestrationResult {
 // 结果聚合器类型
 export type ResultAggregator = (results: AgentResult[]) => unknown
 
+export interface RouteStrategyContext {
+  manager: AgentManager
+  agents: AgentInstance[]
+  config: OrchestrationConfig
+}
+
+export type RouteStrategy = (
+  tasks: AgentTask[],
+  context: RouteStrategyContext
+) => Promise<AgentResult[]>
+
 // 预定义的聚合策略
 const AGGREGATION_STRATEGIES: Record<string, ResultAggregator> = {
   // 合并所有结果
@@ -78,6 +89,7 @@ const AGGREGATION_STRATEGIES: Record<string, ResultAggregator> = {
 export class AgentOrchestrator {
   private manager: AgentManager
   private customAggregators: Map<string, ResultAggregator> = new Map()
+  private routeStrategies: Map<string, RouteStrategy> = new Map()
 
   constructor(manager: AgentManager) {
     this.manager = manager
@@ -86,11 +98,20 @@ export class AgentOrchestrator {
     for (const [name, aggregator] of Object.entries(AGGREGATION_STRATEGIES)) {
       this.customAggregators.set(name, aggregator)
     }
+    this.registerBuiltInRouteStrategies()
   }
 
   // 注册自定义聚合策略
   registerAggregator(name: string, aggregator: ResultAggregator): void {
     this.customAggregators.set(name, aggregator)
+  }
+
+  registerRouteStrategy(name: string, strategy: RouteStrategy): void {
+    this.routeStrategies.set(name, strategy)
+  }
+
+  unregisterRouteStrategy(name: string): boolean {
+    return this.routeStrategies.delete(name)
   }
 
   // 执行编排任务
@@ -105,25 +126,17 @@ export class AgentOrchestrator {
     }
 
     // 根据协作模式执行任务
-    let results: AgentResult[]
-    switch (config.mode) {
-      case 'independent':
-        results = await this.executeIndependent(config.tasks)
-        break
-      case 'sequential':
-        results = await this.executeSequential(config.tasks)
-        break
-      case 'parallel':
-        results = await this.executeParallel(config.tasks)
-        break
-      case 'hierarchical':
-        results = await this.executeHierarchical(config.tasks, agents)
-        break
-      default:
+    const routeStrategy = this.routeStrategies.get(config.mode)
+    if (!routeStrategy) {
         throw new Error(`不支持的协作模式: ${config.mode}`)
     }
 
     // 聚合结果
+    const results = await routeStrategy(config.tasks, {
+      manager: this.manager,
+      agents,
+      config
+    })
     const aggregated = this.aggregateResults(results, config.aggregation)
 
     const endTime = new Date()
@@ -167,7 +180,7 @@ export class AgentOrchestrator {
   // 顺序执行（任务按顺序执行，前一个结果作为后一个的上下文）
   private async executeSequential(tasks: AgentTask[]): Promise<AgentResult[]> {
     const results: AgentResult[] = []
-    let previousContext: Record<string, any> = {}
+    let previousContext: Record<string, unknown> = {}
 
     for (const task of tasks) {
       // 将前一个任务的结果作为上下文
@@ -259,6 +272,13 @@ export class AgentOrchestrator {
   }
 
   // 聚合结果
+  private registerBuiltInRouteStrategies(): void {
+    this.registerRouteStrategy('independent', (tasks) => this.executeIndependent(tasks))
+    this.registerRouteStrategy('sequential', (tasks) => this.executeSequential(tasks))
+    this.registerRouteStrategy('parallel', (tasks) => this.executeParallel(tasks))
+    this.registerRouteStrategy('hierarchical', (tasks, context) => this.executeHierarchical(tasks, context.agents))
+  }
+
   private aggregateResults(results: AgentResult[], strategy?: string): unknown {
     if (!strategy || strategy === 'none') {
       return null

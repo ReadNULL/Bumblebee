@@ -1,159 +1,186 @@
 # 微信渠道接入指南
 
-通过 [wechaty](https://github.com/wechaty/wechaty) 将 Bumblebee 接入微信，支持私聊、群聊和文件传输。
+微信个人号没有官方开放 SDK。Bumblebee 提供两种微信接入方式：
 
-## 前置条件
+1. **微信公众号官方接口**（推荐）—— 通过微信公众平台服务器配置接收消息，通过被动回复或客服消息接口回复用户。
+2. **个人微信 ilink 扫码**（weixinbot 模式）—— 通过 ilink API 扫码登录个人微信，token 自动缓存，重启免扫码。
 
-- Node.js >= 22
-- 微信账号（需要能正常登录微信网页版或桌面版）
+## 模式一：微信公众号官方接口
 
-## 第一步：安装依赖
+### 1. 准备公众号
 
-```bash
-# 安装项目依赖；会安装 wechaty、Wechat4U，以及可选的 PadLocal puppet
-npm install
+你需要一个微信公众号，并能进入"微信公众平台 -> 设置与开发 -> 基本配置 -> 服务器配置"。
 
-# 如果只想单独安装微信核心依赖
-npm install wechaty
+需要准备：
 
-# PadLocal 已作为 optionalDependency 声明，项目 npm install 会默认尝试安装
-npm install wechaty-puppet-padlocal
+| 字段 | 说明 |
+| --- | --- |
+| Token | 自定义字符串，微信服务器校验签名用 |
+| AppID | 可选，用于获取 access_token |
+| AppSecret | 可选，用于客服消息主动回复 |
+| URL | 你的公网回调地址，例如 `https://example.com/wechat` |
 
-# XP 为实验性方案；依赖 frida 原生模块，Node 22 下可能无法安装
-npm install wechaty-puppet-xp
-
-# Wechat4U 已由 wechaty 自带；多数账号已无法登录，一般无需手动安装
-npm install wechaty-puppet-wechat4u
-```
-
-### Puppet 选择建议
-
-| Puppet | 费用 | 稳定性 | 平台限制 | 适用场景 |
-|--------|------|--------|----------|----------|
-| padlocal | 付费/申请制 | 高 | 无 | 有 token 时优先使用 |
-| xp | 免费 | 中等 | Windows | 实验性，Node 22 下可能无法安装 |
-| wechat4u | 免费 | 低 | 无 | ⚠️ 多数账号已不可用 |
-
-> **注意**: wechat4u 基于 Web 微信协议，腾讯已大幅限制该协议，多数账号扫码后会报 `AssertionError: -1 == 0` 错误。PadLocal 更稳定，但需要先获取 token；如果暂时没有 token，建议先使用飞书或钉钉渠道验证 IM 接入。
-
-## 第二步：获取 Token（仅 PadLocal）
-
-如果使用 PadLocal puppet：
-
-1. 向 PadLocal / Wechaty 社区或服务方申请试用 token，或购买长期 token。
-2. 记录形如 `puppet_padlocal_xxxxxxxxxxxxxxxxxx` 的 token。
-3. 如果旧文档提到的 `pad-local.com` 拒绝连接，说明该公开入口可能已不可用，不要把它视为稳定自助注册路径。
-
-可参考这些入口了解当前申请方式：
-
-- Wechaty token 文档: https://wechaty.js.org/docs/puppet-services/tokens
-- PadLocal 文档: https://wechaty.js.org/zh/docs/puppet-services/padlocal
-- Wechaty puppet-supports issue: https://github.com/wechaty/puppet-supports/issues?q=padlocal
-
-其他 puppet 跳过此步。
-
-## 第三步：配置
-
-### 方式一：TUI 交互式设置
+本地开发时可以用 ngrok/cpolar 等工具把本地端口暴露到公网：
 
 ```bash
-node dist/cli.js
-
-# 在 TUI 中执行
-/channels setup
-# 选择 "微信"，按提示操作
+ngrok http 3002
 ```
 
-### 方式二：手动编辑 .bumblebee.yaml
+如果公网地址是 `https://abc.ngrok-free.app`，Bumblebee 默认回调路径是 `/wechat`，则微信公众平台里填写：
+
+```text
+https://abc.ngrok-free.app/wechat
+```
+
+### 2. 配置环境变量
+
+PowerShell：
+
+```powershell
+$env:WECHAT_OFFICIAL_TOKEN = "your-token"
+$env:WECHAT_OFFICIAL_APP_ID = "wx..."
+$env:WECHAT_OFFICIAL_APP_SECRET = "..."
+```
+
+bash/zsh：
+
+```bash
+export WECHAT_OFFICIAL_TOKEN="your-token"
+export WECHAT_OFFICIAL_APP_ID="wx..."
+export WECHAT_OFFICIAL_APP_SECRET="..."
+```
+
+`AppID/AppSecret` 可不填。不填时 Bumblebee 只能在微信 5 秒被动回复窗口内回复；如果 LLM 响应超时，就无法再主动发送。
+
+### 3. 配置 `.bumblebee.yaml`
 
 ```yaml
 channels:
   wechat:
     enabled: true
-    puppet: wechaty-puppet-wechat4u   # 或 wechaty-puppet-padlocal
-    # token: your-padlocal-token      # 仅 padlocal 需要
+    mode: official-account
+    token: ${WECHAT_OFFICIAL_TOKEN}
+    appId: ${WECHAT_OFFICIAL_APP_ID}
+    appSecret: ${WECHAT_OFFICIAL_APP_SECRET}
+    port: 3002
+    path: /wechat
+    responseTimeoutMs: 4500
 ```
 
-### 方式三：使用环境变量
+字段说明：
 
-配置文件支持 `${ENV_VAR}` 语法引用系统环境变量：
+| 字段 | 必填 | 说明 |
+| --- | :---: | --- |
+| `mode` | 否 | `official-account` 或 `weixinbot`，默认 `official-account` |
+| `token` | 是 | 必须和微信公众平台服务器配置里的 Token 一致 |
+| `appId` | 否 | 用于获取公众号 access_token |
+| `appSecret` | 否 | 用于获取公众号 access_token |
+| `port` | 否 | 本地 HTTP 回调端口，默认 `3002` |
+| `path` | 否 | 回调路径，默认 `/wechat` |
+| `responseTimeoutMs` | 否 | 被动回复等待时间，默认 `4500` |
 
-```yaml
-# .bumblebee.yaml
-channels:
-  wechat:
-    enabled: true
-    puppet: wechaty-puppet-padlocal
-    token: ${WECHAT_TOKEN}
-```
-
-## 第四步：连接
+### 4. 启动和连接
 
 ```bash
-# 启动 TUI
 node dist/cli.js
+```
 
-# 连接微信
+在 TUI 里执行：
+
+```text
 /channels connect wechat
 ```
 
-连接后终端会显示二维码，用微信扫码登录。
+连接成功后，本地会监听：
 
-## 支持的功能
+```text
+http://localhost:3002/wechat
+```
 
-| 功能 | 支持 | 说明 |
-|------|:----:|------|
-| 文本消息 | ✅ | 发送和接收 |
-| 图片 | ✅ | 接收为 `[图片]` 占位符 |
-| 语音 | ✅ | 接收为 `[语音]` 占位符 |
-| 文件 | ✅ | 文件传输助手 |
-| @提及 | ✅ | 群聊中检测 @ |
-| 群聊 | ✅ | 通过群名称匹配 |
-| 私聊 | ✅ | 通过昵称或 ID 匹配 |
+此时在微信公众平台提交服务器配置，微信会向该 URL 发起 GET 校验。校验通过后，关注者给公众号发文本消息，Bumblebee 会接收并回复。
+
+### 回复机制
+
+微信公众号有两个回复路径：
+
+1. 被动回复：微信 POST 消息到 Bumblebee 后，Bumblebee 在 `responseTimeoutMs` 内返回 XML 文本回复。
+2. 客服消息：如果 LLM 响应超过被动回复窗口，Bumblebee 会尝试调用微信客服消息接口主动发送。此能力需要 `appId/appSecret` 和公众号权限支持。
+
+如果没有配置 `appId/appSecret`，超时后的主动回复会失败，这是微信官方接口限制。
+
+## 模式二：个人微信 ilink 扫码（weixinbot）
+
+weixinbot 模式基于 ilink API（Tencent/openclaw-weixin），支持个人微信账号扫码登录。token 自动缓存在 `~/.bumblebee/weixin/`，重启后无需重新扫码。
+
+### 配置
+
+```yaml
+channels:
+  wechat:
+    enabled: true
+    mode: weixinbot
+```
+
+无需额外配置字段。连接时会显示二维码，用微信扫码即可。
+
+### 连接
+
+```text
+/channels connect wechat
+```
+
+首次连接会弹出二维码，用微信扫码确认登录。登录成功后 token 自动缓存，下次启动直接恢复连接。
+
+### 工作原理
+
+1. 调用 ilink API 获取二维码
+2. 用户用微信扫码确认登录
+3. 获取 bot_token，缓存到本地
+4. 通过长轮询（getupdates）接收消息
+5. 通过 sendmessage 发送回复
+
+### 注意事项
+
+- weixinbot 模式使用的是非官方接口，可能存在稳定性风险
+- 每个微信号同时只能有一个 ilink 连接
+- 消息仅支持文本，图片/语音/文件等会忽略
+
+## 支持能力
+
+| 能力 | official-account | weixinbot |
+| --- | :---: | :---: |
+| 接收文本 | 是 | 是 |
+| 发送文本 | 是 | 是 |
+| 群聊 | 否 | 是 |
+| 私聊 | 公众号关注者会话 | 是 |
+| 图片/语音/视频 | 占位接收 | 否 |
+| 文件 | 否 | 否 |
+| Token 缓存 | 不适用 | 自动缓存，重启免扫码 |
 
 ## 常见问题
 
-### Q: 扫码后报 `AssertionError: -1 == 0`
+### 微信公众平台 URL 校验失败
 
-A: 这是 wechat4u 的已知问题。Web 微信协议已被腾讯大幅限制，多数账号无法通过此方式登录。解决方案：
-- **有 PadLocal token 时**: 切换到 `wechaty-puppet-padlocal`
-- **没有 token 时**: 先使用飞书或钉钉渠道完成 IM 接入验证
-- **实验性**: `wechaty-puppet-xp` 仅适合能自行处理 Node/原生依赖兼容性的 Windows 环境
+检查：
 
-### Q: 扫码后提示登录失败
+1. Bumblebee 是否已经执行 `/channels connect wechat`
+2. 公网 URL 是否能访问到本机 `port`
+3. 微信公众平台的 Token 是否和 `.bumblebee.yaml` 中的 `token` 完全一致
+4. 回调路径是否一致，例如 `/wechat`
 
-A: 微信可能限制了网页版登录。尝试：
-- 使用其他 puppet（PadLocal 需要 token；XP 为实验性）
-- 确保微信账号没有被限制网页版登录
-- 等待一段时间后重试
+### 用户发消息后没有回复
 
-### Q: 收不到群消息
+检查：
 
-A: 确保：
-- Bumblebee 在群内被 @
-- 群消息没有被微信折叠
-- puppet 类型支持群消息接收
+1. TUI 是否仍在运行
+2. `responseTimeoutMs` 是否过短
+3. LLM API Key 是否配置正确
+4. 如果超过 5 秒，是否配置了 `appId/appSecret` 以使用客服消息
 
-### Q: wechaty 安装失败
+### weixinbot 扫码后无法连接
 
-A: wechaty 依赖较多原生模块，尝试：
-```bash
-npm install wechaty --ignore-scripts
-npm rebuild
-```
+检查：
 
-### Q: 连接时报 `Cannot find package 'wechaty-puppet-xp'`
-
-A: 当前配置选择了 `wechaty-puppet-xp`，但项目没有安装这个 puppet 包。Wechaty 的 puppet 是独立依赖，不会随 `wechaty` 自动安装。解决方式：
-
-```bash
-npm install wechaty-puppet-xp
-```
-
-如果使用的是其他 puppet，把命令中的包名替换成 `.bumblebee.yaml` 里 `channels.wechat.puppet` 的值。安装后重启 Bumblebee 并重新执行 `/channels connect wechat`。
-
-注意：XP puppet 依赖 `frida` 原生模块，当前 Bumblebee 要求 Node.js >= 22，而 `wechaty-puppet-xp@2.2.0` 在 Node 22 / Windows 下可能无法安装。因此 Bumblebee 不把 XP 作为默认预装依赖。优先使用 PadLocal；确需 XP 时，需要自行准备兼容的 Node/原生构建环境。
-
-### Q: 如何切换 puppet
-
-A: 修改 `.bumblebee.yaml` 中的 `puppet` 字段，重启 TUI 后重新连接。
+1. 网络是否能访问 `ilinkai.weixin.qq.com`
+2. 该微信号是否已有其他 ilink 连接（同一时间只能有一个）
+3. 二维码是否过期（5 分钟有效期，过期会自动刷新）

@@ -169,6 +169,17 @@ export interface StepResult {
   attempts?: number
 }
 
+export interface WorkflowActionContext {
+  step: WorkflowStep
+  workflowContext: WorkflowContext
+  stepResults: Record<string, StepResult>
+}
+
+export type WorkflowActionHandler = (
+  input: Record<string, unknown>,
+  context: WorkflowActionContext
+) => unknown | Promise<unknown>
+
 // 工作流执行结果
 export interface WorkflowResult {
   workflowId: string

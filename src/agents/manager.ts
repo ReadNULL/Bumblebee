@@ -1,14 +1,11 @@
-import { AgentConfig, AgentInstance, AgentTask, AgentResult } from './types.js'
+import { AgentConfig, AgentInstance, AgentTask, AgentResult, AgentTaskOutput } from './types.js'
 import { RoleManager } from '../roles/manager.js'
 import { RoleConfig } from '../roles/types.js'
 import { callLLM } from '../core/session-factory.js'
 import type { BumblebeeConfig } from '../core/config.js'
-import type { ConcurrencyController, PerformanceMonitor } from '../performance/optimizer.js'
 
 export interface AgentManagerRuntime {
   ai?: BumblebeeConfig['ai']
-  concurrency?: ConcurrencyController | null
-  performanceMonitor?: PerformanceMonitor | null
 }
 
 export class AgentManager {
@@ -163,7 +160,7 @@ export class AgentManager {
   }
 
   // 处理任务（通过 pi-coding-agent SDK 调用 AI，AI 不可用时降级为模拟响应）
-  private async processTask(agent: AgentInstance, task: AgentTask): Promise<Record<string, unknown>> {
+  private async processTask(agent: AgentInstance, task: AgentTask): Promise<AgentTaskOutput> {
     const systemPrompt = [
       agent.role.systemPrompt || `你是 ${agent.role.name}。${agent.role.description}`,
       agent.role.personality.traits?.length ? `特征: ${agent.role.personality.traits.join('、')}` : '',
@@ -192,8 +189,6 @@ export class AgentManager {
         systemPrompt,
         userPrompt,
         ai: this.runtime.ai,
-        concurrency: this.runtime.concurrency,
-        performanceMonitor: this.runtime.performanceMonitor,
       })
       return {
         message: result.text,

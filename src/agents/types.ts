@@ -58,18 +58,35 @@ export interface AgentTask {
   agentId: string
   type: string
   description: string
-  input: any
+  input: unknown
   priority: 'low' | 'medium' | 'high' | 'urgent'
   dependencies?: string[]
-  context?: Record<string, any>
+  context?: Record<string, unknown>
 }
+
+export type AgentTaskOutput =
+  | {
+      mode: 'ai'
+      simulated: false
+      message: string
+      role: string
+      taskType: string
+    }
+  | {
+      mode: 'simulated'
+      simulated: true
+      message: string
+      role: string
+      taskType: string
+      warning: string
+    }
 
 // Agent 结果
 export interface AgentResult {
   taskId: string
   agentId: string
   success: boolean
-  output: any
+  output: AgentTaskOutput | null
   error?: string
   metrics?: {
     startTime: Date
@@ -88,7 +105,7 @@ export type CollaborationMode =
 
 // Agent 编排配置
 export interface OrchestrationConfig {
-  mode: CollaborationMode
+  mode: CollaborationMode | string
   agents: AgentConfig[]
   tasks: AgentTask[]
   // 结果聚合策略

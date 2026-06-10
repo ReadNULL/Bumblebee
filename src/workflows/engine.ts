@@ -19,7 +19,8 @@ import {
   StepCondition,
   WorkflowEvent,
   WorkflowEventHandler,
-  ErrorHandling
+  ErrorHandling,
+  WorkflowActionHandler
 } from './types.js'
 
 // 生成唯一 ID
@@ -33,10 +34,12 @@ export class WorkflowEngine {
   private workflows: Map<string, Workflow> = new Map()
   private executions: Map<string, WorkflowContext> = new Map()
   private eventHandlers: WorkflowEventHandler[] = []
+  private actionHandlers: Map<string, WorkflowActionHandler> = new Map()
 
   constructor(agentManager: AgentManager) {
     this.agentManager = agentManager
     this.orchestrator = new AgentOrchestrator(agentManager)
+    this.registerBuiltInActions()
   }
 
   private resolveWorkflowAgentConfig(agentConfig: AgentConfig): AgentConfig {
@@ -63,6 +66,14 @@ export class WorkflowEngine {
   // 注销工作流
   unregister(workflowId: string): boolean {
     return this.workflows.delete(workflowId)
+  }
+
+  registerAction(action: string, handler: WorkflowActionHandler): void {
+    this.actionHandlers.set(action, handler)
+  }
+
+  unregisterAction(action: string): boolean {
+    return this.actionHandlers.delete(action)
   }
 
   // 获取工作流
@@ -288,7 +299,7 @@ export class WorkflowEngine {
         // 设置超时
         const timeout = step.timeout || 30000
         const output = await Promise.race([
-          this.executeStepAction(step, input),
+          this.executeStepAction(step, input, context, stepResults),
           this.createTimeout(timeout)
         ])
 
@@ -360,11 +371,16 @@ export class WorkflowEngine {
   }
 
   // 执行步骤动作
-  private async executeStepAction(step: WorkflowStep, input: Record<string, unknown>): Promise<unknown> {
+  private async executeStepAction(
+    step: WorkflowStep,
+    input: Record<string, unknown>,
+    context: WorkflowContext,
+    stepResults: Record<string, StepResult>
+  ): Promise<unknown> {
     // 根据 agentId 或 agentType 找到 Agent
     const agentId = step.agentId || step.agentType
     if (!agentId) {
-      return this.executeSystemStepAction(step, input)
+      return this.executeSystemStepAction(step, input, context, stepResults)
     }
 
     // 创建任务
@@ -387,54 +403,64 @@ export class WorkflowEngine {
     return result.output
   }
 
-  private async executeSystemStepAction(step: WorkflowStep, input: Record<string, unknown>): Promise<unknown> {
-    const baseOutput = {
-      action: step.action,
-      input,
-      message: `${step.name} 已完成`,
-      generatedAt: new Date().toISOString(),
+  private async executeSystemStepAction(
+    step: WorkflowStep,
+    input: Record<string, unknown>,
+    context: WorkflowContext,
+    stepResults: Record<string, StepResult>
+  ): Promise<unknown> {
+    const handler = this.actionHandlers.get(step.action)
+    if (!handler) {
+      throw new Error(`未注册工作流动作: ${step.action}`)
     }
 
-    switch (step.action) {
-      case 'fetch':
-        return {
-          ...baseOutput,
-          prId: input.prId,
-          repo: input.repo,
-          files: Array.isArray(input.files) ? input.files : [],
-        }
-      case 'generate':
-      case 'report':
-        return {
-          ...baseOutput,
-          title: input.title || step.name,
-          summary: Object.keys(input).length > 0 ? JSON.stringify(input) : step.name,
-        }
-      case 'classify':
-        return {
-          ...baseOutput,
-          category: 'general',
-          priority: 'medium',
-        }
-      case 'assign':
-        return {
-          ...baseOutput,
-          assignee: 'unassigned',
-        }
-      case 'build':
-        return {
-          ...baseOutput,
-          success: true,
-          artifact: `${input.version || 'current'}-build`,
-        }
-      case 'publish':
-        return {
-          ...baseOutput,
-          published: true,
-        }
-      default:
-        return baseOutput
-    }
+    return handler(input, { step, workflowContext: context, stepResults })
+  }
+
+  private registerBuiltInActions(): void {
+    const baseOutput = (action: string, input: Record<string, unknown>, message: string) => ({
+      action,
+      input,
+      message,
+      generatedAt: new Date().toISOString(),
+    })
+
+    this.registerAction('fetch', (input, { step }) => ({
+      ...baseOutput(step.action, input, `${step.name} 已完成`),
+      prId: input.prId,
+      repo: input.repo,
+      files: Array.isArray(input.files) ? input.files : [],
+    }))
+
+    const reportHandler: WorkflowActionHandler = (input, { step }) => ({
+      ...baseOutput(step.action, input, `${step.name} 已完成`),
+      title: input.title || step.name,
+      summary: Object.keys(input).length > 0 ? JSON.stringify(input) : step.name,
+    })
+    this.registerAction('generate', reportHandler)
+    this.registerAction('report', reportHandler)
+
+    this.registerAction('classify', (input, { step }) => ({
+      ...baseOutput(step.action, input, `${step.name} 已完成`),
+      category: 'general',
+      priority: 'medium',
+    }))
+
+    this.registerAction('assign', (input, { step }) => ({
+      ...baseOutput(step.action, input, `${step.name} 已完成`),
+      assignee: 'unassigned',
+    }))
+
+    this.registerAction('build', (input, { step }) => ({
+      ...baseOutput(step.action, input, `${step.name} 已完成`),
+      success: true,
+      artifact: `${input.version || 'current'}-build`,
+    }))
+
+    this.registerAction('publish', (input, { step }) => ({
+      ...baseOutput(step.action, input, `${step.name} 已完成`),
+      published: true,
+    }))
   }
 
   // ========== 辅助方法 ==========

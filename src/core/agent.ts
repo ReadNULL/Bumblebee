@@ -12,7 +12,6 @@ import { AgentManager } from '../agents/manager.js'
 import { AgentOrchestrator } from '../agents/orchestrator.js'
 import { WorkflowEngine } from '../workflows/engine.js'
 import { getWorkflowTemplateIds, createWorkflowFromTemplate } from '../workflows/templates.js'
-import { Cache, ConcurrencyController, PerformanceMonitor } from '../performance/optimizer.js'
 import { DashboardImpl, createDefaultDashboard } from '../dashboard/dashboard.js'
 import type { CollaborationRoomImpl } from '../collaboration/room.js'
 import type { VoiceEngineImpl } from '../voice/engine.js'
@@ -48,9 +47,6 @@ export class BumblebeeAgent {
   private agentManager: AgentManager | null = null
   private agentOrchestrator: AgentOrchestrator | null = null
   private workflowEngine: WorkflowEngine | null = null
-  private cache: Cache<any> | null = null
-  private concurrency: ConcurrencyController | null = null
-  private performanceMonitor: PerformanceMonitor | null = null
   private dashboard: DashboardImpl | null = null
   private collaborationRoom: CollaborationRoomImpl | null = null
   private voiceEngine: VoiceEngineImpl | null = null
@@ -79,28 +75,10 @@ export class BumblebeeAgent {
     this.context = new ContextManager()
     this.learner = new Learner(config.knowledge?.maxRecords ?? 1000, join(memDir, 'learner.json'))
 
-    // 初始化性能子系统
-    const perf = config.performance
-    if (perf?.enabled !== false && perf?.cache) {
-      this.cache = new Cache({
-        maxSize: perf.cache.maxSize,
-        ttl: perf.cache.ttl,
-        evictionPolicy: perf.cache.evictionPolicy,
-      })
-      this.concurrency = new ConcurrencyController({
-        maxConcurrent: perf.concurrency.maxConcurrent,
-        queueSize: perf.concurrency.queueSize,
-        timeout: perf.concurrency.timeout,
-      })
-      this.performanceMonitor = new PerformanceMonitor()
-    }
-
     // 初始化 Agent 系统（依赖 roleManager）
     if (config.agents?.enabled !== false) {
       this.agentManager = new AgentManager(this.roleManager, {
         ai: this.config.ai,
-        concurrency: this.concurrency,
-        performanceMonitor: this.performanceMonitor,
       })
       this.agentOrchestrator = new AgentOrchestrator(this.agentManager)
     }
@@ -134,7 +112,7 @@ export class BumblebeeAgent {
     }
 
     // 初始化仪表盘
-    if (this.config.dashboard?.enabled && this.performanceMonitor) {
+    if (this.config.dashboard?.enabled) {
       const dashConfig = createDefaultDashboard()
       dashConfig.refreshInterval = this.config.dashboard.refreshInterval
       this.dashboard = new DashboardImpl(dashConfig)
@@ -182,10 +160,6 @@ export class BumblebeeAgent {
       this.roleManager.switchRole(this.config.personality.roleId)
     }
 
-    // 确保有当前角色
-    if (!this.roleManager.getCurrentRole()) {
-      throw new Error('没有可用的角色')
-    }
   }
 
   // 释放资源
@@ -197,9 +171,6 @@ export class BumblebeeAgent {
       await this.dashboard.destroy()
       this.dashboard = null
     }
-    this.performanceMonitor = null
-    this.concurrency = null
-    this.cache = null
     if (this.voiceEngine) {
       await this.voiceEngine.destroy()
       this.voiceEngine = null
@@ -261,10 +232,9 @@ export class BumblebeeAgent {
       systemPrompt,
       userPrompt,
       ai: this.config.ai,
-      concurrency: this.concurrency,
-      performanceMonitor: this.performanceMonitor,
       sessionManager: this.sessionManager ?? undefined,
       disposeAfter: !this.sessionManager,
+      timeoutMs: this.config.ai.timeoutMs,
     })
   }
 
@@ -397,22 +367,7 @@ export class BumblebeeAgent {
     return this.workflowEngine
   }
 
-  // ========== 性能系统 ==========
-
-  // 获取缓存
-  getCache<T = any>(): Cache<T> | null {
-    return this.cache
-  }
-
-  // 获取并发控制器
-  getConcurrency(): ConcurrencyController | null {
-    return this.concurrency
-  }
-
-  // 获取性能监控器
-  getPerformanceMonitor(): PerformanceMonitor | null {
-    return this.performanceMonitor
-  }
+  // ========== 仪表盘 ==========
 
   // 获取仪表盘
   getDashboard(): DashboardImpl | null {

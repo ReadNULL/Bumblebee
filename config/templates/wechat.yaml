@@ -1,30 +1,34 @@
-# 微信渠道配置模板
+# WeChat channel configuration template
 #
-# 前置条件:
-#   1. npm install
-#   2. 项目默认安装 wechaty、Wechat4U，以及可选的 PadLocal puppet
-#   3. XP puppet 为实验性方案，Node 22 下可能需要用户自行处理原生依赖
-#
-# 获取 PadLocal Token:
-#   需要向 PadLocal / Wechaty 社区或服务方申请/购买 token。
-#   旧入口 pad-local.com 可能不可用，不要把它视为稳定自助注册路径。
-#
-# 连接方式:
-#   启动后会显示二维码，用微信扫码登录
-#   TUI 中使用 /channels connect wechat 连接
+# Two modes are available:
+# 1. official-account — WeChat Official Account callback API (recommended)
+# 2. weixinbot — Personal WeChat via ilink API (QR login, no extra config)
+
+# --- Mode 1: Official Account (recommended) ---
+# 1. Enable server configuration in WeChat Official Account Platform.
+# 2. Set URL to a public address plus path, for example: https://example.com/wechat.
+# 3. Use the same Token here and in the WeChat server configuration.
+# 4. For local development, expose this port with ngrok/cpolar or a similar tunnel.
 
 channels:
   wechat:
     enabled: true
+    mode: official-account
+    token: ${WECHAT_OFFICIAL_TOKEN}
+    appId: ${WECHAT_OFFICIAL_APP_ID}
+    appSecret: ${WECHAT_OFFICIAL_APP_SECRET}
+    port: 3002
+    path: /wechat
 
-    # Puppet 类型（决定登录方式和稳定性）
-    # 有 PadLocal token 时优先使用 wechaty-puppet-padlocal
-    # XP 为实验性方案，Node 22 下可能无法安装
-    # 注意: wechaty-puppet-wechat4u 已基本不可用（Web 微信协议被腾讯限制）
-    puppet: wechaty-puppet-padlocal
+    # appId/appSecret can be omitted if replies always finish within the
+    # passive reply window.
+    # If an LLM response misses that window, Bumblebee attempts to use the
+    # customer-service API, which requires appId/appSecret and matching account
+    # capabilities.
 
-    # Puppet Token（padlocal 必填；建议通过环境变量注入）
-    token: ${WECHAT_TOKEN}
-
-    # 支持的能力: 文本消息、图片、语音、@提及、文件传输
-    # 不支持: 表情回应、消息线程、富文本、视频
+# --- Mode 2: Personal account via ilink API ---
+# No extra configuration needed. Token is cached after QR login.
+# channels:
+#   wechat:
+#     enabled: true
+#     mode: weixinbot

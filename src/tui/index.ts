@@ -3,3 +3,4 @@
  */
 
 export { default as bumblebeeExtension } from './extension.js'
+export * from './catalog.js'

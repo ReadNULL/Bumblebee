@@ -85,11 +85,7 @@ export class KnowledgeGraph {
 
   // 获取节点
   getNode(id: string): KnowledgeNode | undefined {
-    const node = this.nodes.get(id)
-    if (node) {
-      node.accessCount++
-    }
-    return node
+    return this.nodes.get(id)
   }
 
   // 获取所有节点

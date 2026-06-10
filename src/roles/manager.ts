@@ -157,6 +157,6 @@ export class RoleManager {
 
   // 获取存储目录
   getRolesDir(): string {
-    return this.store['rolesDir']
+    return this.store.getRolesDir()
   }
 }

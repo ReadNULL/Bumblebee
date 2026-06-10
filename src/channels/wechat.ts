@@ -1,13 +1,19 @@
 /**
- * 微信渠道适配器
+ * WeChat Official Account channel adapter.
  *
- * 基于 wechaty 实现，支持：
- * - 个人号登录
- * - 群聊消息
- * - 私聊消息
- * - 文件传输
+ * Uses the official WeChat Official Account callback API:
+ * - GET callback verifies the server URL.
+ * - POST callback receives Official Account messages.
+ * - Replies are returned as passive XML replies when possible. If the passive
+ *   window is missed, the adapter can fall back to the customer-service API
+ *   when appId/appSecret are configured.
+ *
+ * For personal WeChat accounts, use the weixinbot mode (see weixinbot.ts).
  */
 
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'http'
+import { createHash } from 'crypto'
+import type { Socket } from 'net'
 import {
   ChannelAdapter,
   ChannelCapabilities,
@@ -15,357 +21,382 @@ import {
   Message,
   MessageHandler,
   MessageType,
-  User
+  User,
 } from './types.js'
-import QRCode from 'qrcode'
-import { createRequire } from 'node:module'
-
-// wechaty 模块（延迟加载）
-let WechatyClass: any
-let wechatyLoadPromise: Promise<void> | null = null
-const requireFromModule = createRequire(import.meta.url)
-
-const KNOWN_WECHAT_PUPPETS = new Set([
-  'wechaty-puppet-padlocal',
-  'wechaty-puppet-wechat4u',
-  'wechaty-puppet-xp',
-])
 
 interface WeChatConfig extends ChannelConfig {
   name?: string
-  puppet?: string       // puppet 类型：wechaty-puppet-padlocal, wechaty-puppet-wechat4u 等
-  token?: string        // puppet token（如使用 padlocal）
-  autoAcceptFriend?: boolean
-  autoReply?: boolean
+  token?: string
+  appId?: string
+  appSecret?: string
+  port?: number
+  path?: string
+  responseTimeoutMs?: number
 }
 
-export function getWeChatPuppetInstallHint(puppet?: string): string {
-  if (!puppet) {
-    return '未配置 puppet。请在 .bumblebee.yaml 的 channels.wechat.puppet 中指定一个 Wechaty puppet。'
-  }
-
-  const installCommand = `npm.cmd install ${puppet}`
-  const puppetNote = puppet === 'wechaty-puppet-xp'
-    ? '\n注意: XP puppet 依赖 frida 原生模块，在 Node 22 上可能无法安装；Bumblebee 不会在 npm install 时默认预装它。优先使用 PadLocal，或在兼容环境中手动安装 XP。'
-    : KNOWN_WECHAT_PUPPETS.has(puppet)
-      ? ''
-      : '\n该 puppet 不在 Bumblebee 的常用列表中，请确认包名是否正确。'
-
-  return [
-    `微信 Puppet 依赖未安装: ${puppet}`,
-    `当前配置选择了 ${puppet}，但项目 node_modules 中没有找到这个包。`,
-    `请在项目根目录运行: ${installCommand}`,
-    '安装后重新启动 Bumblebee 再连接微信；或把 channels.wechat.puppet 改为已安装的 puppet。',
-    puppetNote,
-  ].filter(Boolean).join('\n')
+interface PendingReply {
+  resolve: (content: string | undefined) => void
 }
 
-export function ensureWeChatPuppetInstalled(puppet?: string): void {
-  if (!puppet) return
-
-  try {
-    requireFromModule.resolve(puppet)
-  } catch (error: any) {
-    if (error?.code === 'ERR_MODULE_NOT_FOUND' || String(error?.message || error).includes(puppet)) {
-      throw new Error(getWeChatPuppetInstallHint(puppet))
-    }
-    throw error
-  }
+interface OfficialAccessToken {
+  token: string
+  expiresAt: number
 }
+
+const DEFAULT_OFFICIAL_PORT = 3002
+const DEFAULT_OFFICIAL_PATH = '/wechat'
+const DEFAULT_RESPONSE_TIMEOUT_MS = 4500
 
 export class WeChatAdapter implements ChannelAdapter {
   name: string
   type: 'messaging' = 'messaging'
-  description = '微信渠道适配器（基于 wechaty）'
+  description = 'WeChat Official Account adapter (callback API)'
   supports: ChannelCapabilities = {
     files: false,
     reactions: false,
     threads: false,
-    mentions: true,
+    mentions: false,
     richText: false,
     voice: false,
-    video: false
+    video: false,
   }
 
-  private config: WeChatConfig
-  private bot: any = null
+  private config: Required<Pick<WeChatConfig, 'port' | 'path' | 'responseTimeoutMs'>> & WeChatConfig
   private messageHandler: MessageHandler | null = null
-  private qrCodeCallback: ((qr: string) => void) | null = null
   private _status: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected'
+
+  private callbackServer: Server | null = null
+  private callbackSockets: Set<Socket> = new Set()
+  private pendingReplies: Map<string, PendingReply[]> = new Map()
+  private officialAccessToken: OfficialAccessToken | null = null
 
   constructor(config: WeChatConfig = {}) {
     this.name = config.name || 'wechat'
-    this.config = config
-  }
-
-  // 预加载 wechaty 模块（后台进行，initialize() 会等待其完成）
-  static preload(): Promise<void> {
-    if (WechatyClass) return Promise.resolve()
-    if (!wechatyLoadPromise) {
-      wechatyLoadPromise = import('wechaty').then(mod => {
-        WechatyClass = mod.WechatyBuilder
-      }).catch(() => {
-        // wechaty 未安装，清空 promise（initialize 时会重新报错）
-        wechatyLoadPromise = null
-      })
+    this.config = {
+      ...config,
+      port: config.port || Number(process.env.WECHAT_OFFICIAL_PORT) || DEFAULT_OFFICIAL_PORT,
+      path: config.path || process.env.WECHAT_OFFICIAL_PATH || DEFAULT_OFFICIAL_PATH,
+      responseTimeoutMs: config.responseTimeoutMs || DEFAULT_RESPONSE_TIMEOUT_MS,
+      token: config.token || process.env.WECHAT_OFFICIAL_TOKEN || '',
+      appId: config.appId || process.env.WECHAT_OFFICIAL_APP_ID,
+      appSecret: config.appSecret || process.env.WECHAT_OFFICIAL_APP_SECRET,
     }
-    return wechatyLoadPromise
   }
 
-  // 初始化（等待预加载完成或重新加载）
   async initialize(): Promise<void> {
-    if (WechatyClass) return
-    if (wechatyLoadPromise) {
-      await wechatyLoadPromise
-      if (WechatyClass) return
-    }
-    try {
-      const wechatyModule = await import('wechaty')
-      WechatyClass = wechatyModule.WechatyBuilder
-      wechatyLoadPromise = Promise.resolve()
-    } catch (error) {
-      throw new Error(
-        '请安装 wechaty: npm install wechaty\n' +
-        '如需使用特定 puppet，请额外安装对应包'
-      )
-    }
+    // official-account 模式无需初始化
   }
 
-  // 连接（立即返回，bot 在后台启动）
   async connect(): Promise<void> {
-    if (this.bot || this._status === 'connecting') {
-      return
-    }
+    if (this._status === 'connecting' || this._status === 'connected') return
 
     this._status = 'connecting'
-
-    await this.initialize()
-    ensureWeChatPuppetInstalled(this.config.puppet)
-
-    // 创建 wechaty 实例
-    const builderOptions: any = {
-      name: this.config.name || 'bumblebee'
-    }
-
-    if (this.config.puppet) {
-      builderOptions.puppet = this.config.puppet
-    }
-
-    if (this.config.token) {
-      builderOptions.puppetOptions = { token: this.config.token }
-    }
-
-    const builder = new WechatyClass()
-    this.bot = builder.options(builderOptions).build()
-
-    // 注册事件处理器
-    this.bot.on('scan', async (qrcodeValue: string, status: any) => {
-      if (status === 2) {
-        let qrDisplay: string
-        try {
-          qrDisplay = await QRCode.toString(qrcodeValue, { type: 'terminal', small: true })
-        } catch {
-          qrDisplay = `二维码链接: ${qrcodeValue}\n请用微信扫一扫`
-        }
-        this.qrCodeCallback?.(qrDisplay)
-      }
-    })
-
-    this.bot.on('login', (_user: any) => {
-      this._status = 'connected'
-    })
-
-    this.bot.on('logout', (_user: any) => {
-      this._status = 'disconnected'
-    })
-
-    this.bot.on('error', (error: Error) => {
-      this._status = 'error'
-      console.error('微信错误:', error)
-    })
-
-    this.bot.on('message', async (msg: any) => {
-      await this.handleMessage(msg)
-    })
-
-    // fire-and-forget: 不 await bot.start()，让 bot 在后台自行启动
-    this.bot.start().catch((error: Error) => {
-      this._status = 'error'
-      if (this.config.puppet && String(error?.message || error).includes(this.config.puppet)) {
-        console.error('微信启动失败:', getWeChatPuppetInstallHint(this.config.puppet))
-        return
-      }
-      console.error('微信启动失败:', error)
-    })
-  }
-
-  // 断开连接
-  async disconnect(): Promise<void> {
-    if (this.bot) {
-      await this.bot.stop()
-      this.bot = null
-      this._status = 'disconnected'
-    }
-  }
-
-  // 注册消息处理器
-  onMessage(handler: MessageHandler): void {
-    this.messageHandler = handler
-  }
-
-  // 发送消息
-  async sendMessage(target: string, message: Message): Promise<void> {
-    if (!this.bot) {
-      throw new Error('微信未连接')
-    }
-
     try {
-      // 查找联系人或群组
-      let contact = null
-
-      if (target === '*') {
-        // 广播：发送到文件传输助手
-        contact = await this.bot.Contact.find({ name: '文件传输助手' })
-      } else {
-        // 按 ID 或名称查找
-        contact = await this.bot.Contact.find({ id: target }) ||
-                  await this.bot.Contact.find({ name: target })
-
-        if (!contact) {
-          // 尝试查找群组
-          const room = await this.bot.Room.find({ topic: target })
-          if (room) {
-            await room.say(message.content)
-            return
-          }
-        }
-      }
-
-      if (contact) {
-        await contact.say(message.content)
-      } else {
-        throw new Error(`找不到目标: ${target}`)
-      }
+      await this.connectOfficialAccount()
+      this._status = 'connected'
     } catch (error) {
-      console.error('发送微信消息失败:', error)
+      this._status = 'error'
       throw error
     }
   }
 
-  // 获取状态
-  async getStatus(): Promise<'connected' | 'disconnected' | 'error'> {
-    // 将 'connecting' 映射为 'disconnected'
-    if (this._status === 'connecting') {
-      return 'disconnected'
+  async disconnect(): Promise<void> {
+    if (this.callbackServer) {
+      for (const socket of this.callbackSockets) {
+        socket.destroy()
+      }
+      this.callbackSockets.clear()
+
+      await new Promise<void>((resolve, reject) => {
+        this.callbackServer!.close(error => error ? reject(error) : resolve())
+      })
+      this.callbackServer = null
     }
+
+    this.pendingReplies.clear()
+    this.officialAccessToken = null
+    this._status = 'disconnected'
+  }
+
+  onMessage(handler: MessageHandler): void {
+    this.messageHandler = handler
+  }
+
+  async sendMessage(target: string, message: Message): Promise<void> {
+    const pending = this.shiftPendingReply(target)
+    if (pending) {
+      pending.resolve(message.content)
+      return
+    }
+
+    await this.sendOfficialCustomerMessage(target, message.content)
+  }
+
+  async getStatus(): Promise<'connected' | 'disconnected' | 'error'> {
+    if (this._status === 'connecting') return 'disconnected'
     return this._status
   }
 
-  // 获取可用目标（群组列表）
-  async getTargets(): Promise<Array<{ id: string; name: string }>> {
-    if (!this.bot) {
-      return []
-    }
-
-    try {
-      const rooms = await this.bot.Room.findAll()
-      return rooms.map((room: any) => ({
-        id: room.id,
-        name: room.topic() || '未命名群组'
-      }))
-    } catch (error) {
-      console.error('获取群组列表失败:', error)
-      return []
+  private validateOfficialConfig(): void {
+    if (!this.config.token?.trim()) {
+      throw new Error('WeChat official-account mode requires channels.wechat.token or WECHAT_OFFICIAL_TOKEN.')
     }
   }
 
-  // 设置二维码回调
-  onQrCode(callback: (qr: string) => void): void {
-    this.qrCodeCallback = callback
+  private async connectOfficialAccount(): Promise<void> {
+    this.validateOfficialConfig()
+    if (this.callbackServer) return
+
+    this.callbackServer = createServer((req, res) => {
+      void this.handleOfficialRequest(req, res)
+    })
+    this.callbackServer.on('connection', socket => {
+      this.callbackSockets.add(socket)
+      socket.on('close', () => this.callbackSockets.delete(socket))
+    })
+
+    await new Promise<void>((resolve, reject) => {
+      this.callbackServer!.once('error', reject)
+      this.callbackServer!.listen(this.config.port, () => {
+        this.callbackServer!.off('error', reject)
+        resolve()
+      })
+    })
   }
 
-  // 处理接收到的消息
-  private async handleMessage(msg: any): Promise<void> {
+  private async handleOfficialRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+    if (url.pathname !== this.config.path) {
+      writeText(res, 404, 'not found')
+      return
+    }
+
+    if (!this.verifyOfficialSignature(url)) {
+      writeText(res, 403, 'invalid signature')
+      return
+    }
+
+    if (req.method === 'GET') {
+      writeText(res, 200, url.searchParams.get('echostr') || '')
+      return
+    }
+
+    if (req.method !== 'POST') {
+      writeText(res, 405, 'method not allowed')
+      return
+    }
+
+    const body = await readRequestBody(req)
+    const fields = parseXmlFields(body)
+    const fromUserName = fields.FromUserName
+    const toUserName = fields.ToUserName
+    const msgType = fields.MsgType || 'text'
+
+    if (!fromUserName || !toUserName) {
+      writeText(res, 200, '')
+      return
+    }
+
+    const message = this.toOfficialMessage(fields, msgType, fromUserName)
     if (!this.messageHandler) {
+      writeText(res, 200, '')
       return
     }
 
-    // 忽略自己发送的消息
-    if (msg.self()) {
-      return
+    const reply = await this.dispatchOfficialMessage(message, fromUserName)
+    if (reply) {
+      writeXml(res, buildTextReplyXml(fromUserName, toUserName, reply))
+    } else {
+      writeText(res, 200, '')
+    }
+  }
+
+  private verifyOfficialSignature(url: URL): boolean {
+    const signature = url.searchParams.get('signature') || ''
+    const timestamp = url.searchParams.get('timestamp') || ''
+    const nonce = url.searchParams.get('nonce') || ''
+    const digest = createHash('sha1')
+      .update([this.config.token, timestamp, nonce].sort().join(''))
+      .digest('hex')
+    return digest === signature
+  }
+
+  private async dispatchOfficialMessage(message: Message, target: string): Promise<string | undefined> {
+    const replyPromise = new Promise<string | undefined>(resolve => {
+      const replies = this.pendingReplies.get(target) || []
+      replies.push({ resolve })
+      this.pendingReplies.set(target, replies)
+    })
+
+    void this.messageHandler!(message).catch(error => {
+      console.error('Failed to handle WeChat Official Account message:', error)
+    })
+
+    const reply = await Promise.race([
+      replyPromise,
+      delay<string | undefined>(this.config.responseTimeoutMs, undefined),
+    ])
+
+    if (!reply) {
+      this.removePendingReply(target)
     }
 
-    // 获取消息类型
-    const type = this.getMessageType(msg)
+    return reply
+  }
 
-    // 获取发送者信息
-    const talker = msg.talker()
-    const room = msg.room()
+  private toOfficialMessage(fields: Record<string, string>, msgType: string, fromUserName: string): Message {
+    const type = toMessageType(msgType)
+    const content = type === 'text'
+      ? (fields.Content || '')
+      : `[${msgType}]`
 
     const sender: User = {
-      id: talker?.id || 'unknown',
-      name: talker?.name() || '未知用户',
-      platform: 'wechat'
+      id: fromUserName,
+      name: fromUserName,
+      platform: 'wechat',
     }
 
-    // 构建统一消息格式
-    const message: Message = {
-      id: msg.id,
-      content: await this.extractContent(msg),
+    return {
+      id: fields.MsgId || `wechat-${Date.now()}`,
+      content,
       type,
       sender,
-      timestamp: new Date(msg.date().getTime()),
+      timestamp: new Date(Number(fields.CreateTime || Math.floor(Date.now() / 1000)) * 1000),
       metadata: {
-        roomId: room?.id,
-        roomName: room ? await room.topic() : undefined,
-        isMentionSelf: await msg.mentionSelf()
-      }
-    }
-
-    await this.messageHandler(message)
-  }
-
-  // 获取消息类型
-  private getMessageType(msg: any): MessageType {
-    const type = msg.type()
-    switch (type) {
-      case 1: // Message.Type.Text
-        return 'text'
-      case 2: // Message.Type.Image
-        return 'image'
-      case 3: // Message.Type.Video
-        return 'video'
-      case 4: // Message.Type.Audio
-        return 'voice'
-      case 5: // Message.Type.Attachment
-        return 'file'
-      default:
-        return 'text'
+        mode: 'official-account',
+        toUserName: fields.ToUserName,
+        fromUserName,
+        msgType,
+      },
     }
   }
 
-  // 提取消息内容
-  private async extractContent(msg: any): Promise<string> {
-    const type = msg.type()
+  private shiftPendingReply(target: string): PendingReply | undefined {
+    const replies = this.pendingReplies.get(target)
+    if (!replies?.length) return undefined
 
-    switch (type) {
-      case 1: // Text
-        return msg.text()
-      case 2: // Image
-        return '[图片]'
-      case 3: // Video
-        return '[视频]'
-      case 4: // Audio
-        return '[语音]'
-      case 5: // Attachment
-        return '[文件]'
-      default:
-        return msg.text() || '[未知消息]'
+    const reply = replies.shift()
+    if (replies.length === 0) {
+      this.pendingReplies.delete(target)
     }
+    return reply
+  }
+
+  private removePendingReply(target: string): void {
+    const replies = this.pendingReplies.get(target)
+    if (!replies?.length) return
+
+    replies.shift()
+    if (replies.length === 0) {
+      this.pendingReplies.delete(target)
+    }
+  }
+
+  private async sendOfficialCustomerMessage(openId: string, content: string): Promise<void> {
+    if (!this.config.appId || !this.config.appSecret) {
+      throw new Error('WeChat customer-service replies require appId/appSecret after the passive reply window has expired.')
+    }
+
+    const accessToken = await this.ensureOfficialAccessToken()
+    const response = await fetch(`https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token=${accessToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        touser: openId,
+        msgtype: 'text',
+        text: { content },
+      }),
+    })
+
+    const result = await response.json() as any
+    if (result.errcode && result.errcode !== 0) {
+      throw new Error(`WeChat customer-service message failed: ${result.errmsg || result.errcode}`)
+    }
+  }
+
+  private async ensureOfficialAccessToken(): Promise<string> {
+    if (this.officialAccessToken && Date.now() < this.officialAccessToken.expiresAt) {
+      return this.officialAccessToken.token
+    }
+
+    const response = await fetch(
+      `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(this.config.appId!)}&secret=${encodeURIComponent(this.config.appSecret!)}`
+    )
+    const result = await response.json() as any
+    if (!result.access_token) {
+      throw new Error(`Failed to get WeChat access_token: ${result.errmsg || JSON.stringify(result)}`)
+    }
+
+    this.officialAccessToken = {
+      token: result.access_token,
+      expiresAt: Date.now() + Math.max(60, Number(result.expires_in || 7200) - 300) * 1000,
+    }
+    return this.officialAccessToken.token
   }
 }
 
-// 工厂函数
+function toMessageType(type: string | number): MessageType {
+  if (type === 'text' || type === 1) return 'text'
+  if (type === 'image' || type === 2) return 'image'
+  if (type === 'video' || type === 3) return 'video'
+  if (type === 'voice' || type === 4) return 'voice'
+  if (type === 'file' || type === 5) return 'file'
+  return 'text'
+}
+
+function parseXmlFields(xml: string): Record<string, string> {
+  const fields: Record<string, string> = {}
+  const payload = xml
+    .replace(/^\s*<xml>\s*/i, '')
+    .replace(/\s*<\/xml>\s*$/i, '')
+  const pattern = /<([A-Za-z0-9_]+)><!\[CDATA\[([\s\S]*?)\]\]><\/\1>|<([A-Za-z0-9_]+)>([\s\S]*?)<\/\3>/g
+
+  for (const match of payload.matchAll(pattern)) {
+    const key = match[1] || match[3]
+    const value = match[2] || match[4] || ''
+    fields[key] = value.trim()
+  }
+  return fields
+}
+
+function buildTextReplyXml(toUserName: string, fromUserName: string, content: string): string {
+  return [
+    '<xml>',
+    `<ToUserName><![CDATA[${toUserName}]]></ToUserName>`,
+    `<FromUserName><![CDATA[${fromUserName}]]></FromUserName>`,
+    `<CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime>`,
+    '<MsgType><![CDATA[text]]></MsgType>',
+    `<Content><![CDATA[${sanitizeCdata(content)}]]></Content>`,
+    '</xml>',
+  ].join('')
+}
+
+function sanitizeCdata(value: string): string {
+  return value.replace(/\]\]>/g, ']]]]><![CDATA[>')
+}
+
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString('utf-8')
+}
+
+function writeText(res: ServerResponse, statusCode: number, body: string): void {
+  res.writeHead(statusCode, { 'Content-Type': 'text/plain; charset=utf-8' })
+  res.end(body)
+}
+
+function writeXml(res: ServerResponse, body: string): void {
+  res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8' })
+  res.end(body)
+}
+
+function delay<T>(ms: number, value: T): Promise<T> {
+  return new Promise(resolve => setTimeout(() => resolve(value), ms))
+}
+
 export function createWeChatAdapter(config?: WeChatConfig): WeChatAdapter {
   return new WeChatAdapter(config)
 }

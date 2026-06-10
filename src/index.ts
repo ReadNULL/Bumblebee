@@ -33,10 +33,8 @@ export * from './knowledge/index.js'
 export * from './voice/index.js'
 export * from './collaboration/index.js'
 export * from './dashboard/index.js'
-export * from './performance/index.js'
-
 // 导出 TUI 模块
 export * from './tui/index.js'
 
-// 导出插件类型
-export * from './plugins/types.js'
+// 导出插件系统
+export * from './plugins/index.js'

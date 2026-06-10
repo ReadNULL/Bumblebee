@@ -15,6 +15,10 @@ export class RoleStore {
     this.rolesDir = rolesDir || DEFAULT_ROLES_DIR
   }
 
+  getRolesDir(): string {
+    return this.rolesDir
+  }
+
   // 初始化存储
   async initialize(): Promise<void> {
     // 确保目录存在
@@ -55,7 +59,7 @@ export class RoleStore {
         }
       }
     } catch (error) {
-      // 目录不存在或为空，忽略
+      console.debug(`角色目录不可读取或为空: ${this.rolesDir}`, error)
     }
   }
 
@@ -187,7 +191,8 @@ export class RoleStore {
       await unlink(filePath)
       this.roles.delete(roleId)
       return true
-    } catch {
+    } catch (error) {
+      console.debug(`删除角色文件失败: ${filePath}`, error)
       return false
     }
   }

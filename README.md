@@ -1,328 +1,67 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
-  <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Tests-204%20passed-brightgreen?style=flat-square" alt="Tests">
-  <img src="https://img.shields.io/badge/Architecture-Plugin--based-ff6b35?style=flat-square" alt="Architecture">
-</p>
+# Bumblebee
 
-<h1 align="center">Bumblebee</h1>
+Bumblebee 是一个基于 `pi-coding-agent` 的多渠道 AI Coding Agent。它把终端 TUI、长期记忆、角色系统、Agent 编排、工作流、知识系统和 IM 渠道接入整合在一起，让你既可以在命令行里编码协作，也可以从飞书、钉钉、微信等渠道触发对话。
 
-<p align="center">
-  <strong>多渠道智能编程副官</strong><br>
-  <em>不只是 Coding Agent，而是能变形、协作、感知、响应的 AI 编程伙伴</em>
-</p>
+## 当前状态
 
-
-<p align="center">
-  像变形金刚中的大黄蜂一样 —— 忠诚、敏捷、智能，随时适配你的工作方式
-</p>
-
----
-
-## 为什么选择 Bumblebee？
-
-当前的 AI Coding 工具（Claude Code、Cursor、Copilot）都局限于单一 IDE 或终端。Bumblebee 的愿景不同：**让 AI 编程助手无处不在** —— 微信群里 @一下就能审查 PR，飞书群里一句话就能触发自动化工作流，终端里用 TUI 获得沉浸式编码体验。
-
-| 核心能力                          | **Bumblebee**                                  | Claude Code                  | Cursor                               | GitHub Copilot         |
-| --------------------------------- | ---------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------- |
-| **IM平台覆盖** (微信/飞书/钉钉等) | ✅ 原生支持，一套核心代码无缝对接               | ❌ 无原生支持，依赖第三方桥接 | ❌ 基本不支持国内主流平台             | ❌ 依赖第三方桥接       |
-| **开源透明性** (可自托管)         | ✅ 完全开源，无供应商锁定                       | ❌ 闭源商业产品               | ❌ 闭源商业产品                       | ❌ 闭源商业产品         |
-| **Agent编排灵活性**               | 4种协作模式，内置8种专业模板                   | 采用主从协调模式             | 运行时并行调度                       | 多任务并行管理         |
-| **长期记忆与学习**                | 三位一体架构：知识图谱 + 上下文管理器 + 学习器 | 支持跨会话的自动记忆         | 无公开系统级记忆方案，依赖对话上下文 | 采用验证的记忆系统     |
-| **开发可观测性**                  | 内置性能状态看板，提供p50/99等指标             | 无同类内置通用状态面板       | 监控指标公开信息较少                 | 监控指标对第三方不透明 |
-
----
-
-## 架构总览
-
-```mermaid
-graph TB
-    subgraph Bumblebee["Bumblebee Core"]
-        subgraph Core["核心层"]
-            AO["Agent Orchestrator<br/>智能体编排"]
-            WE["Workflow Engine<br/>工作流引擎"]
-            KG["Knowledge Graph<br/>知识图谱"]
-        end
-
-        subgraph Plugin["插件系统"]
-            PS["Plugin System"]
-        end
-
-        subgraph Modules["功能模块"]
-            CH["Channels<br/>微信 / 飞书 / 钉钉"]
-            RL["Roles + Personality<br/>角色 + 人格"]
-            MM["Memory<br/>记忆系统"]
-            AD["Advanced<br/>语音 / 协作 / 仪表板"]
-        end
-
-        subgraph Foundation["基础层"]
-            PI["pi-coding-agent (TUI)"]
-        end
-
-        AO --> PS
-        WE --> PS
-        KG --> PS
-        PS --> CH
-        PS --> RL
-        PS --> MM
-        PS --> AD
-        Core --> PI
-    end
-
-    style Bumblebee stroke:#333,stroke-width:2px
-    style Core fill:#bbf,stroke:#666
-    style Plugin fill:#bfb,stroke:#666
-    style Modules fill:#ffd,stroke:#666
-    style Foundation fill:#fbb,stroke:#666
-```
-
----
-
-## 核心能力
-
-### 角色系统
-
-Bumblebee 不是一个固定人格的 Agent。它支持**用户自定义角色**，每个角色拥有独立的专业领域、沟通风格、系统提示词和能力声明。
-
-```typescript
-await agent.createRole({
-  id: 'security-auditor',
-  name: '安全审计专家',
-  description: '专注于代码安全审查和漏洞检测',
-  personality: {
-    traits: ['严谨', '警觉', '细致'],
-    expertise: ['OWASP', '渗透测试', '加密算法'],
-  },
-  systemPrompt: '你是一个安全审计专家...',
-  capabilities: ['security-audit', 'vulnerability-scan']
-})
-
-agent.switchRole('security-auditor')
-```
-
-内置 8 种专业 Agent 模板：`code-reviewer` / `test-writer` / `doc-generator` / `debugger` / `architect` / `refactorer` / `security-auditor` / `optimizer`
-
-### 记忆系统
-
-跨会话用户画像持久化，自动从对话中提取用户偏好、环境信息和关键事实。对话历史由 pi-coding-agent 的 SessionManager 管理，Bumblebee 在此基础上构建长期用户画像层。退出时自动保存对话摘要，新会话启动时注入上次对话要点。
-
-### 渠道系统
-
-统一的 `ChannelAdapter` 接口，一套代码接入所有平台。官方实现 WeChat / Feishu / DingTalk，社区可自行扩展 Slack / Teams / Discord。
-
-### 知识系统
-
-三位一体的知识引擎，启动时自动感知项目环境，在对话中注入上下文和推荐，在交互中学习模式并持久化到磁盘：
-
-- **知识图谱** — 项目级节点关系图谱，支持文本搜索、关系遍历、路径推理和相似节点发现
-- **上下文管理器** — 自动检测项目语言、框架、依赖，桥接用户偏好，管理会话变量
-- **学习器** — 从对话中学习用户模式（纠正、偏好、反馈），生成智能推荐，置信度随使用增长
-
-### 多 Agent 协作编排
-
-`AgentManager` 管理 Agent 生命周期，`AgentOrchestrator` 提供 4 种协作模式：
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| `independent` | 每个任务独立执行 | 无依赖的批量任务 |
-| `sequential` | 前一步输出作为后一步输入 | 流水线处理 |
-| `parallel` | 所有任务同时执行 | 独立任务加速 |
-| `hierarchical` | 主 Agent 分析 → 子 Agent 并行 → 主 Agent 总结 | 复杂分析任务 |
-
-内置 5 种推荐团队：`code-review` / `testing` / `development` / `quality` / `full`
-
-```typescript
-// 通过 TUI 快速启动团队
-// /agents run code-review 审查当前项目的代码质量
-
-// 通过 API 编排
-const result = await agent.getAgentOrchestrator()!.executeTeamTask(
-  ['code-reviewer', 'security-auditor', 'test-writer'],
-  '全面审查 src/core/ 目录',
-  { focus: 'security' },
-  'hierarchical'
-)
-```
-
-### 工作流引擎
-
-声明式 DAG 工作流，支持条件分支、重试策略（固定/指数退避）、超时控制、步骤间数据传递。4 种内置模板：
-
-| 模板 | 步骤 | 用途 |
-|------|------|------|
-| `pr-review` | 代码分析 → 安全检查 → 测试覆盖 → 汇总 | PR 自动审查 |
-| `issue-triage` | 分类 → 优先级 → 分配 | Issue 自动分流 |
-| `release` | 版本检查 → 测试 → 构建 → 发布 | 发布流程自动化 |
-| `code-quality` | 静态分析 → 复杂度 → 重复检测 → 报告 | 代码质量检查 |
-
-```typescript
-// 触发工作流
-const result = await agent.getWorkflowEngine()!.trigger('pr-review')
-```
-
-### 性能优化
-
-内置性能子系统，在 Agent 启动时自动初始化：
-
-- **LRU 缓存** — 带 TTL 的内存缓存，支持 lru/lfu/fifo 淘汰策略
-- **并发控制器** — 限制最大并发数，队列溢出自动排队
-- **性能监控** — 响应时间百分位（p50/p90/p99）、吞吐量、缓存命中率
-
-### 状态仪表板
-
-`DashboardImpl` 提供可配置的 Widget 元数据和状态面板，默认包含 Agent 数量、任务计数、成功率、响应时间等预设 Widget。当前 TUI 以状态列表方式展示，完整图表渲染留给后续前端/面板集成。
-
-### 协作与语音（实验性）
-
-- **实时协作** — WebSocket 双向通信，支持多人同时编辑、光标同步、房间管理
-- **语音交互** — 浏览器端语音识别与合成，支持多语言、连续识别、静音检测
-
-> 协作和语音模块依赖浏览器 API，默认禁用。在配置中设置 `collaboration.enabled: true` / `voice.enabled: true` 启用。
-
----
-
-## TUI 体验
-
-Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) Extension 机制注入 TUI，复用框架的会话管理、上下文压缩（compaction）、工具系统等核心能力，同时注入角色、人格、用户画像等差异化功能。
-
-**复用的框架能力：**
-- `SessionManager` — 对话历史持久化、分支管理
-- `session_before_compact` — 压缩时自动提取用户画像
-- `before_agent_start` — 注入角色 system prompt + 用户画像
-- `defineTool` / `registerCommand` — 自定义工具和斜杠命令
-
-<details>
-<summary><strong>命令总览</strong> （点击展开）</summary>
-
-| 斜杠命令 | 功能 |
-|----------|------|
-| `/help` | 显示 Bumblebee 命令和常用 pi 会话命令 |
-| `/help <命令>` | 显示命令用法 |
-| `/status` | 系统健康状态概览 |
-| `/roles` | 列出所有可用角色 |
-| `/switch <id>` | 切换角色（支持 Tab 补全，无参数弹出选择窗口） |
-| `/role` | 显示当前角色详情 |
-| `/personality` | 显示人格状态 |
-| `/memory` | 记忆管理（无参数弹出选择窗口） |
-| `/knowledge` | 知识图谱统计 |
-| `/knowledge search <词>` | 搜索知识节点 |
-| `/knowledge cleanup` | 清理重复和无效节点 |
-| `/context` | 显示当前项目上下文（语言、框架、依赖） |
-| `/learn` | 学习系统管理（无参数弹出选择窗口） |
-| `/agents` | Agent 管理（无参数弹出选择窗口） |
-| `/agents run <team> [task]` | 运行专业 Agent 团队 |
-| `/workflows` | 工作流管理（无参数弹出选择窗口） |
-| `/workflows run <id> [payload JSON]` | 触发工作流执行 |
-| `/perf` | 性能指标（响应时间、缓存命中率、并发） |
-| `/cache` | 缓存管理（无参数弹出选择窗口） |
-| `/dashboard` | 仪表盘状态 |
-| `/channels` | 渠道管理（无参数弹出选择窗口） |
-| `/channels setup` | 配置渠道 |
-| `/channels connect [name]` | 连接渠道 |
-| `/channels disconnect [name]` | 断开渠道 |
-| `/collab` | 协作管理（无参数弹出选择窗口） |
-| `/voice` | 语音管理（无参数弹出选择窗口） |
-| `/resume` | 浏览并选择历史会话 |
-| `/new` | 开始新会话 |
-
-</details>
-
-AI 在对话中可主动调用 15+ 工具，包括角色切换、Agent 编排、工作流触发、缓存管理、协作通信等。
-
----
+- 运行环境：Node.js `>= 22`
+- 支持渠道：微信（公众号官方接口 / 个人号 ilink 扫码）、飞书、钉钉
+- 会话恢复：复用 pi 官方 `/resume`、`/new`、`/tree`、`/fork` 等会话命令
+- API Key：只从环境变量读取，不再从 `.bumblebee.yaml` 读取明文 `ai.apiKey`
+- 默认 LLM 超时：`300000ms`，可在配置里调整 `ai.timeoutMs`
+- 测试：`211` 个开发测试通过
 
 ## 快速开始
 
-### 环境要求
-
-- Node.js >= 22.0.0
-
-### 安装与运行
-
 ```bash
 git clone https://github.com/ReadNULL/Bumblebee.git
-cd bumblebee
+cd Bumblebee
+
 npm install
 npm run build
+```
 
-# 交互式配置向导
-node dist/cli.js init        # 或 node dist/cli.js init --preset mini/dev/full
+配置 API Key。任选你要使用的模型供应商：
 
-# 环境诊断
+```powershell
+# PowerShell，仅当前终端有效
+$env:OPENAI_API_KEY = "sk-..."
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+$env:GEMINI_API_KEY = "..."
+```
+
+```bash
+# bash/zsh
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GEMINI_API_KEY="..."
+```
+
+生成配置并启动：
+
+```bash
+node dist/cli.js init --preset dev
 node dist/cli.js doctor
-
-# 启动 TUI
 node dist/cli.js
+```
 
-# 或全局链接
+全局使用：
+
+```bash
 npm link
 bumblebee
 ```
 
-> 详细用法见 [快速开始指南](docs/quick-start.md)。
+更细的安装和排错步骤见 [docs/quick-start.md](docs/quick-start.md)。
 
-### 会话管理
+## 配置文件
 
-Bumblebee 每次对话会自动保存到磁盘（`~/.pi/agent/sessions/`），退出后可恢复。
-
-```bash
-# 恢复最近一次会话（推荐）
-node dist/cli.js -c
-
-# 交互式选择历史会话
-node dist/cli.js -r
-
-# 恢复指定会话（ID 从退出时的提示中获取）
-node dist/cli.js --session <session-id>
-```
-
-全局安装后：
-
-```bash
-bumblebee -c    # 恢复最近会话
-bumblebee -r    # 交互式选择
-```
-
-TUI 内也可通过 `/resume`、`/new`、`/tree`、`/fork` 管理会话。
-
-> **会话 vs 记忆：** 会话（Session）是完整的对话历史，通过 `-c` / `-r` 恢复；记忆（Memory）是自动提取的用户画像 + 对话摘要，保存在 `~/.bumblebee/memory/profile.json`，启动新会话时自动注入上下文。即使启动新会话而非恢复旧会话，Bumblebee 也能记住你的偏好和上次讨论的要点。
-
-### LLM 配置
-
-建议优先使用环境变量配置 API Key，避免把密钥写入项目文件：
-
-```bash
-OPENAI_API_KEY=sk-xxxxxxxxxxxx
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
-GEMINI_API_KEY=xxxxxxxxxxxx
-```
-
-也可以在 `.bumblebee.yaml` 中配置 API Key 和 Base URL：
-
-```yaml
-# .bumblebee.yaml
-ai:
-  provider: openai
-  model: gpt-4o
-  apiKey: sk-xxxxxxxxxxxx
-  baseUrl: https://your-proxy.com/v1
-```
-
-> 如使用第三方 API 代理，将 `baseUrl` 指向代理地址即可。
-> `.bumblebee.yaml` 可能包含密钥，项目 `.gitignore` 默认忽略该文件，请勿提交到远程仓库。
-
-### 配置文件
-
-在项目根目录创建 `.bumblebee.yaml`，用于配置人格、记忆等行为参数：
-
-<details>
-<summary><strong>配置详情</strong> （点击展开）</summary>
+`bumblebee init` 会在项目根目录生成 `.bumblebee.yaml`。这个文件只保存非密钥配置。API Key 请始终放在环境变量中。
 
 ```yaml
 personality:
-  intensity: moderate    # low | moderate | high
-  theme: transformers   # transformers | neutral
+  intensity: moderate
+  theme: transformers
   roleId: bumblebee
 
 memory:
@@ -330,12 +69,12 @@ memory:
   maxHistory: 100
 
 ai:
-  provider: openai       # anthropic | openai | gemini | bedrock
+  provider: openai        # anthropic | openai | gemini | bedrock
   model: gpt-4o
   temperature: 0.7
   maxTokens: 4096
-  apiKey: sk-xxx         # 可选，也可通过环境变量配置
-  baseUrl: https://...   # 可选，第三方代理地址
+  timeoutMs: 300000       # 单次 LLM 响应超时，单位 ms
+  # 模型认证由 SDK 管理，通过环境变量设置 API Key
 
 knowledge:
   enabled: true
@@ -351,21 +90,6 @@ workflows:
   defaultTimeout: 300000
   maxConcurrentWorkflows: 3
 
-performance:
-  enabled: true
-  cache:
-    maxSize: 1000
-    ttl: 300000
-    evictionPolicy: lru   # lru | lfu | fifo
-  concurrency:
-    maxConcurrent: 10
-    queueSize: 100
-    timeout: 30000
-
-dashboard:
-  enabled: false           # 默认关闭
-  refreshInterval: 5000
-
 channels:
   wechat:
     enabled: false
@@ -375,135 +99,133 @@ channels:
     enabled: false
     mode: webhook
 
-collaboration:
-  enabled: false           # 需要 WebSocket 服务器
-  serverUrl: ws://localhost:3000
-  userId: local-user
-  userName: User
-
-voice:
-  enabled: false           # 需要浏览器环境
-  engine: browser          # browser | whisper | azure | google
-  language: zh-CN
+plugins:
+  enabled: false
+  modules: []
 ```
 
-</details>
+敏感的渠道凭据也建议使用环境变量，再在 YAML 中引用：
 
-### 作为库使用
+```yaml
+channels:
+  feishu:
+    enabled: true
+    appId: ${FEISHU_APP_ID}
+    appSecret: ${FEISHU_APP_SECRET}
+```
 
-```typescript
+## TUI 常用命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `/help` | 查看 Bumblebee 命令和常用 pi 命令 |
+| `/status` | 查看系统状态 |
+| `/roles` | 列出可用角色 |
+| `/switch <roleId>` | 切换角色；不带参数时进入选择菜单 |
+| `/role` | 查看当前角色 |
+| `/personality` | 查看人格状态 |
+| `/memory` | 进入记忆管理菜单 |
+| `/knowledge` | 查看知识系统统计 |
+| `/knowledge search <keyword>` | 搜索知识节点 |
+| `/context` | 查看当前项目上下文 |
+| `/learn` | 查看学习系统 |
+| `/agents` | 进入 Agent 管理菜单 |
+| `/agents run <team> [task]` | 运行预设 Agent 团队 |
+| `/workflows` | 进入工作流菜单 |
+| `/workflows run <id> [payload JSON]` | 运行工作流 |
+| `/dashboard` | 查看仪表盘状态 |
+| `/channels` | 进入渠道管理菜单 |
+| `/channels setup` | 交互式配置渠道 |
+| `/channels connect [name]` | 连接渠道 |
+| `/channels disconnect [name]` | 断开渠道 |
+| `/collab` | 协作功能菜单 |
+| `/voice` | 语音功能菜单 |
+| `/resume` | 使用 pi 官方能力恢复历史会话 |
+| `/new` | 开始新会话 |
+
+Bumblebee 不再提供重复的 `/history` 命令。恢复会话或查看历史会话请使用 pi 官方 `/resume`。
+
+## 渠道接入
+
+详细文档：
+
+- [渠道总览](docs/channels/README.md)
+- [微信渠道](docs/channels/wechat.md)
+- [飞书渠道](docs/channels/feishu.md)
+- [钉钉渠道](docs/channels/dingtalk.md)
+
+依赖安装策略：
+
+| 渠道 | 依赖 | 安装方式 |
+| --- | --- | --- |
+| 微信公众号 | Node.js 内置 `http` / `fetch` | 官方接口，无额外 SDK |
+| 微信个人号 | Node.js 内置 `fetch` | weixinbot 模式，ilink API 代码已内置 |
+| 飞书 | `@larksuiteoapi/node-sdk` | `npm install` 自动安装 |
+| 钉钉 | Node.js 内置 `fetch` / `http` | 无额外 SDK |
+
+## 插件系统
+
+插件默认关闭。开启后可以从模块路径或目录加载插件，插件可以注册命令、工具和渠道。
+
+```yaml
+plugins:
+  enabled: true
+  modules:
+    - ./plugins/my-plugin.mjs
+  directory: ./plugins
+```
+
+插件模块示例：
+
+```js
+export default {
+  name: 'hello-plugin',
+  version: '1.0.0',
+  commands: [
+    {
+      name: 'hello',
+      description: '测试插件命令',
+      handler: async (_args, ctx) => {
+        ctx.ui.notify('Hello from plugin', 'info')
+      }
+    }
+  ],
+  tools: [
+    {
+      name: 'hello_tool',
+      description: '测试插件工具',
+      execute: async () => 'Hello from plugin tool'
+    }
+  ]
+}
+```
+
+## 作为库使用
+
+```ts
 import { BumblebeeAgent, loadConfig } from 'bumblebee'
 
 const config = await loadConfig()
 const agent = new BumblebeeAgent(config)
+
 await agent.initialize()
 
-// 基础对话
-const response = await agent.processMessage('帮我审查这段代码')
+const response = await agent.processMessage('请审查 src/core 目录的实现')
+console.log(response)
 
-// 角色切换（使用已创建或默认角色）
-agent.switchRole('bumblebee')
-
-// 多 Agent 编排
-const orch = agent.getAgentOrchestrator()!
-const result = await orch.executeTeamTask(
-  ['code-reviewer', 'security-auditor'],
-  '审查 src/core/ 目录',
-  { focus: 'security' },
-  'hierarchical'
-)
-
-// 触发工作流
-const workflow = await agent.getWorkflowEngine()!.trigger('pr-review', {
-  payload: { prId: 1, repo: 'current', files: ['src/core/'] },
-})
-
-// 查询知识图谱
-const nodes = agent.getKnowledge().query({ text: 'authentication', limit: 5 })
-
-// 释放资源
 await agent.dispose()
 ```
 
----
-
-## 项目结构
-
-```
-src/
-├── core/           # 核心模块（Agent 主类、配置加载、LLM 调用工厂）
-├── tui/            # TUI 集成（pi-coding-agent Extension，25+ 命令/工具）
-├── roles/          # 角色系统（存储、管理、创建向导、默认角色）
-├── personality/    # 人格系统（情绪分析、人格注入）
-├── memory/         # 记忆系统（用户画像持久化、对话画像提取、跨会话摘要）
-├── channels/       # 渠道系统（微信 / 飞书 / 钉钉适配器）
-├── agents/         # Agent 编排（AgentManager + Orchestrator，4 种协作模式）
-├── workflows/      # 工作流引擎（DAG 调度、重试/超时/条件，4 种内置模板）
-├── knowledge/      # 知识系统（图谱 + 上下文 + 学习器，三合一智能引擎）
-├── performance/    # 性能优化（LRU 缓存、并发控制、性能监控）
-├── dashboard/      # 状态仪表板（Widget 系统、指标卡片元数据）
-├── collaboration/  # 实时协作（WebSocket 房间、光标同步、多人编辑）
-├── voice/          # 语音交互（语音识别、语音合成、多语言支持）
-├── cli.ts          # CLI 入口
-└── index.ts        # 库 barrel export
-```
-
----
-
-## 技术栈
-
-| 层级 | 技术 | 用途 |
-|------|------|------|
-| AI 引擎 | pi-coding-agent | Agent 会话管理、TUI 框架、Extension API |
-| TUI 渲染 | pi-tui | 终端 UI 差分渲染、Markdown 渲染、交互组件 |
-| 类型校验 | Zod + TypeBox | 配置校验、工具参数 Schema |
-| 渠道 SDK | wechaty / @larksuiteoapi / PadLocal optional | 平台接入（懒加载；钉钉使用 Node 内置 fetch/http） |
-| 构建 | tsup | ESM 打包、Tree-shaking |
-| 测试 | vitest | 单元测试、集成测试 |
-
----
-
-## 开发
+## 开发命令
 
 ```bash
-# 运行测试
-npx vitest run
-
-# 监听模式
-npx vitest
-
-# 类型检查
 npm run typecheck
-
-# 开发构建（监听文件变更）
-npm run dev
+npm test -- --run
+npm run build
 ```
 
----
+`tests/` 目录只用于开发验证，不作为用户可调用功能开放。
 
-## 参与贡献
+## 许可证
 
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支：`git checkout -b feature/my-feature`
-3. 提交更改：`git commit -m "feat: add my feature"`
-4. 推送分支：`git push origin feature/my-feature`
-5. 提交 Pull Request
-
-请确保：
-- 代码通过 `npm run typecheck` 类型检查
-- 所有测试通过 `npx vitest run`
-- 新功能附带相应测试用例
-
----
-
-## License
-
-[MIT](./LICENSE)
-
----
-
-<p align="center">
-  <em>"汽车人，出发！" —— Bumblebee</em>
-</p>
+MIT

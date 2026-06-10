@@ -14,10 +14,24 @@ import {
   RecommendationRequest,
   RecommendationType
 } from './types.js'
+import { stringifyJsonAsync } from '../utils/async-json.js'
+
+interface CorrectionInput {
+  wrong: string
+  correct: string
+}
+
+function isCorrectionInput(input: unknown): input is CorrectionInput {
+  return typeof input === 'object'
+    && input !== null
+    && typeof (input as Partial<CorrectionInput>).wrong === 'string'
+    && typeof (input as Partial<CorrectionInput>).correct === 'string'
+}
 
 export class Learner {
   private records: LearningRecord[] = []
   private patterns: Map<string, LearnedPattern> = new Map()
+  private patternIndex: Map<string, Set<string>> = new Map()
   private maxRecords: number
   private storagePath?: string
 
@@ -99,6 +113,7 @@ export class Learner {
         examples: [record.input]
       }
       this.patterns.set(patternKey, pattern)
+      this.indexPattern(pattern)
     }
   }
 
@@ -207,7 +222,8 @@ export class Learner {
       .replace(/\b\d+\b/g, 'NUM')
       .replace(/\b[a-z_]\w*(?=\s*[=:])/g, 'VAR')
 
-    const scored = Array.from(this.patterns.values()).map(pattern => {
+    const inputTokens = this.extractSearchTokens(inputNormalized)
+    const scored = this.getCandidatePatterns(inputNormalized, inputTokens).map(pattern => {
       let score = 0
 
       // 模式匹配
@@ -215,6 +231,12 @@ export class Learner {
         score = 1
       } else if (pattern.pattern.includes(inputNormalized) || inputNormalized.includes(pattern.pattern)) {
         score = 0.5
+      } else {
+        const patternTokens = this.extractSearchTokens(pattern.pattern)
+        const overlap = countTokenOverlap(inputTokens, patternTokens)
+        if (overlap > 0) {
+          score = Math.min(0.45, overlap / Math.max(inputTokens.size, patternTokens.size, 1))
+        }
       }
 
       // 考虑频率和置信度
@@ -233,6 +255,54 @@ export class Learner {
   // ========== 推荐 ==========
 
   // 生成推荐
+  private getCandidatePatterns(inputNormalized: string, inputTokens: Set<string>): LearnedPattern[] {
+    if (this.patternIndex.size === 0 || inputTokens.size === 0) {
+      return Array.from(this.patterns.values())
+    }
+
+    const candidateKeys = new Set<string>()
+    for (const token of inputTokens) {
+      for (const patternKey of this.patternIndex.get(token) || []) {
+        candidateKeys.add(patternKey)
+      }
+    }
+
+    if (this.patterns.has(inputNormalized)) {
+      candidateKeys.add(inputNormalized)
+    }
+
+    return Array.from(candidateKeys)
+      .map(key => this.patterns.get(key))
+      .filter((pattern): pattern is LearnedPattern => !!pattern)
+  }
+
+  private indexPattern(pattern: LearnedPattern): void {
+    const tokens = this.extractSearchTokens(pattern.pattern)
+    for (const token of tokens) {
+      const bucket = this.patternIndex.get(token) || new Set<string>()
+      bucket.add(pattern.pattern)
+      this.patternIndex.set(token, bucket)
+    }
+  }
+
+  private rebuildPatternIndex(): void {
+    this.patternIndex.clear()
+    for (const pattern of this.patterns.values()) {
+      this.indexPattern(pattern)
+    }
+  }
+
+  private extractSearchTokens(value: string): Set<string> {
+    const tokens = new Set<string>()
+    for (const match of value.toLowerCase().matchAll(/[\p{L}\p{N}_]+/gu)) {
+      const token = match[0]
+      if (token.length >= 2) {
+        tokens.add(token)
+      }
+    }
+    return tokens
+  }
+
   recommend(request: RecommendationRequest): Recommendation[] {
     const recommendations: Recommendation[] = []
 
@@ -297,15 +367,21 @@ export class Learner {
     // 分析纠正记录
     const corrections = records.filter(r => r.type === 'correction')
     if (corrections.length > 0) {
-      const lastCorrection = corrections[corrections.length - 1]
-      recommendations.push({
-        type: 'fix',
-        title: '避免常见错误',
-        description: `避免: ${lastCorrection.input.wrong}`,
-        confidence: 0.7,
-        relevance: 0.8,
-        action: `建议使用: ${lastCorrection.input.correct}`
-      })
+      const lastCorrection = corrections
+        .slice()
+        .reverse()
+        .find(record => isCorrectionInput(record.input))
+
+      if (lastCorrection) {
+        recommendations.push({
+          type: 'fix',
+          title: '避免常见错误',
+          description: `避免: ${lastCorrection.input.wrong}`,
+          confidence: 0.7,
+          relevance: 0.8,
+          action: `建议使用: ${lastCorrection.input.correct}`
+        })
+      }
     }
 
     // 分析反馈记录
@@ -356,6 +432,7 @@ export class Learner {
   clear(): void {
     this.records = []
     this.patterns.clear()
+    this.patternIndex.clear()
   }
 
   // ========== 持久化 ==========
@@ -370,7 +447,7 @@ export class Learner {
         records: this.records,
         patterns: Array.from(this.patterns.values())
       }
-      await writeFile(this.storagePath, JSON.stringify(data, null, 2), 'utf-8')
+      await writeFile(this.storagePath, await stringifyJsonAsync(data, { space: 2 }), 'utf-8')
     } catch (error) {
       console.error('保存学习记录失败:', error)
     }
@@ -396,8 +473,19 @@ export class Learner {
         p.lastSeen = new Date(p.lastSeen)
         this.patterns.set(p.pattern, p)
       }
+      this.rebuildPatternIndex()
     } catch {
       // 文件不存在或解析失败，使用空数据
     }
   }
+}
+
+function countTokenOverlap(left: Set<string>, right: Set<string>): number {
+  let count = 0
+  for (const token of left) {
+    if (right.has(token)) {
+      count++
+    }
+  }
+  return count
 }

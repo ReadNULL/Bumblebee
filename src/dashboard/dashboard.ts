@@ -16,6 +16,14 @@ import {
   TimeRange
 } from './types.js'
 
+function isMetricData(data: unknown): data is MetricData {
+  return typeof data === 'object'
+    && data !== null
+    && 'name' in data
+    && 'value' in data
+    && 'timestamp' in data
+}
+
 export class DashboardImpl implements Dashboard {
   id: string
   name: string
@@ -28,6 +36,10 @@ export class DashboardImpl implements Dashboard {
   private refreshTimer: NodeJS.Timeout | null = null
 
   constructor(config: DashboardConfig) {
+    if (!config.id || !config.name) {
+      throw new Error('Dashboard config requires id and name')
+    }
+
     this.id = config.id
     this.name = config.name
     this.config = config
@@ -216,8 +228,24 @@ export class DashboardImpl implements Dashboard {
   }
 
   private updateWidgetData(widgetId: string, data: unknown): void {
-    // 这里可以触发 UI 更新
-    // 在实际应用中，会通知前端组件重新渲染
+    const widget = this.widgets.get(widgetId)
+    if (!widget) return
+
+    const updated: Widget = {
+      ...widget,
+      config: { ...widget.config },
+      data,
+    }
+
+    if (widget.type === 'metric' && isMetricData(data)) {
+      updated.config.metric = {
+        ...updated.config.metric,
+        value: data.value,
+        unit: data.unit ?? updated.config.metric?.unit,
+      }
+    }
+
+    this.widgets.set(widgetId, updated)
   }
 
   // ========== 导出 ==========

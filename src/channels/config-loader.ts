@@ -1,10 +1,3 @@
-/**
- * 渠道配置加载器
- *
- * 从 BumblebeeConfig.channels 加载并校验渠道配置，
- * 动态创建适配器实例（懒加载依赖）
- */
-
 import type { ChannelsConfig } from '../core/config.js'
 import type { ChannelAdapter } from './types.js'
 
@@ -13,61 +6,48 @@ export interface ValidationResult {
   errors: string[]
 }
 
-// 解析 ${ENV_VAR} 语法
 function resolveEnv(value: string | undefined): string | undefined {
   if (!value) return value
-  return value.replace(/\$\{(\w+)\}/g, (_, envKey) => {
-    return process.env[envKey] || ''
-  })
+  return value.replace(/\$\{(\w+)\}/g, (_match, envKey) => process.env[envKey] || '')
 }
 
-// 校验渠道配置
 export function validateChannelConfig(type: string, config: Record<string, any>): ValidationResult {
   const errors: string[] = []
-
-  if (!config.enabled) {
-    return { valid: true, errors: [] }
-  }
+  if (!config.enabled) return { valid: true, errors }
 
   switch (type) {
-    case 'wechat':
-      if (!config.puppet && !config.token) {
-        errors.push('微信渠道需要配置 puppet 或 token')
+    case 'wechat': {
+      const mode = config.mode || 'official-account'
+      if (mode === 'official-account') {
+        if (!config.token) {
+          errors.push('WeChat official-account mode requires channels.wechat.token')
+        }
       }
+      // weixinbot 模式无需额外配置（token 由扫码获取）
       break
+    }
 
     case 'feishu':
-      if (!config.appId) {
-        errors.push('飞书渠道需要配置 appId')
-      }
-      if (!config.appSecret) {
-        errors.push('飞书渠道需要配置 appSecret')
-      }
+      if (!config.appId) errors.push('Feishu channel requires appId')
+      if (!config.appSecret) errors.push('Feishu channel requires appSecret')
       break
 
     case 'dingtalk':
       if (config.mode === 'enterprise') {
-        if (!config.appKey) {
-          errors.push('钉钉企业应用模式需要配置 appKey')
-        }
-        if (!config.appSecret) {
-          errors.push('钉钉企业应用模式需要配置 appSecret')
-        }
-      } else {
-        if (!config.webhook) {
-          errors.push('钉钉 Webhook 模式需要配置 webhook')
-        }
+        if (!config.appKey) errors.push('DingTalk enterprise mode requires appKey')
+        if (!config.appSecret) errors.push('DingTalk enterprise mode requires appSecret')
+      } else if (!config.webhook) {
+        errors.push('DingTalk webhook mode requires webhook')
       }
       break
 
     default:
-      errors.push(`未知的渠道类型: ${type}`)
+      errors.push(`未知渠道类型: ${type}`)
   }
 
   return { valid: errors.length === 0, errors }
 }
 
-// 从配置创建适配器（懒加载）
 export async function createAdapterFromConfig(
   type: string,
   config: Record<string, any>
@@ -83,15 +63,28 @@ export async function createAdapterFromConfig(
     appKey: resolveEnv(config.appKey),
     robotCode: resolveEnv(config.robotCode),
     port: config.port,
+    path: config.path,
+    responseTimeoutMs: config.responseTimeoutMs,
   }
 
   switch (type) {
     case 'wechat': {
+      const mode = resolved.mode || 'official-account'
+      if (mode === 'weixinbot') {
+        const { createWeixinBotAdapter } = await import('./weixinbot.js')
+        return createWeixinBotAdapter({
+          name: 'wechat',
+        })
+      }
       const { createWeChatAdapter } = await import('./wechat.js')
       return createWeChatAdapter({
         name: 'wechat',
-        puppet: resolved.puppet,
         token: resolved.token,
+        appId: resolved.appId,
+        appSecret: resolved.appSecret,
+        port: resolved.port,
+        path: resolved.path,
+        responseTimeoutMs: resolved.responseTimeoutMs,
       })
     }
 
@@ -124,11 +117,10 @@ export async function createAdapterFromConfig(
     }
 
     default:
-      throw new Error(`未知的渠道类型: ${type}`)
+      throw new Error(`Unknown channel type: ${type}`)
   }
 }
 
-// 从配置加载所有已启用的渠道适配器
 export async function loadChannelAdapters(config: ChannelsConfig): Promise<ChannelAdapter[]> {
   const adapters: ChannelAdapter[] = []
   const channelTypes = ['wechat', 'feishu', 'dingtalk'] as const
@@ -139,16 +131,15 @@ export async function loadChannelAdapters(config: ChannelsConfig): Promise<Chann
 
     const validation = validateChannelConfig(type, channelConfig)
     if (!validation.valid) {
-      console.warn(`渠道 ${type} 配置无效，跳过:`)
-      validation.errors.forEach(err => console.warn(`  - ${err}`))
+      console.warn(`Channel ${type} config is invalid; skipping adapter load.`)
+      validation.errors.forEach(error => console.warn(`  - ${error}`))
       continue
     }
 
     try {
-      const adapter = await createAdapterFromConfig(type, channelConfig)
-      adapters.push(adapter)
+      adapters.push(await createAdapterFromConfig(type, channelConfig))
     } catch (error) {
-      console.error(`加载渠道 ${type} 失败:`, error)
+      console.error(`Failed to load channel ${type}:`, error)
     }
   }
 
