@@ -312,8 +312,8 @@ memory:
 ai:
   provider: openai       # anthropic | openai | gemini | bedrock
   model: gpt-4o
-  temperature: 0.7
-  maxTokens: 4096
+  temperature: 0.2
+  maxTokens: 409600
 
 knowledge:
   enabled: true
