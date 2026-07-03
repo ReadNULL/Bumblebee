@@ -122,6 +122,9 @@ export class WeixinBotAdapter implements ChannelAdapter {
       to: target,
       text: filterMarkdown(message.content),
       clientId: this.botId,
+      contextToken: typeof message.metadata?.contextToken === 'string'
+        ? message.metadata.contextToken
+        : undefined,
     })
   }
 
@@ -217,6 +220,7 @@ export class WeixinBotAdapter implements ChannelAdapter {
         mode: 'weixinbot',
         sessionId: msg.session_id,
         groupId: msg.group_id,
+        roomId: msg.group_id,
         contextToken: msg.context_token,
       },
     }

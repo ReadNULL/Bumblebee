@@ -5,13 +5,34 @@ import { callLLM } from '../core/session-factory.js'
 import type { BumblebeeConfig } from '../core/config.js'
 
 export interface AgentManagerRuntime {
-  ai?: BumblebeeConfig['ai']
+  llm?: BumblebeeConfig['llm']
+  maxConcurrent?: number
+}
+
+export interface AgentTaskMetric {
+  taskId: string
+  agentId: string
+  success: boolean
+  duration: number
+  timestamp: Date
+}
+
+export interface AgentPerformanceStats {
+  taskCount: number
+  successRate: number
+  p50: number
+  p99: number
+  max: number
 }
 
 export class AgentManager {
   private agents: Map<string, AgentInstance> = new Map()
   private roleManager: RoleManager
   private runtime: AgentManagerRuntime
+  private taskMetrics: AgentTaskMetric[] = []
+  private metricListeners = new Set<(metric: AgentTaskMetric) => void>()
+  private activeTasks = 0
+  private taskWaiters: Array<() => void> = []
 
   constructor(roleManager: RoleManager, runtime: AgentManagerRuntime = {}) {
     this.roleManager = roleManager
@@ -112,50 +133,67 @@ export class AgentManager {
   async executeTask(task: AgentTask): Promise<AgentResult> {
     const agent = this.agents.get(task.agentId)
     if (!agent) {
-      return {
+      const result: AgentResult = {
         taskId: task.id,
         agentId: task.agentId,
         success: false,
         output: null,
         error: `Agent "${task.agentId}" 不存在`
       }
+      this.recordTaskMetric(result, 0)
+      return result
     }
 
-    // 更新状态
-    this.updateAgentStatus(task.agentId, 'busy')
-
-    const startTime = new Date()
-
+    await this.acquireTaskSlot()
     try {
-      // 这里应该调用实际的 AI 模型
-      // 目前返回占位结果
-      const output = await this.processTask(agent, task)
+      // 更新状态
+      this.updateAgentStatus(task.agentId, 'busy')
+
+      const startTime = new Date()
+
+      try {
+        const output = await this.processTask(agent, task)
 
       const endTime = new Date()
+      const degraded = output.mode === 'degraded'
 
-      this.updateAgentStatus(task.agentId, 'idle')
+      this.updateAgentStatus(task.agentId, degraded ? 'error' : 'idle')
 
-      return {
+      const result: AgentResult = {
         taskId: task.id,
         agentId: task.agentId,
-        success: true,
+        success: !degraded,
         output,
+        error: degraded ? output.warning : undefined,
         metrics: {
           startTime,
           endTime,
           duration: endTime.getTime() - startTime.getTime()
         }
       }
-    } catch (error) {
-      this.updateAgentStatus(task.agentId, 'error')
-
-      return {
-        taskId: task.id,
-        agentId: task.agentId,
-        success: false,
-        output: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
+      this.recordTaskMetric(result, result.metrics!.duration)
+        return result
+      } catch (error) {
+        this.updateAgentStatus(task.agentId, 'error')
+        const endTime = new Date()
+        const duration = endTime.getTime() - startTime.getTime()
+        const result: AgentResult = {
+          taskId: task.id,
+          agentId: task.agentId,
+          success: false,
+          output: null,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          metrics: {
+            startTime,
+            endTime,
+            duration,
+          },
+        }
+        this.recordTaskMetric(result, duration)
+        return result
       }
+    } finally {
+      this.releaseTaskSlot()
     }
   }
 
@@ -173,13 +211,13 @@ export class AgentManager {
       task.input ? `输入数据:\n${JSON.stringify(task.input, null, 2)}` : '',
     ].filter(Boolean).join('\n')
 
-    if (!this.runtime.ai) {
+    if (!this.runtime.llm) {
       return {
         message: `[${agent.role.name}] 处理任务: ${task.description}`,
         role: agent.role.name,
         taskType: task.type,
         simulated: true,
-        mode: 'simulated',
+        mode: 'degraded',
         warning: '未配置 AI runtime，已返回模拟结果',
       }
     }
@@ -188,7 +226,7 @@ export class AgentManager {
       const result = await callLLM({
         systemPrompt,
         userPrompt,
-        ai: this.runtime.ai,
+        timeoutMs: this.runtime.llm.timeoutMs,
       })
       return {
         message: result.text,
@@ -205,7 +243,7 @@ export class AgentManager {
         role: agent.role.name,
         taskType: task.type,
         simulated: true,
-        mode: 'simulated',
+        mode: 'degraded',
         warning: `AI 调用不可用，已返回模拟结果: ${reason}`,
       }
     }
@@ -246,4 +284,58 @@ export class AgentManager {
       error: agents.filter(a => a.status === 'error').length
     }
   }
+
+  getPerformanceStats(): AgentPerformanceStats {
+    const durations = this.taskMetrics.map(metric => metric.duration).sort((a, b) => a - b)
+    const successCount = this.taskMetrics.filter(metric => metric.success).length
+    return {
+      taskCount: this.taskMetrics.length,
+      successRate: this.taskMetrics.length > 0 ? successCount / this.taskMetrics.length : 0,
+      p50: percentile(durations, 0.5),
+      p99: percentile(durations, 0.99),
+      max: durations.at(-1) ?? 0,
+    }
+  }
+
+  onTaskCompleted(listener: (metric: AgentTaskMetric) => void): () => void {
+    this.metricListeners.add(listener)
+    return () => this.metricListeners.delete(listener)
+  }
+
+  private recordTaskMetric(result: AgentResult, duration: number): void {
+    const metric: AgentTaskMetric = {
+      taskId: result.taskId,
+      agentId: result.agentId,
+      success: result.success,
+      duration,
+      timestamp: new Date(),
+    }
+    this.taskMetrics.push(metric)
+    if (this.taskMetrics.length > 1000) this.taskMetrics = this.taskMetrics.slice(-1000)
+    for (const listener of this.metricListeners) listener(metric)
+  }
+
+  private async acquireTaskSlot(): Promise<void> {
+    const maxConcurrent = Math.max(1, this.runtime.maxConcurrent ?? 5)
+    if (this.activeTasks < maxConcurrent) {
+      this.activeTasks++
+      return
+    }
+    await new Promise<void>(resolve => this.taskWaiters.push(resolve))
+  }
+
+  private releaseTaskSlot(): void {
+    this.activeTasks = Math.max(0, this.activeTasks - 1)
+    const next = this.taskWaiters.shift()
+    if (next) {
+      this.activeTasks++
+      next()
+    }
+  }
+}
+
+function percentile(sortedValues: number[], fraction: number): number {
+  if (sortedValues.length === 0) return 0
+  const index = Math.min(sortedValues.length - 1, Math.ceil(sortedValues.length * fraction) - 1)
+  return sortedValues[Math.max(0, index)]
 }

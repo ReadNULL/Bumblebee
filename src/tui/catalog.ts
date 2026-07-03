@@ -25,6 +25,7 @@ export const BUMBLEBEE_COMMANDS: TuiCommandCatalogItem[] = [
   { name: 'voice', description: '语音管理' },
   { name: 'help', description: '显示 Bumblebee 命令和常用 pi 会话命令' },
   { name: 'status', description: '显示系统健康状态概览' },
+  { name: 'perf', description: '显示 Agent 任务性能指标' },
 ]
 
 export const BUMBLEBEE_TOOLS: TuiToolCatalogItem[] = [

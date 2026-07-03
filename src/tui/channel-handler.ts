@@ -4,7 +4,7 @@ export function getChannelReplyTarget(message: Message): string {
   const metadata = message.metadata || {}
 
   if (message.sender.platform === 'wechat') {
-    return metadata.roomName || metadata.roomId || message.sender.id || message.sender.name
+    return metadata.roomName || metadata.roomId || metadata.groupId || message.sender.id || message.sender.name
   }
 
   if (message.sender.platform === 'feishu') {
@@ -23,7 +23,11 @@ export function shouldHandleChannelMessage(message: Message): boolean {
   if (message.type !== 'text' && message.type !== 'code') return false
 
   const metadata = message.metadata || {}
-  if (message.sender.platform === 'wechat' && metadata.roomId && metadata.isMentionSelf === false) {
+  if (
+    message.sender.platform === 'wechat'
+    && (metadata.roomId || metadata.groupId)
+    && metadata.isMentionSelf === false
+  ) {
     return false
   }
 
@@ -53,6 +57,9 @@ export function createChannelReply(message: Message, content: string): Message {
     timestamp: new Date(),
     metadata: {
       replyTo: message.id,
+      contextToken: message.metadata?.contextToken,
+      groupId: message.metadata?.groupId,
+      roomId: message.metadata?.roomId,
     },
   }
 }

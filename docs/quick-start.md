@@ -142,6 +142,8 @@ bumblebee
 ```text
 /help
 /status
+/perf
+/dashboard
 /roles
 /switch
 /agents
@@ -180,10 +182,12 @@ bumblebee
 | --- | --- |
 | `pr-review` | PR 审查 |
 | `issue-triage` | Issue 分流 |
-| `release` | 发布流程 |
+| `release` | 发布流程骨架（需外部执行器） |
 | `code-quality` | 代码质量检查 |
 
 如果工作流需要输入，TUI 会提示你填写 JSON。
+
+`pr-review`、`issue-triage` 和 `code-quality` 是 Agent 分析模板。`release` 中的 `test`、`build`、`publish` 需要使用库 API 的 `registerAction()` 接入真实执行器；未配置时会明确失败。当前仓库没有内置 webhook/cron 服务，工作流通过命令、API 或 Agent 工具手动触发。
 
 ## 10. 连接 IM 渠道
 
@@ -195,6 +199,8 @@ bumblebee
 ```
 
 推荐先用飞书或钉钉验证 IM 接入。微信支持两种模式：公众号官方接口（需公网回调 URL）和个人号 weixinbot 扫码（ilink API，无需额外配置）。
+
+渠道消息由独立的 pi AgentSession 处理，可调用 `trigger_workflow` 和 `orchestrate_agents`。工作流需要输入时，请在消息中提供工作流 ID 和必要的 payload 信息。
 
 详细步骤见：
 
@@ -225,18 +231,42 @@ Bumblebee 不在配置文件中存储密钥。请确保已设置对应的环境�
 当前默认超时是 `300000ms`。如果你仍然需要更长时间，可以在 `.bumblebee.yaml` 中设置：
 
 ```yaml
-ai:
+llm:
   timeoutMs: 900000
 ```
 
 最大允许 `3600000ms`。
 
-### Vitest 在受限沙箱里无法读取配置
+### 插件命令或工具超时
 
-本地开发时直接运行：
+插件默认有轻量隔离保护：单个 tool/command 执行超过 `10000ms` 会失败，阻塞事件循环超过 `250ms` 会记录 warning。需要调整时：
 
-```bash
-npm test -- --run
+```yaml
+plugins:
+  toolTimeoutMs: 30000
+  commandTimeoutMs: 30000
+  eventLoopWarningMs: 500
 ```
 
-在受限环境中，Vitest/esbuild 可能需要额外文件系统权限。
+如果插件包含长时间 CPU 密集任务，建议改成异步任务或拆到独立进程；当前隔离不是完整沙箱。
+
+### 工作流失败后如何处理
+
+工作流按 DAG 依赖分层并行执行。步骤失败时默认跳过下游步骤，也可以在步骤或工作流配置中指定：
+
+```yaml
+onFailure: skip-downstream   # skip-downstream | abort-workflow | compensate
+compensateAction: rollback
+```
+
+重试支持 `retry.maxDelayMs` 和 `retry.jitter`，工作流整体超时或取消时会中断等待中的重试。
+
+### 需要运行测试吗？
+
+测试目录用于内部开发验证，不作为用户使用入口随仓库提供。日常使用和改动验证优先运行：
+
+```bash
+npm run typecheck
+```
+
+如果你在本地添加了开发测试，再运行 `npx vitest run`。

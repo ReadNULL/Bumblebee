@@ -373,10 +373,34 @@ export function createDefaultDashboard(): DashboardConfig {
         }
       },
       {
+        id: 'response-p50',
+        type: 'metric',
+        title: '响应时间 p50',
+        position: { x: 0, y: 3 },
+        size: { width: 1, height: 1 },
+        config: { metric: { value: 0, unit: 'ms' } },
+        dataSource: {
+          type: 'function',
+          config: { metricName: 'response.p50' }
+        }
+      },
+      {
+        id: 'response-p99',
+        type: 'metric',
+        title: '响应时间 p99',
+        position: { x: 1, y: 3 },
+        size: { width: 1, height: 1 },
+        config: { metric: { value: 0, unit: 'ms' } },
+        dataSource: {
+          type: 'function',
+          config: { metricName: 'response.p99' }
+        }
+      },
+      {
         id: 'recent-logs',
         type: 'log',
         title: '最近日志',
-        position: { x: 0, y: 3 },
+        position: { x: 0, y: 4 },
         size: { width: 3, height: 2 },
         config: {
           log: {
@@ -388,7 +412,7 @@ export function createDefaultDashboard(): DashboardConfig {
     ],
     layout: {
       columns: 3,
-      rows: 5,
+      rows: 6,
       gap: 16
     },
     refreshInterval: 5000

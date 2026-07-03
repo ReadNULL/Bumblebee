@@ -61,7 +61,7 @@ export function registerCollaborationVoiceCommands(runtime: BumblebeeExtensionRu
     handler: async (args, ctx: BumblebeeCommandContext) => {
       const voice = agent.getVoiceEngine()
       if (!voice) {
-        ctx.ui.notify('语音模块未启用（在配置中设置 voice.enabled: true）', 'warning')
+        ctx.ui.notify('语音模块不可用。当前 Node.js TUI 不提供浏览器 Web Speech API；请在浏览器宿主中集成 VoiceEngineImpl。', 'warning')
         return
       }
 

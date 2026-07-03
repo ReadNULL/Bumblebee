@@ -60,7 +60,7 @@ export function registerCollaborationVoiceTools(runtime: BumblebeeExtensionRunti
     async execute() {
       const voice = agent.getVoiceEngine()
       if (!voice) {
-        return { content: [{ type: 'text' as const, text: '语音模块未启用' }], details: toolDetails({ enabled: false }) }
+        return { content: [{ type: 'text' as const, text: '语音模块在当前 Node.js TUI 中不可用；仅支持浏览器宿主。' }], details: toolDetails({ enabled: false }) }
       }
       return {
         content: [{ type: 'text' as const, text: `语音引擎状态: ${voice.status}` }],

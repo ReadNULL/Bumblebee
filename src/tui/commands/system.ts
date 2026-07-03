@@ -35,7 +35,6 @@ const HELP_GROUPS: Array<{ name: string; commands: Array<{ cmd: string; desc: st
     commands: [
       { cmd: '/status', desc: '系统健康概览' },
       { cmd: '/perf', desc: '性能指标' },
-      { cmd: '/cache', desc: '缓存管理' },
       { cmd: '/dashboard', desc: '仪表盘状态' },
       { cmd: '/channels', desc: '渠道管理' },
       { cmd: '/channels setup', desc: '配置渠道' },
@@ -133,6 +132,51 @@ export function registerSystemCommands(runtime: BumblebeeExtensionRuntime): void
         `协作: ${collab ? (collab.isConnected() ? '已连接' : '未连接') : '未启用'}`,
         `语音: ${voice ? voice.status : '未启用'}`,
       ]
+      ctx.ui.notify(lines.join('\n'), 'info')
+    },
+  })
+
+  pi.registerCommand('perf', {
+    description: '显示 Agent 任务性能指标',
+    handler: async (_args, ctx: BumblebeeCommandContext) => {
+      const manager = agent.getAgentManager()
+      if (!manager) {
+        ctx.ui.notify('Agent 系统未启用，暂无性能指标。', 'warning')
+        return
+      }
+      const stats = manager.getPerformanceStats()
+      ctx.ui.notify([
+        'Agent 任务性能',
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+        `任务数: ${stats.taskCount}`,
+        `成功率: ${(stats.successRate * 100).toFixed(1)}%`,
+        `响应时间 p50: ${stats.p50}ms`,
+        `响应时间 p99: ${stats.p99}ms`,
+        `最大响应时间: ${stats.max}ms`,
+      ].join('\n'), 'info')
+    },
+  })
+
+  pi.registerCommand('dashboard', {
+    description: '显示仪表盘指标和 Widget 状态',
+    handler: async (_args, ctx: BumblebeeCommandContext) => {
+      const manager = agent.getAgentManager()
+      const performance = manager?.getPerformanceStats()
+      const dashboard = agent.getDashboard()
+      const widgets = dashboard?.getAllWidgets() ?? []
+      const lines = [
+        'Bumblebee 仪表盘',
+        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+        `状态: ${dashboard ? '已启用' : '未启用（设置 dashboard.enabled: true 可保存 Widget 数据）'}`,
+        `Widget: ${widgets.length}`,
+      ]
+      if (performance) {
+        lines.push(
+          `任务数: ${performance.taskCount}`,
+          `成功率: ${(performance.successRate * 100).toFixed(1)}%`,
+          `响应时间: p50 ${performance.p50}ms / p99 ${performance.p99}ms`,
+        )
+      }
       ctx.ui.notify(lines.join('\n'), 'info')
     },
   })

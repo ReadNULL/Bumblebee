@@ -111,11 +111,24 @@ export function registerAgentWorkflowTools(runtime: BumblebeeExtensionRuntime): 
     description: '触发执行一个工作流',
     parameters: Type.Object({
       workflowId: Type.String({ description: '工作流 ID' }),
+      payload: Type.Optional(Type.String({ description: '工作流 payload JSON 对象字符串' })),
     }),
     async execute(_toolCallId, params) {
       const engine = agent.getWorkflowEngine()
       if (!engine) return { content: [{ type: 'text' as const, text: '工作流系统未启用' }], details: toolDetails({ enabled: false, workflowId: null, status: null, duration: null }) }
-      const result = await engine.trigger(params.workflowId)
+      let payload: Record<string, unknown> = {}
+      if (params.payload?.trim()) {
+        try {
+          const parsed = JSON.parse(params.payload)
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return { content: [{ type: 'text' as const, text: '工作流 payload 必须是 JSON 对象' }], details: toolDetails({ enabled: true, workflowId: params.workflowId, status: 'invalid-payload', duration: null }), isError: true }
+          }
+          payload = parsed as Record<string, unknown>
+        } catch (error) {
+          return { content: [{ type: 'text' as const, text: `工作流 payload 解析失败: ${error instanceof Error ? error.message : String(error)}` }], details: toolDetails({ enabled: true, workflowId: params.workflowId, status: 'invalid-payload', duration: null }), isError: true }
+        }
+      }
+      const result = await engine.trigger(params.workflowId, payload)
       const stepLines = Object.entries(result.steps)
         .map(([id, step]) => `  ${id}: ${(step as StepResult).status}`)
         .join('\n')

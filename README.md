@@ -2,7 +2,6 @@
   <img src="https://img.shields.io/badge/TypeScript-5.5+-3178c6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-22+-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
   <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/Tests-174%20passed-brightgreen?style=flat-square" alt="Tests">
   <img src="https://img.shields.io/badge/Architecture-Plugin--based-ff6b35?style=flat-square" alt="Architecture">
 </p>
 
@@ -22,7 +21,7 @@
 
 ## 为什么选择 Bumblebee？
 
-当前的 AI Coding 工具（Claude Code、Cursor、Copilot）都局限于单一 IDE 或终端。Bumblebee 的愿景不同：**让 AI 编程助手无处不在** —— 微信群里 @一下就能审查 PR，飞书群里一句话就能触发自动化工作流，终端里用 TUI 获得沉浸式编码体验。
+当前的 AI Coding 工具大多以 IDE 或终端为主要入口。Bumblebee 在 TUI 之外提供微信、飞书和钉钉渠道；渠道消息使用独立的 pi AgentSession，并可调用多 Agent 编排和手动工作流工具。
 
 | 核心能力                          | **Bumblebee**                                  | Claude Code                  | Cursor                               | GitHub Copilot         |
 | --------------------------------- | ---------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------- |
@@ -92,10 +91,19 @@ await agent.createRole({
   description: '专注于代码安全审查和漏洞检测',
   personality: {
     traits: ['严谨', '警觉', '细致'],
+    communication: '直接、基于证据',
     expertise: ['OWASP', '渗透测试', '加密算法'],
+    values: ['安全优先', '最小权限'],
   },
   systemPrompt: '你是一个安全审计专家...',
-  capabilities: ['security-audit', 'vulnerability-scan']
+  greeting: '安全审计模式已就绪。',
+  responseStyle: {
+    tone: 'professional',
+    verbosity: 'detailed',
+    humor: 'none',
+    language: 'zh-CN',
+  },
+  capabilities: ['security-audit', 'vulnerability-scan'],
 })
 
 agent.switchRole('security-auditor')
@@ -147,30 +155,34 @@ const result = await agent.getAgentOrchestrator()!.executeTeamTask(
 
 ### 工作流引擎
 
-声明式 DAG 工作流，支持条件分支、重试策略（固定/指数退避）、超时控制、步骤间数据传递。4 种内置模板：
+声明式 DAG 工作流，支持上下文条件和受限表达式、fallback、重试策略、超时、取消、补偿以及步骤间数据传递。4 种内置模板：
 
 | 模板 | 步骤 | 用途 |
 |------|------|------|
-| `pr-review` | 代码分析 → 安全检查 → 测试覆盖 → 汇总 | PR 自动审查 |
-| `issue-triage` | 分类 → 优先级 → 分配 | Issue 自动分流 |
-| `release` | 版本检查 → 测试 → 构建 → 发布 | 发布流程自动化 |
-| `code-quality` | 静态分析 → 复杂度 → 重复检测 → 报告 | 代码质量检查 |
+| `pr-review` | 代码分析 → 安全检查 → 测试覆盖 → 汇总 | 分析调用方提供的 PR 文件信息 |
+| `issue-triage` | 分析 → 分类 → 负责人建议 | Issue 分流建议 |
+| `release` | 版本检查 → 测试 → 构建 → 发布 | 外部 action handler 集成示例 |
+| `code-quality` | 风格 → 安全 → 性能 → 报告 | 基于 Agent 的代码质量分析 |
 
 ```typescript
 // 触发工作流
-const result = await agent.getWorkflowEngine()!.trigger('pr-review')
+const result = await agent.getWorkflowEngine()!.trigger('pr-review', {
+  payload: { prId: 1, repo: 'current', files: ['src/core/agent.ts'] },
+})
 ```
+
+> 内置模板默认通过 `/workflows run`、API 或 Agent 工具手动触发。仓库暂未提供 webhook/cron 服务。`test`、`build`、`publish` 等外部副作用动作必须先通过 `registerAction()` 接入真实执行器，未配置时会明确失败，不会返回模拟成功。
 
 ### 状态仪表板
 
-`DashboardImpl` 提供可配置的 Widget 元数据和状态面板，默认包含 Agent 数量、任务计数、成功率、响应时间等预设 Widget。当前 TUI 以状态列表方式展示，完整图表渲染留给后续前端/面板集成。
+`DashboardImpl` 提供可配置的 Widget 元数据和状态面板，记录最近 1000 次 Agent 任务，显示任务数、成功率、响应时间 p50/p99 等指标。TUI 使用 `/perf` 或 `/dashboard` 查看文本指标；完整图表渲染留给后续前端集成。
 
 ### 协作与语音（实验性）
 
-- **实时协作** — WebSocket 双向通信，支持多人同时编辑、光标同步、房间管理
-- **语音交互** — 浏览器端语音识别与合成，支持多语言、连续识别、静音检测
+- **协作协议客户端** — WebSocket 房间、消息、内容变更和光标事件，包含心跳与自动重连
+- **语音库接口** — 基于浏览器 Web Speech API 的识别与合成，支持语言和连续识别配置
 
-> 协作和语音模块依赖浏览器 API，默认禁用。在配置中设置 `collaboration.enabled: true` / `voice.enabled: true` 启用。
+> 协作功能需要用户自行提供兼容的 WebSocket 服务端和编辑器事件绑定，本仓库尚未提供协作服务器。语音功能只能在集成 Bumblebee 库的浏览器宿主中使用，Node.js TUI 中不可用；`whisper`、`azure`、`google` 引擎尚未实现。
 
 ---
 
@@ -192,6 +204,7 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/help` | 显示 Bumblebee 命令和常用 pi 会话命令 |
 | `/help <命令>` | 显示命令用法 |
 | `/status` | 系统健康状态概览 |
+| `/perf` | Agent 任务成功率和响应时间 p50/p99 |
 | `/roles` | 列出所有可用角色 |
 | `/switch <id>` | 切换角色（支持 Tab 补全，无参数弹出选择窗口） |
 | `/role` | 显示当前角色详情 |
@@ -212,13 +225,13 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/channels connect [name]` | 连接渠道 |
 | `/channels disconnect [name]` | 断开渠道 |
 | `/collab` | 协作管理（无参数弹出选择窗口） |
-| `/voice` | 语音管理（无参数弹出选择窗口） |
+| `/voice` | 语音管理（仅浏览器宿主可用） |
 | `/resume` | 浏览并选择历史会话 |
 | `/new` | 开始新会话 |
 
 </details>
 
-AI 在对话中可主动调用 15+ 工具，包括角色切换、Agent 编排、工作流触发、缓存管理、协作通信等。
+TUI 默认注册 11 个 Bumblebee 自定义工具，包括角色查询与切换、Agent 编排、工作流触发和协作通信；插件可继续动态增加工具。渠道 AgentSession 额外注入工作流和多 Agent 工具。
 
 ---
 
@@ -251,6 +264,8 @@ bumblebee
 ```
 
 > 详细用法见 [快速开始指南](docs/quick-start.md)。
+>
+> 准备项目讲解、架构复盘或技术面试时，可参考 [Bumblebee 面试准备指南](docs/interview-guide.md)。
 
 ### 会话管理
 
@@ -307,13 +322,12 @@ personality:
 
 memory:
   enabled: true
-  maxHistory: 100
 
-ai:
-  provider: openai       # anthropic | openai | gemini | bedrock
-  model: gpt-4o
-  temperature: 0.2
-  maxTokens: 409600
+llm:
+  timeoutMs: 300000      # Bumblebee 内部一次性 LLM 调用超时
+
+# 模型 provider、模型名、API Key 由 pi-coding-agent 管理。
+# 启动 TUI 后使用 /model 查看或切换模型。
 
 knowledge:
   enabled: true
@@ -322,12 +336,14 @@ knowledge:
 agents:
   enabled: true
   maxConcurrent: 5
-  defaultTemperature: 0.7
 
 workflows:
   enabled: true
   defaultTimeout: 300000
   maxConcurrentWorkflows: 3
+
+# 工作流步骤支持 DAG 分层并行调度。高级步骤可以配置：
+# retry.maxDelayMs / retry.jitter / onFailure / compensateAction。
 
 dashboard:
   enabled: false           # 默认关闭
@@ -347,11 +363,21 @@ collaboration:
   serverUrl: ws://localhost:3000
   userId: local-user
   userName: User
+  autoReconnect: true
+  heartbeatInterval: 30000
 
 voice:
-  enabled: false           # 需要浏览器环境
-  engine: browser          # browser | whisper | azure | google
+  enabled: false           # 仅浏览器宿主；Node.js TUI 不可用
+  engine: browser          # 当前仅 browser 已实现
   language: zh-CN
+
+plugins:
+  enabled: false
+  modules: []
+  # directory: ./plugins
+  toolTimeoutMs: 10000       # 单个插件 tool 执行超时
+  commandTimeoutMs: 10000    # 单个插件命令执行超时
+  eventLoopWarningMs: 250    # 插件阻塞事件循环超过该阈值时记录 warning
 ```
 
 </details>
@@ -408,8 +434,8 @@ src/
 ├── workflows/      # 工作流引擎（DAG 调度、重试/超时/条件，4 种内置模板）
 ├── knowledge/      # 知识系统（图谱 + 上下文 + 学习器，三合一智能引擎）
 ├── dashboard/      # 状态仪表板（Widget 系统、指标卡片元数据）
-├── collaboration/  # 实时协作（WebSocket 房间、光标同步、多人编辑）
-├── voice/          # 语音交互（语音识别、语音合成、多语言支持）
+├── collaboration/  # 协作协议客户端（WebSocket 房间、光标/内容事件）
+├── voice/          # 浏览器语音库接口（Web Speech API）
 ├── cli.ts          # CLI 入口
 └── index.ts        # 库 barrel export
 ```
@@ -425,24 +451,21 @@ src/
 | 类型校验 | Zod + TypeBox | 配置校验、工具参数 Schema |
 | 渠道 SDK | @larksuiteoapi / ilink API 内置 | 平台接入（钉钉使用 Node 内置 fetch/http） |
 | 构建 | tsup | ESM 打包、Tree-shaking |
-| 测试 | vitest | 单元测试、集成测试 |
+| 测试 | vitest | 内部开发测试，按需在本地添加 |
 
 ---
 
 ## 开发
 
 ```bash
-# 运行测试
-npx vitest run
-
-# 监听模式
-npx vitest
-
 # 类型检查
 npm run typecheck
 
 # 开发构建（监听文件变更）
 npm run dev
+
+# 如本地添加了开发测试，可运行
+npx vitest run
 ```
 
 ---
@@ -459,8 +482,7 @@ npm run dev
 
 请确保：
 - 代码通过 `npm run typecheck` 类型检查
-- 所有测试通过 `npx vitest run`
-- 新功能附带相应测试用例
+- 涉及复杂逻辑时，在本地补充开发测试或提供可复现验证步骤
 
 ---
 

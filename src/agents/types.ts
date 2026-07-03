@@ -25,9 +25,6 @@ export interface AgentConfig {
 
   // 工作配置
   config?: {
-    model?: string              // 使用的 AI 模型
-    temperature?: number        // 温度参数
-    maxTokens?: number          // 最大 token 数
     systemPrompt?: string       // 额外的系统提示词（会追加到角色提示词后）
   }
 
@@ -73,7 +70,7 @@ export type AgentTaskOutput =
       taskType: string
     }
   | {
-      mode: 'simulated'
+      mode: 'degraded'
       simulated: true
       message: string
       role: string

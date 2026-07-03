@@ -9,15 +9,11 @@ import { Workflow } from './types.js'
 // PR 审查工作流
 export const PR_REVIEW_WORKFLOW: Workflow = {
   id: 'pr-review',
-  name: 'PR 自动审查',
-  description: '自动审查 Pull Request，生成审查报告',
+  name: 'PR 审查',
+  description: '分析调用方提供的 Pull Request 文件信息并生成审查报告',
   version: '1.0.0',
   trigger: {
-    type: 'webhook',
-    config: {
-      path: '/api/webhook/pr',
-      method: 'POST'
-    }
+    type: 'manual'
   },
   agents: [
     {
@@ -47,7 +43,8 @@ export const PR_REVIEW_WORKFLOW: Workflow = {
       input: {
         fromContext: {
           prId: 'payload.prId',
-          repo: 'payload.repo'
+          repo: 'payload.repo',
+          files: 'payload.files'
         }
       },
       output: 'prInfo'
@@ -79,20 +76,34 @@ export const PR_REVIEW_WORKFLOW: Workflow = {
       dependsOn: ['fetch-pr']
     },
     {
+      id: 'test-coverage',
+      name: '测试覆盖分析',
+      agentId: 'test-writer',
+      action: 'analyze-coverage',
+      input: {
+        fromSteps: {
+          code: 'fetch-pr.files'
+        }
+      },
+      output: 'testCoverageResult',
+      dependsOn: ['fetch-pr']
+    },
+    {
       id: 'generate-report',
       name: '生成报告',
       action: 'generate',
       input: {
         fromSteps: {
           review: 'code-review',
-          security: 'security-scan'
+          security: 'security-scan',
+          testCoverage: 'test-coverage'
         },
         template: {
           title: 'PR #{{context.payload.prId}} 审查报告'
         }
       },
       output: 'report',
-      dependsOn: ['code-review', 'security-scan']
+      dependsOn: ['code-review', 'security-scan', 'test-coverage']
     }
   ],
   config: {
@@ -108,15 +119,11 @@ export const PR_REVIEW_WORKFLOW: Workflow = {
 // Issue 分析工作流
 export const ISSUE_TRIAGE_WORKFLOW: Workflow = {
   id: 'issue-triage',
-  name: 'Issue 自动分类',
-  description: '自动分析和分类 Issue',
+  name: 'Issue 分类建议',
+  description: '分析 Issue，并生成分类和负责人建议',
   version: '1.0.0',
   trigger: {
-    type: 'webhook',
-    config: {
-      path: '/api/webhook/issue',
-      method: 'POST'
-    }
+    type: 'manual'
   },
   agents: [
     {
@@ -144,6 +151,7 @@ export const ISSUE_TRIAGE_WORKFLOW: Workflow = {
     {
       id: 'classify',
       name: '分类',
+      agentId: 'architect',
       action: 'classify',
       input: {
         fromSteps: {
@@ -155,8 +163,9 @@ export const ISSUE_TRIAGE_WORKFLOW: Workflow = {
     },
     {
       id: 'assign',
-      name: '分配',
-      action: 'assign',
+      name: '负责人建议',
+      agentId: 'architect',
+      action: 'recommend-assignee',
       input: {
         fromSteps: {
           classification: 'classify'
@@ -192,12 +201,6 @@ export const RELEASE_WORKFLOW: Workflow = {
       role: { roleId: 'code-reviewer' }
     },
     {
-      id: 'test-writer',
-      name: 'Test Writer',
-      capabilities: ['test'],
-      role: { roleId: 'test-writer' }
-    },
-    {
       id: 'doc-generator',
       name: 'Doc Generator',
       capabilities: ['document'],
@@ -220,8 +223,7 @@ export const RELEASE_WORKFLOW: Workflow = {
     },
     {
       id: 'run-tests',
-      name: '运行测试',
-      agentId: 'test-writer',
+      name: '运行测试（需要外部 action handler）',
       action: 'test',
       input: {
         static: {

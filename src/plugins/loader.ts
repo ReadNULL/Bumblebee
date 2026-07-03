@@ -1,6 +1,7 @@
 import { readdir, stat } from 'fs/promises'
 import { resolve } from 'path'
 import { pathToFileURL } from 'url'
+import { monitorEventLoopDelay } from 'perf_hooks'
 import { Type } from 'typebox'
 import { defineTool } from '@earendil-works/pi-coding-agent'
 import type { BumblebeePlugin, BumblebeePluginConfig, BumblebeePluginContext, LoadedBumblebeePlugin } from './types.js'
@@ -13,6 +14,9 @@ interface PluginToolResult {
 
 export class PluginLoader {
   private loaded: LoadedBumblebeePlugin[] = []
+  private toolTimeoutMs = 10000
+  private commandTimeoutMs = 10000
+  private eventLoopWarningMs = 250
 
   constructor(private readonly context: BumblebeePluginContext) {}
 
@@ -22,6 +26,9 @@ export class PluginLoader {
 
   async loadFromConfig(config: BumblebeePluginConfig): Promise<LoadedBumblebeePlugin[]> {
     if (!config.enabled) return []
+    this.toolTimeoutMs = config.toolTimeoutMs ?? this.toolTimeoutMs
+    this.commandTimeoutMs = config.commandTimeoutMs ?? this.commandTimeoutMs
+    this.eventLoopWarningMs = config.eventLoopWarningMs ?? this.eventLoopWarningMs
 
     const modulePaths = [
       ...config.modules,
@@ -78,9 +85,13 @@ export class PluginLoader {
     for (const command of plugin.commands || []) {
       this.context.pi.registerCommand(command.name, {
         description: command.description || `Plugin command from ${plugin.name}`,
-        handler: async (args: string, ctx: unknown) => {
-          await command.handler(args, ctx, this.context)
-        },
+        handler: async (args: string, ctx: unknown) =>
+          this.runWithIsolation(
+            plugin.name,
+            `command:${command.name}`,
+            () => command.handler(args, ctx, this.context),
+            this.commandTimeoutMs,
+          ),
       })
     }
   }
@@ -94,9 +105,62 @@ export class PluginLoader {
         label: tool.label || tool.name,
         description: tool.description || `Plugin tool from ${plugin.name}`,
         parameters: tool.parameters || Type.Object({}),
-        execute: async (_toolCallId, params) => normalizeToolOutput(await tool.execute(params, this.context)),
+        execute: async (_toolCallId, params) => this.runWithIsolation<PluginToolResult>(
+          plugin.name,
+          `tool:${tool.name}`,
+          async () => normalizeToolOutput(await tool.execute(params, this.context)),
+          this.toolTimeoutMs,
+        ),
       }))
     }
+  }
+
+  private async runWithIsolation<T>(
+    pluginName: string,
+    operation: string,
+    fn: () => unknown | Promise<unknown>,
+    timeoutMs: number,
+  ): Promise<T> {
+    const histogram = monitorEventLoopDelay({ resolution: 20 })
+    const startedAt = Date.now()
+    const timeoutMessage = `Plugin ${pluginName} ${operation} timed out after ${timeoutMs}ms`
+    let elapsedMs = 0
+    histogram.enable()
+
+    try {
+      const result = await withPluginTimeout(
+        Promise.resolve().then(fn) as Promise<T>,
+        timeoutMs,
+        timeoutMessage,
+      )
+      elapsedMs = Date.now() - startedAt
+      if (elapsedMs > timeoutMs) {
+        throw new Error(timeoutMessage)
+      }
+      return result
+    } finally {
+      elapsedMs ||= Date.now() - startedAt
+      histogram.disable()
+      const maxDelayMs = Number(histogram.max) / 1_000_000
+      if (elapsedMs > timeoutMs || maxDelayMs > this.eventLoopWarningMs) {
+        this.context.logger?.warn(
+          `Plugin ${pluginName} ${operation} may have blocked the event loop`,
+          { elapsedMs, maxEventLoopDelayMs: Number.isFinite(maxDelayMs) ? Math.round(maxDelayMs) : 0 },
+        )
+      }
+    }
+  }
+}
+
+async function withPluginTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+  })
+  try {
+    return await Promise.race([operation, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

@@ -3,27 +3,22 @@ import { resolve } from 'path'
 import { z } from 'zod'
 import { parse as parseYaml } from 'yaml'
 
-// 配置 Schema
 export const PersonalityConfigSchema = z.object({
   intensity: z.enum(['low', 'moderate', 'high']).default('moderate'),
   theme: z.enum(['transformers', 'neutral']).default('transformers'),
-  roleId: z.string().default('bumblebee')
+  roleId: z.string().default('bumblebee'),
 }).default({})
 
 export const MemoryConfigSchema = z.object({
   enabled: z.boolean().default(true),
-  maxHistory: z.number().min(10).max(1000).default(100)
 }).default({})
 
-export const AIConfigSchema = z.object({
-  provider: z.enum(['anthropic', 'openai', 'gemini', 'bedrock']).default('anthropic'),
-  model: z.string().default('claude-sonnet-4-6'),
-  temperature: z.number().min(0).max(2).default(0.7),
-  maxTokens: z.number().min(1).max(100000).default(4096),
+// Model provider, model name, API keys and credentials are owned by pi-coding-agent.
+// Bumblebee only keeps a timeout for internal one-shot LLM calls.
+export const LLMRuntimeConfigSchema = z.object({
   timeoutMs: z.number().min(1000).max(3600000).default(300000),
 }).default({})
 
-// 渠道配置 Schema
 export const WeChatChannelConfigSchema = z.object({
   enabled: z.boolean().default(false),
   mode: z.enum(['official-account', 'weixinbot']).default('official-account'),
@@ -61,7 +56,6 @@ export const ChannelsConfigSchema = z.object({
 
 export type ChannelsConfig = z.infer<typeof ChannelsConfigSchema>
 
-// 知识系统配置 Schema
 export const KnowledgeConfigSchema = z.object({
   enabled: z.boolean().default(true),
   maxRecords: z.number().min(100).max(10000).default(1000),
@@ -69,16 +63,13 @@ export const KnowledgeConfigSchema = z.object({
 
 export type KnowledgeConfig = z.infer<typeof KnowledgeConfigSchema>
 
-// Agent 配置 Schema
 export const AgentsConfigSchema = z.object({
   enabled: z.boolean().default(true),
   maxConcurrent: z.number().min(1).max(20).default(5),
-  defaultTemperature: z.number().min(0).max(2).default(0.7),
 }).default({})
 
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>
 
-// 工作流配置 Schema
 export const WorkflowsConfigSchema = z.object({
   enabled: z.boolean().default(true),
   defaultTimeout: z.number().min(1000).max(3600000).default(300000),
@@ -87,7 +78,6 @@ export const WorkflowsConfigSchema = z.object({
 
 export type WorkflowsConfig = z.infer<typeof WorkflowsConfigSchema>
 
-// 仪表盘配置 Schema
 export const DashboardConfigSchema = z.object({
   enabled: z.boolean().default(false),
   refreshInterval: z.number().min(1000).max(60000).default(5000),
@@ -95,7 +85,6 @@ export const DashboardConfigSchema = z.object({
 
 export type DashboardConfig = z.infer<typeof DashboardConfigSchema>
 
-// 协作配置 Schema
 export const CollaborationConfigSchema = z.object({
   enabled: z.boolean().default(false),
   serverUrl: z.string().optional(),
@@ -107,7 +96,6 @@ export const CollaborationConfigSchema = z.object({
 
 export type CollaborationChannelConfig = z.infer<typeof CollaborationConfigSchema>
 
-// 语音配置 Schema
 export const VoiceConfigSchema = z.object({
   enabled: z.boolean().default(false),
   engine: z.enum(['browser', 'whisper', 'azure', 'google']).default('browser'),
@@ -122,6 +110,9 @@ export const PluginsConfigSchema = z.object({
   enabled: z.boolean().default(false),
   modules: z.array(z.string()).default([]),
   directory: z.string().optional(),
+  toolTimeoutMs: z.number().min(100).max(3600000).default(10000),
+  commandTimeoutMs: z.number().min(100).max(3600000).default(10000),
+  eventLoopWarningMs: z.number().min(10).max(60000).default(250),
 }).default({})
 
 export type PluginsConfig = z.infer<typeof PluginsConfigSchema>
@@ -131,14 +122,16 @@ const EMPTY_CHANNELS = {
   feishu: { enabled: false },
   dingtalk: { enabled: false, mode: 'webhook' as const },
 }
+
 export type WeChatChannelConfig = z.infer<typeof WeChatChannelConfigSchema>
 export type FeishuChannelConfig = z.infer<typeof FeishuChannelConfigSchema>
 export type DingTalkChannelConfig = z.infer<typeof DingTalkChannelConfigSchema>
+export type LLMRuntimeConfig = z.infer<typeof LLMRuntimeConfigSchema>
 
 export const BumblebeeConfigSchema = z.object({
   personality: PersonalityConfigSchema,
   memory: MemoryConfigSchema,
-  ai: AIConfigSchema,
+  llm: LLMRuntimeConfigSchema,
   channels: ChannelsConfigSchema,
   knowledge: KnowledgeConfigSchema,
   agents: AgentsConfigSchema,
@@ -175,64 +168,59 @@ function resolveEnvValues<T>(value: T): T {
   return value
 }
 
-// 默认配置
 export const DEFAULT_CONFIG: BumblebeeConfig = {
   personality: {
     intensity: 'moderate',
     theme: 'transformers',
-    roleId: 'bumblebee'
+    roleId: 'bumblebee',
   },
   memory: {
     enabled: true,
-    maxHistory: 100
   },
-  ai: {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
-    temperature: 0.7,
-    maxTokens: 4096,
-    timeoutMs: 300000
+  llm: {
+    timeoutMs: 300000,
   },
   channels: EMPTY_CHANNELS,
   knowledge: {
     enabled: true,
-    maxRecords: 1000
+    maxRecords: 1000,
   },
   agents: {
     enabled: true,
     maxConcurrent: 5,
-    defaultTemperature: 0.7
   },
   workflows: {
     enabled: true,
     defaultTimeout: 300000,
-    maxConcurrentWorkflows: 3
+    maxConcurrentWorkflows: 3,
   },
   dashboard: {
     enabled: false,
-    refreshInterval: 5000
+    refreshInterval: 5000,
   },
   collaboration: {
     enabled: false,
     userId: 'local-user',
     userName: 'User',
     autoReconnect: true,
-    heartbeatInterval: 30000
+    heartbeatInterval: 30000,
   },
   voice: {
     enabled: false,
-    engine: 'browser' as const,
+    engine: 'browser',
     language: 'zh-CN',
     continuous: false,
-    interimResults: true
+    interimResults: true,
   },
   plugins: {
     enabled: false,
-    modules: []
-  }
+    modules: [],
+    toolTimeoutMs: 10000,
+    commandTimeoutMs: 10000,
+    eventLoopWarningMs: 250,
+  },
 }
 
-// 加载配置文件
 async function loadConfigFile(path: string): Promise<Partial<BumblebeeConfig>> {
   try {
     const content = await readFile(resolve(path), 'utf-8')
@@ -240,19 +228,29 @@ async function loadConfigFile(path: string): Promise<Partial<BumblebeeConfig>> {
     if (path.endsWith('.yaml') || path.endsWith('.yml')) {
       const parsed = parseYaml(content)
       if (!parsed || typeof parsed !== 'object') {
-        console.warn(`  配置文件 ${path} 解析结果为空，请检查 YAML 语法。`)
+        console.warn(`Config file ${path} parsed to an empty value. Check YAML syntax.`)
         return {}
       }
-      return resolveEnvValues(parsed) as Partial<BumblebeeConfig>
+      return migrateLegacyConfig(resolveEnvValues(parsed) as Record<string, unknown>)
     }
 
-    return resolveEnvValues(JSON.parse(content)) as Partial<BumblebeeConfig>
+    return migrateLegacyConfig(resolveEnvValues(JSON.parse(content)) as Record<string, unknown>)
   } catch (err: any) {
-    // 仅文件不存在时静默；解析错误或读取错误必须向上抛出，避免静默使用默认配置。
     if (err?.code === 'ENOENT') return {}
-    err.message = `配置文件 ${path} 解析失败: ${err.message}`
+    err.message = `Failed to parse config file ${path}: ${err.message}`
     throw err
   }
+}
+
+function migrateLegacyConfig(config: Record<string, unknown>): Partial<BumblebeeConfig> {
+  if ('ai' in config && !('llm' in config)) {
+    const ai = isPlainObject(config.ai) ? config.ai : {}
+    config.llm = {
+      timeoutMs: typeof ai.timeoutMs === 'number' ? ai.timeoutMs : undefined,
+    }
+  }
+  delete config.ai
+  return config as Partial<BumblebeeConfig>
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -271,28 +269,24 @@ function deepMerge<T>(base: T, override: unknown): T {
   return merged as T
 }
 
-// 合并配置
 function mergeConfig(base: BumblebeeConfig, override: Partial<BumblebeeConfig>): BumblebeeConfig {
   return deepMerge(base, override)
 }
 
-// 加载配置
 export async function loadConfig(configPath?: string): Promise<BumblebeeConfig> {
   let userConfig: Partial<BumblebeeConfig> = {}
 
-  // 尝试从指定路径加载
   if (configPath) {
     userConfig = await loadConfigFile(configPath)
   }
 
-  // 尝试从默认位置加载
   const defaultPaths = [
     '.bumblebee.yaml',
     '.bumblebee.yml',
     '.bumblebee.json',
     'bumblebee.config.yaml',
     'bumblebee.config.yml',
-    'bumblebee.config.json'
+    'bumblebee.config.json',
   ]
 
   if (!configPath) {
@@ -305,7 +299,6 @@ export async function loadConfig(configPath?: string): Promise<BumblebeeConfig> 
     }
   }
 
-  // 合并并验证配置
   const merged = mergeConfig(DEFAULT_CONFIG, userConfig)
   return BumblebeeConfigSchema.parse(merged)
 }

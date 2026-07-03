@@ -9,6 +9,9 @@ export interface BumblebeePluginConfig {
   enabled: boolean
   modules: string[]
   directory?: string
+  toolTimeoutMs?: number
+  commandTimeoutMs?: number
+  eventLoopWarningMs?: number
 }
 
 export interface BumblebeeToolDefinition {

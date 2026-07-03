@@ -30,6 +30,9 @@ export class CollaborationRoomImpl implements CollaborationAdapter {
   private cursorHandlers: Array<(userId: string, position: CursorPosition) => void> = []
   private messageHandlers: Array<(message: ChatMessage) => void> = []
   private ws: WebSocket | null = null
+  private reconnectTimer: NodeJS.Timeout | null = null
+  private heartbeatTimer: NodeJS.Timeout | null = null
+  private manuallyDisconnected = false
 
   constructor(config: CollaborationConfig) {
     this.name = 'collaboration-room'
@@ -53,11 +56,16 @@ export class CollaborationRoomImpl implements CollaborationAdapter {
       throw new Error('未配置协作服务器地址')
     }
 
+    if (this.isConnected()) return
+    this.manuallyDisconnected = false
+    this.clearReconnectTimer()
+
     return new Promise((resolve, reject) => {
       try {
         this.ws = new WebSocket(this.config.serverUrl!)
 
         this.ws.onopen = () => {
+          this.startHeartbeat()
           this.emitEvent({
             type: 'user-join',
             userId: this.localUser.id,
@@ -77,7 +85,12 @@ export class CollaborationRoomImpl implements CollaborationAdapter {
         }
 
         this.ws.onclose = () => {
+          this.stopHeartbeat()
+          this.ws = null
           this.localUser.status = 'offline'
+          if (!this.manuallyDisconnected && this.config.autoReconnect) {
+            this.scheduleReconnect()
+          }
         }
       } catch (error) {
         reject(error)
@@ -86,6 +99,9 @@ export class CollaborationRoomImpl implements CollaborationAdapter {
   }
 
   async disconnect(): Promise<void> {
+    this.manuallyDisconnected = true
+    this.clearReconnectTimer()
+    this.stopHeartbeat()
     if (this.ws) {
       this.ws.close()
       this.ws = null
@@ -313,6 +329,44 @@ export class CollaborationRoomImpl implements CollaborationAdapter {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data))
     }
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    const interval = this.config.heartbeatInterval ?? 30000
+    this.heartbeatTimer = setInterval(() => {
+      this.send({
+        type: 'heartbeat',
+        roomId: this.roomId,
+        userId: this.localUser.id,
+        timestamp: Date.now(),
+      })
+    }, interval)
+    this.heartbeatTimer.unref?.()
+  }
+
+  private stopHeartbeat(): void {
+    if (!this.heartbeatTimer) return
+    clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = null
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      void this.connect().catch(error => {
+        console.warn('协作服务器重连失败:', error)
+        if (!this.manuallyDisconnected && this.config.autoReconnect) this.scheduleReconnect()
+      })
+    }, 3000)
+    this.reconnectTimer.unref?.()
+  }
+
+  private clearReconnectTimer(): void {
+    if (!this.reconnectTimer) return
+    clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
   }
 
   private generateColor(userId: string): string {

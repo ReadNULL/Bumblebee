@@ -1,11 +1,4 @@
-/**
- * 工作流引擎
- *
- * 负责工作流的执行和管理
- */
-
 import { AgentManager } from '../agents/manager.js'
-import { AgentOrchestrator } from '../agents/orchestrator.js'
 import { getSpecializedAgentConfig, getSpecializedAgentTypes } from '../agents/specialized.js'
 import type { AgentConfig } from '../agents/types.js'
 import {
@@ -15,31 +8,474 @@ import {
   WorkflowResult,
   WorkflowStatus,
   StepResult,
-  StepStatus,
   StepCondition,
   WorkflowEvent,
   WorkflowEventHandler,
-  ErrorHandling,
-  WorkflowActionHandler
+  WorkflowActionHandler,
+  StepFailureStrategy,
 } from './types.js'
 
-// 生成唯一 ID
 function generateId(): string {
   return `exec-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 }
 
+interface CompensationEntry {
+  stepId: string
+  compensateAction?: string
+}
+
+export interface WorkflowEngineOptions {
+  defaultTimeout?: number
+  maxConcurrent?: number
+}
+
 export class WorkflowEngine {
-  private agentManager: AgentManager
-  private orchestrator: AgentOrchestrator
   private workflows: Map<string, Workflow> = new Map()
   private executions: Map<string, WorkflowContext> = new Map()
   private eventHandlers: WorkflowEventHandler[] = []
   private actionHandlers: Map<string, WorkflowActionHandler> = new Map()
 
-  constructor(agentManager: AgentManager) {
-    this.agentManager = agentManager
-    this.orchestrator = new AgentOrchestrator(agentManager)
+  constructor(
+    private readonly agentManager: AgentManager,
+    private readonly options: WorkflowEngineOptions = {},
+  ) {
     this.registerBuiltInActions()
+  }
+
+  register(workflow: Workflow): void {
+    this.validateWorkflow(workflow)
+    this.getExecutionLayers(workflow.steps)
+    this.workflows.set(workflow.id, workflow)
+  }
+
+  unregister(workflowId: string): boolean {
+    return this.workflows.delete(workflowId)
+  }
+
+  registerAction(action: string, handler: WorkflowActionHandler): void {
+    this.actionHandlers.set(action, handler)
+  }
+
+  unregisterAction(action: string): boolean {
+    return this.actionHandlers.delete(action)
+  }
+
+  getWorkflow(workflowId: string): Workflow | undefined {
+    return this.workflows.get(workflowId)
+  }
+
+  getAllWorkflows(): Workflow[] {
+    return Array.from(this.workflows.values())
+  }
+
+  async trigger(workflowId: string, payload?: Record<string, unknown>): Promise<WorkflowResult> {
+    const workflow = this.workflows.get(workflowId)
+    if (!workflow) {
+      throw new Error(`工作流不存在: ${workflowId}`)
+    }
+    const maxConcurrent = Math.max(1, this.options.maxConcurrent ?? 3)
+    if (this.executions.size >= maxConcurrent) {
+      throw new Error(`工作流并发数已达到上限: ${maxConcurrent}`)
+    }
+
+    const executionId = generateId()
+    const controller = new AbortController()
+    const context: WorkflowContext = {
+      workflowId,
+      executionId,
+      trigger: {
+        type: workflow.trigger.type,
+        payload,
+      },
+      steps: {},
+      variables: payload || {},
+      startTime: new Date(),
+      signal: controller.signal,
+    }
+
+    let workflowTimer: NodeJS.Timeout | undefined
+    const workflowTimeout = workflow.config?.timeout ?? this.options.defaultTimeout
+    if (workflowTimeout) {
+      workflowTimer = setTimeout(() => {
+        controller.abort(new Error(`Workflow timed out after ${workflowTimeout}ms`))
+      }, workflowTimeout)
+    }
+
+    this.executions.set(executionId, context)
+    this.emitEvent({ type: 'started', workflowId, executionId })
+
+    try {
+      return await this.executeWorkflow(workflow, context, controller)
+    } finally {
+      if (workflowTimer) clearTimeout(workflowTimer)
+      this.executions.delete(executionId)
+    }
+  }
+
+  getExecution(executionId: string): WorkflowContext | undefined {
+    return this.executions.get(executionId)
+  }
+
+  onEvent(handler: WorkflowEventHandler): void {
+    this.eventHandlers.push(handler)
+  }
+
+  private emitEvent(event: WorkflowEvent): void {
+    for (const handler of this.eventHandlers) {
+      try {
+        handler(event)
+      } catch (error) {
+        console.error('工作流事件处理器错误:', error)
+      }
+    }
+  }
+
+  private async executeWorkflow(
+    workflow: Workflow,
+    context: WorkflowContext,
+    controller: AbortController,
+  ): Promise<WorkflowResult> {
+    const startTime = new Date()
+    const temporaryAgentIds: string[] = []
+    const stepResults: Record<string, StepResult> = {}
+    const compensationStack: CompensationEntry[] = []
+    const fallbackStepIds = new Set(workflow.steps.flatMap(step => step.fallbackStepId ? [step.fallbackStepId] : []))
+    let workflowError: string | undefined
+
+    try {
+      for (const agentConfig of workflow.agents || []) {
+        if (!this.agentManager.getAgent(agentConfig.id)) {
+          await this.agentManager.registerAgent(this.resolveWorkflowAgentConfig(agentConfig))
+          temporaryAgentIds.push(agentConfig.id)
+        }
+      }
+
+      const layers = this.getExecutionLayers(workflow.steps)
+      for (const layer of layers) {
+        this.throwIfAborted(controller.signal)
+
+        const runnable = layer.filter(step => {
+          if (stepResults[step.id] || fallbackStepIds.has(step.id)) return false
+          const depStatus = this.getDependencyStatus(step, stepResults)
+          if (depStatus === 'blocked') {
+            this.skipStep(step, stepResults, 'Skipped because a dependency did not complete successfully')
+            return false
+          }
+          return true
+        })
+        if (runnable.length === 0) continue
+
+        const settled = await Promise.allSettled(
+          runnable.map(async step => {
+            const result = await this.executeStep(step, context, stepResults, controller.signal)
+            if (result.status === 'failed' && step.onError !== 'fallback') {
+              const strategy = this.getFailureStrategy(step, workflow)
+              if ((strategy === 'abort-workflow' || strategy === 'compensate') && !controller.signal.aborted) {
+                controller.abort(new Error(result.error || `Step ${step.id} failed`))
+              }
+            }
+            return result
+          }),
+        )
+
+        for (let index = 0; index < runnable.length; index++) {
+          const step = runnable[index]
+          const result = settled[index]
+          const stepResult = result.status === 'fulfilled'
+            ? result.value
+            : this.failedStep(step, result.reason)
+
+          stepResults[step.id] = stepResult
+          context.steps[step.id] = stepResult
+
+          if (stepResult.status === 'completed') {
+            compensationStack.push({ stepId: step.id, compensateAction: step.compensateAction })
+            continue
+          }
+
+          if (stepResult.status === 'failed') {
+            if (step.onError === 'fallback' && step.fallbackStepId) {
+              const fallbackStep = workflow.steps.find(candidate => candidate.id === step.fallbackStepId)
+              if (fallbackStep) {
+                const fallbackResult = await this.executeStep(
+                  fallbackStep,
+                  context,
+                  stepResults,
+                  controller.signal,
+                )
+                stepResults[fallbackStep.id] = fallbackResult
+                context.steps[fallbackStep.id] = fallbackResult
+                if (fallbackResult.status === 'completed') {
+                  stepResult.status = 'completed'
+                  stepResult.output = fallbackResult.output
+                  stepResult.error = undefined
+                  compensationStack.push({
+                    stepId: fallbackStep.id,
+                    compensateAction: fallbackStep.compensateAction,
+                  })
+                  continue
+                }
+                stepResult.error = `${stepResult.error || 'Step failed'}; fallback ${fallbackStep.id} failed: ${fallbackResult.error || fallbackResult.status}`
+              }
+            }
+            const strategy = this.getFailureStrategy(step, workflow)
+            workflowError = stepResult.error || `Step ${step.id} failed`
+
+            if (strategy === 'abort-workflow') {
+              controller.abort(new Error(workflowError))
+            } else if (strategy === 'compensate') {
+              await this.compensate(compensationStack, stepResults, context)
+              controller.abort(new Error(workflowError))
+            }
+          }
+        }
+
+        if (controller.signal.aborted) break
+      }
+    } catch (error) {
+      workflowError = error instanceof Error ? error.message : String(error)
+      if (!controller.signal.aborted) controller.abort(error)
+    } finally {
+      for (const agentId of temporaryAgentIds) {
+        this.agentManager.removeAgent(agentId)
+      }
+    }
+
+    if (controller.signal.aborted) {
+      this.markUnstartedAsSkipped(workflow.steps, stepResults, 'Skipped because workflow was aborted')
+    } else {
+      this.markBlockedAsSkipped(workflow.steps, stepResults)
+      this.markUnstartedAsSkipped(workflow.steps, stepResults, 'Fallback step was not required')
+    }
+
+    const endTime = new Date()
+    const status: WorkflowStatus = Object.values(stepResults).some(result => result.status === 'failed')
+      ? 'failed'
+      : controller.signal.aborted
+        ? 'cancelled'
+        : 'completed'
+
+    const result: WorkflowResult = {
+      workflowId: workflow.id,
+      executionId: context.executionId,
+      status,
+      steps: stepResults,
+      output: this.collectOutput(workflow, stepResults),
+      error: workflowError,
+      startTime,
+      endTime,
+      duration: endTime.getTime() - startTime.getTime(),
+    }
+
+    if (status === 'completed') {
+      this.emitEvent({ type: 'completed', workflowId: workflow.id, executionId: context.executionId, result })
+    } else {
+      this.emitEvent({
+        type: 'failed',
+        workflowId: workflow.id,
+        executionId: context.executionId,
+        error: workflowError || '工作流执行失败',
+      })
+    }
+
+    return result
+  }
+
+  private async executeStep(
+    step: WorkflowStep,
+    context: WorkflowContext,
+    stepResults: Record<string, StepResult>,
+    signal?: AbortSignal,
+  ): Promise<StepResult> {
+    const startTime = new Date()
+    context.currentStepId = step.id
+    this.throwIfAborted(signal)
+
+    this.emitEvent({
+      type: 'step-started',
+      workflowId: context.workflowId,
+      executionId: context.executionId,
+      stepId: step.id,
+    })
+
+    if (step.condition && !this.evaluateCondition(step.condition, context, stepResults)) {
+      return {
+        stepId: step.id,
+        status: 'skipped',
+        startTime,
+        endTime: new Date(),
+        duration: 0,
+      }
+    }
+
+    const input = this.prepareInput(step.input, context, stepResults)
+    const maxAttempts = Math.max(1, step.retry?.maxAttempts || 1)
+    let lastError: string | undefined
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      this.throwIfAborted(signal)
+      try {
+        const timeout = step.timeout || 30000
+        const output = await this.withTimeout(
+          this.executeStepAction(step, input, context, stepResults, signal),
+          timeout,
+          signal,
+        )
+
+        const endTime = new Date()
+        const result: StepResult = {
+          stepId: step.id,
+          status: 'completed',
+          output,
+          startTime,
+          endTime,
+          duration: endTime.getTime() - startTime.getTime(),
+          attempts: attempt,
+        }
+
+        this.emitEvent({
+          type: 'step-completed',
+          workflowId: context.workflowId,
+          executionId: context.executionId,
+          stepId: step.id,
+          result,
+        })
+        return result
+      } catch (error) {
+        if (isAbortError(error)) throw error
+        lastError = error instanceof Error ? error.message : String(error)
+
+        if (attempt < maxAttempts) {
+          await this.interruptibleSleep(this.calculateRetryDelay(step, attempt), signal)
+        }
+      }
+    }
+
+    const endTime = new Date()
+    this.emitEvent({
+      type: 'step-failed',
+      workflowId: context.workflowId,
+      executionId: context.executionId,
+      stepId: step.id,
+      error: lastError || 'Unknown error',
+    })
+
+    if (step.onError === 'skip') {
+      return {
+        stepId: step.id,
+        status: 'skipped',
+        error: lastError,
+        startTime,
+        endTime,
+        duration: endTime.getTime() - startTime.getTime(),
+        attempts: maxAttempts,
+      }
+    }
+
+    return {
+      stepId: step.id,
+      status: 'failed',
+      error: lastError,
+      startTime,
+      endTime,
+      duration: endTime.getTime() - startTime.getTime(),
+      attempts: maxAttempts,
+    }
+  }
+
+  private async executeStepAction(
+    step: WorkflowStep,
+    input: Record<string, unknown>,
+    context: WorkflowContext,
+    stepResults: Record<string, StepResult>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const agentId = step.agentId || step.agentType
+    if (!agentId) {
+      return this.executeSystemStepAction(step, input, context, stepResults, signal)
+    }
+
+    const result = await this.agentManager.executeTask({
+      id: `${step.id}-task`,
+      agentId,
+      type: step.action,
+      description: step.description || step.name,
+      input,
+      priority: 'medium',
+    })
+
+    if (!result.success) {
+      throw new Error(result.error || '任务执行失败')
+    }
+
+    return result.output
+  }
+
+  private async executeSystemStepAction(
+    step: WorkflowStep,
+    input: Record<string, unknown>,
+    context: WorkflowContext,
+    stepResults: Record<string, StepResult>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const handler = this.actionHandlers.get(step.action)
+    if (!handler) {
+      throw new Error(`未注册工作流动作: ${step.action}`)
+    }
+
+    return handler(input, { step, workflowContext: context, stepResults, signal })
+  }
+
+  private async compensate(
+    compensationStack: CompensationEntry[],
+    stepResults: Record<string, StepResult>,
+    context: WorkflowContext,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    while (compensationStack.length > 0) {
+      const entry = compensationStack.pop()
+      if (!entry?.compensateAction) continue
+
+      const handler = this.actionHandlers.get(entry.compensateAction)
+      if (!handler) {
+        console.warn(`补偿动作未注册: ${entry.compensateAction}`)
+        continue
+      }
+
+      await handler(
+        { stepId: entry.stepId, result: stepResults[entry.stepId] },
+        {
+          step: {
+            id: `${entry.stepId}:compensate`,
+            name: `Compensate ${entry.stepId}`,
+            action: entry.compensateAction,
+            input: {},
+          },
+          workflowContext: context,
+          stepResults,
+          signal,
+        },
+      )
+    }
+  }
+
+  private getExecutionLayers(steps: WorkflowStep[]): WorkflowStep[][] {
+    const completed = new Set<string>()
+    const layers: WorkflowStep[][] = []
+
+    while (completed.size < steps.length) {
+      const layer = steps.filter(step =>
+        !completed.has(step.id) &&
+        (step.dependsOn || []).every(depId => completed.has(depId)),
+      )
+      if (layer.length === 0) {
+        throw new Error('工作流存在循环依赖或不可达步骤')
+      }
+      layers.push(layer)
+      layer.forEach(step => completed.add(step.id))
+    }
+
+    return layers
   }
 
   private resolveWorkflowAgentConfig(agentConfig: AgentConfig): AgentConfig {
@@ -55,366 +491,251 @@ export class WorkflowEngine {
     return agentConfig
   }
 
-  // ========== 工作流管理 ==========
-
-  // 注册工作流
-  register(workflow: Workflow): void {
-    this.validateWorkflow(workflow)
-    this.workflows.set(workflow.id, workflow)
+  private getDependencyStatus(step: WorkflowStep, stepResults: Record<string, StepResult>): 'ready' | 'blocked' {
+    const blocked = (step.dependsOn || []).some(depId => stepResults[depId]?.status !== 'completed')
+    return blocked ? 'blocked' : 'ready'
   }
 
-  // 注销工作流
-  unregister(workflowId: string): boolean {
-    return this.workflows.delete(workflowId)
+  private getFailureStrategy(step: WorkflowStep, workflow: Workflow): StepFailureStrategy {
+    if (step.onFailure) return step.onFailure
+    if (workflow.config?.onFailure) return workflow.config.onFailure
+    if (step.onError === 'stop' || workflow.config?.errorHandling === 'stop') return 'abort-workflow'
+    return 'skip-downstream'
   }
 
-  registerAction(action: string, handler: WorkflowActionHandler): void {
-    this.actionHandlers.set(action, handler)
-  }
-
-  unregisterAction(action: string): boolean {
-    return this.actionHandlers.delete(action)
-  }
-
-  // 获取工作流
-  getWorkflow(workflowId: string): Workflow | undefined {
-    return this.workflows.get(workflowId)
-  }
-
-  // 获取所有工作流
-  getAllWorkflows(): Workflow[] {
-    return Array.from(this.workflows.values())
-  }
-
-  // ========== 工作流执行 ==========
-
-  // 触发执行
-  async trigger(workflowId: string, payload?: Record<string, unknown>): Promise<WorkflowResult> {
-    const workflow = this.workflows.get(workflowId)
-    if (!workflow) {
-      throw new Error(`工作流不存在: ${workflowId}`)
-    }
-
-    const executionId = generateId()
-    const context: WorkflowContext = {
-      workflowId,
-      executionId,
-      trigger: {
-        type: workflow.trigger.type,
-        payload
-      },
-      steps: {},
-      variables: payload || {},
-      startTime: new Date()
-    }
-
-    this.executions.set(executionId, context)
-    this.emitEvent({ type: 'started', workflowId, executionId })
-
-    try {
-      const result = await this.executeWorkflow(workflow, context)
-      this.executions.delete(executionId)
-      return result
-    } catch (error) {
-      this.executions.delete(executionId)
-      throw error
-    }
-  }
-
-  // 获取执行状态
-  getExecution(executionId: string): WorkflowContext | undefined {
-    return this.executions.get(executionId)
-  }
-
-  // ========== 事件处理 ==========
-
-  // 注册事件处理器
-  onEvent(handler: WorkflowEventHandler): void {
-    this.eventHandlers.push(handler)
-  }
-
-  // 触发事件
-  private emitEvent(event: WorkflowEvent): void {
-    for (const handler of this.eventHandlers) {
-      try {
-        handler(event)
-      } catch (error) {
-        console.error('事件处理器错误:', error)
-      }
-    }
-  }
-
-  // ========== 工作流执行逻辑 ==========
-
-  // 执行工作流
-  private async executeWorkflow(workflow: Workflow, context: WorkflowContext): Promise<WorkflowResult> {
-    const startTime = new Date()
-    const temporaryAgentIds: string[] = []
-
-    try {
-      for (const agentConfig of workflow.agents || []) {
-        if (!this.agentManager.getAgent(agentConfig.id)) {
-          await this.agentManager.registerAgent(this.resolveWorkflowAgentConfig(agentConfig))
-          temporaryAgentIds.push(agentConfig.id)
-        }
-      }
-
-      // 构建步骤依赖图
-      const stepGraph = this.buildStepGraph(workflow.steps)
-
-      // 按拓扑顺序执行步骤
-      const executedSteps = new Set<string>()
-      const stepResults: Record<string, StepResult> = {}
-
-      // 执行所有步骤
-      for (const step of workflow.steps) {
-        await this.executeStepWithDependencies(step, workflow, context, stepGraph, executedSteps, stepResults)
-      }
-
-      const endTime = new Date()
-      const status: WorkflowStatus = Object.values(stepResults).some(r => r.status === 'failed')
-        ? 'failed'
-        : 'completed'
-
-      const result: WorkflowResult = {
-        workflowId: workflow.id,
-        executionId: context.executionId,
-        status,
-        steps: stepResults,
-        output: this.collectOutput(workflow, stepResults),
-        startTime,
-        endTime,
-        duration: endTime.getTime() - startTime.getTime()
-      }
-
-      if (status === 'completed') {
-        this.emitEvent({
-          type: 'completed',
-          workflowId: workflow.id,
-          executionId: context.executionId,
-          result
-        })
-      } else {
-        this.emitEvent({
-          type: 'failed',
-          workflowId: workflow.id,
-          executionId: context.executionId,
-          error: '工作流执行失败'
-        })
-      }
-
-      return result
-    } finally {
-      for (const agentId of temporaryAgentIds) {
-        this.agentManager.removeAgent(agentId)
-      }
-    }
-  }
-
-  // 执行步骤及其依赖
-  private async executeStepWithDependencies(
-    step: WorkflowStep,
-    workflow: Workflow,
-    context: WorkflowContext,
-    stepGraph: Map<string, string[]>,
-    executedSteps: Set<string>,
-    stepResults: Record<string, StepResult>
-  ): Promise<void> {
-    // 如果已执行，跳过
-    if (executedSteps.has(step.id)) {
-      return
-    }
-
-    // 先执行依赖步骤
-    const dependencies = step.dependsOn || []
-    for (const depId of dependencies) {
-      const depStep = workflow.steps.find(s => s.id === depId)
-      if (depStep && !executedSteps.has(depId)) {
-        await this.executeStepWithDependencies(depStep, workflow, context, stepGraph, executedSteps, stepResults)
-      }
-    }
-
-    // 检查依赖是否都成功
-    const depsFailed = dependencies.some(depId => {
-      const result = stepResults[depId]
-      return result && result.status === 'failed'
-    })
-
-    if (depsFailed) {
-      stepResults[step.id] = {
-        stepId: step.id,
-        status: 'skipped',
-        startTime: new Date(),
-        endTime: new Date(),
-        duration: 0
-      }
-      executedSteps.add(step.id)
-      return
-    }
-
-    // 执行当前步骤
-    const result = await this.executeStep(step, context, stepResults)
-    stepResults[step.id] = result
-    executedSteps.add(step.id)
-    context.steps[step.id] = result
-  }
-
-  // 执行单个步骤
-  private async executeStep(
-    step: WorkflowStep,
-    context: WorkflowContext,
-    stepResults: Record<string, StepResult>
-  ): Promise<StepResult> {
-    const startTime = new Date()
-    context.currentStepId = step.id
-
-    this.emitEvent({
-      type: 'step-started',
-      workflowId: context.workflowId,
-      executionId: context.executionId,
-      stepId: step.id
-    })
-
-    // 检查条件
-    if (step.condition && !this.evaluateCondition(step.condition, context, stepResults)) {
-      return {
-        stepId: step.id,
-        status: 'skipped',
-        startTime,
-        endTime: new Date(),
-        duration: 0
-      }
-    }
-
-    // 准备输入
-    const input = this.prepareInput(step.input, context, stepResults)
-
-    // 执行步骤（支持重试）
-    const maxAttempts = step.retry?.maxAttempts || 1
-    const retryDelay = step.retry?.delay || 0
-    let lastError: string | undefined
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        // 设置超时
-        const timeout = step.timeout || 30000
-        const output = await Promise.race([
-          this.executeStepAction(step, input, context, stepResults),
-          this.createTimeout(timeout)
-        ])
-
-        const endTime = new Date()
-
-        this.emitEvent({
-          type: 'step-completed',
-          workflowId: context.workflowId,
-          executionId: context.executionId,
-          stepId: step.id,
-          result: { stepId: step.id, status: 'completed', output, startTime, endTime, duration: endTime.getTime() - startTime.getTime(), attempts: attempt }
-        })
-
-        return {
-          stepId: step.id,
-          status: 'completed',
-          output,
-          startTime,
-          endTime,
-          duration: endTime.getTime() - startTime.getTime(),
-          attempts: attempt
-        }
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : 'Unknown error'
-
-        if (attempt < maxAttempts) {
-          // 等待重试
-          const delay = step.retry?.backoff === 'exponential'
-            ? retryDelay * Math.pow(2, attempt - 1)
-            : retryDelay
-          await this.sleep(delay)
-        }
-      }
-    }
-
-    // 所有重试都失败
-    const endTime = new Date()
-
-    this.emitEvent({
-      type: 'step-failed',
-      workflowId: context.workflowId,
-      executionId: context.executionId,
+  private skipStep(step: WorkflowStep, stepResults: Record<string, StepResult>, reason: string): void {
+    if (stepResults[step.id]) return
+    stepResults[step.id] = {
       stepId: step.id,
-      error: lastError || 'Unknown error'
-    })
-
-    // 处理错误策略
-    if (step.onError === 'skip' || step.onError === 'fallback') {
-      return {
-        stepId: step.id,
-        status: step.onError === 'fallback' ? 'failed' : 'skipped',
-        error: lastError,
-        startTime,
-        endTime,
-        duration: endTime.getTime() - startTime.getTime(),
-        attempts: maxAttempts
-      }
+      status: 'skipped',
+      error: reason,
+      startTime: new Date(),
+      endTime: new Date(),
+      duration: 0,
     }
+  }
 
+  private failedStep(step: WorkflowStep, error: unknown): StepResult {
+    const now = new Date()
     return {
       stepId: step.id,
-      status: 'failed',
-      error: lastError,
-      startTime,
-      endTime,
-      duration: endTime.getTime() - startTime.getTime(),
-      attempts: maxAttempts
+      status: isAbortError(error) ? 'skipped' : 'failed',
+      error: error instanceof Error ? error.message : String(error),
+      startTime: now,
+      endTime: now,
+      duration: 0,
     }
   }
 
-  // 执行步骤动作
-  private async executeStepAction(
-    step: WorkflowStep,
-    input: Record<string, unknown>,
-    context: WorkflowContext,
-    stepResults: Record<string, StepResult>
-  ): Promise<unknown> {
-    // 根据 agentId 或 agentType 找到 Agent
-    const agentId = step.agentId || step.agentType
-    if (!agentId) {
-      return this.executeSystemStepAction(step, input, context, stepResults)
+  private markBlockedAsSkipped(steps: WorkflowStep[], stepResults: Record<string, StepResult>): void {
+    for (const step of steps) {
+      if (stepResults[step.id]) continue
+      if (this.getDependencyStatus(step, stepResults) === 'blocked') {
+        this.skipStep(step, stepResults, 'Skipped because a dependency did not complete successfully')
+      }
     }
-
-    // 创建任务
-    const task = {
-      id: `${step.id}-task`,
-      agentId,
-      type: step.action,
-      description: step.description || step.name,
-      input,
-      priority: 'medium' as const
-    }
-
-    // 执行任务
-    const result = await this.agentManager.executeTask(task)
-
-    if (!result.success) {
-      throw new Error(result.error || '任务执行失败')
-    }
-
-    return result.output
   }
 
-  private async executeSystemStepAction(
-    step: WorkflowStep,
-    input: Record<string, unknown>,
+  private markUnstartedAsSkipped(steps: WorkflowStep[], stepResults: Record<string, StepResult>, reason: string): void {
+    for (const step of steps) {
+      this.skipStep(step, stepResults, reason)
+    }
+  }
+
+  private calculateRetryDelay(step: WorkflowStep, attempt: number): number {
+    const base = step.retry?.delay || 0
+    if (base <= 0) return 0
+
+    const withBackoff = step.retry?.backoff === 'exponential'
+      ? Math.min(base * Math.pow(2, attempt - 1), step.retry.maxDelayMs ?? 30000)
+      : base
+
+    return step.retry?.jitter === false
+      ? withBackoff
+      : Math.round(withBackoff * (0.5 + Math.random()))
+  }
+
+  private async withTimeout<T>(operation: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    let abortHandler: (() => void) | undefined
+    const guard = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`步骤执行超时: ${ms}ms`)), ms)
+      abortHandler = () => reject(createAbortError(signal?.reason))
+      signal?.addEventListener('abort', abortHandler, { once: true })
+    })
+
+    try {
+      return await Promise.race([operation, guard])
+    } finally {
+      if (timer) clearTimeout(timer)
+      if (abortHandler) signal?.removeEventListener('abort', abortHandler)
+    }
+  }
+
+  private async interruptibleSleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (ms <= 0) return
+    this.throwIfAborted(signal)
+
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer)
+        reject(createAbortError())
+      }
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, ms)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) {
+      throw createAbortError(signal.reason)
+    }
+  }
+
+  private evaluateCondition(
+    condition: StepCondition,
     context: WorkflowContext,
-    stepResults: Record<string, StepResult>
-  ): Promise<unknown> {
-    const handler = this.actionHandlers.get(step.action)
-    if (!handler) {
-      throw new Error(`未注册工作流动作: ${step.action}`)
+    stepResults: Record<string, StepResult>,
+  ): boolean {
+    if (condition.context) {
+      const { key, operator, value } = condition.context
+      const actualValue = this.getNestedValue(context.variables, key)
+
+      switch (operator) {
+        case 'eq': return actualValue === value
+        case 'neq': return actualValue !== value
+        case 'gt': return Number(actualValue) > Number(value)
+        case 'lt': return Number(actualValue) < Number(value)
+        case 'gte': return Number(actualValue) >= Number(value)
+        case 'lte': return Number(actualValue) <= Number(value)
+        case 'contains': return String(actualValue).includes(String(value))
+        case 'exists': return actualValue !== undefined && actualValue !== null
+        default: return true
+      }
     }
 
-    return handler(input, { step, workflowContext: context, stepResults })
+    if (condition.expression) {
+      return this.evaluateExpression(condition.expression, {
+        context: context.variables,
+        steps: stepResults,
+      })
+    }
+
+    return true
+  }
+
+  private evaluateExpression(expression: string, data: Record<string, unknown>): boolean {
+    const match = expression.trim().match(/^([\w.-]+)\s*(===|!==|==|!=|>=|<=|>|<)\s*(.+)$/)
+    if (!match) {
+      const value = this.getNestedValue(data, expression.trim())
+      return Boolean(value)
+    }
+
+    const [, path, operator, literalText] = match
+    const actual = this.getNestedValue(data, path)
+    const expected = parseConditionLiteral(literalText)
+    switch (operator) {
+      case '===':
+      case '==': return actual === expected
+      case '!==':
+      case '!=': return actual !== expected
+      case '>': return Number(actual) > Number(expected)
+      case '<': return Number(actual) < Number(expected)
+      case '>=': return Number(actual) >= Number(expected)
+      case '<=': return Number(actual) <= Number(expected)
+      default: return false
+    }
+  }
+
+  private prepareInput(
+    input: WorkflowStep['input'],
+    context: WorkflowContext,
+    stepResults: Record<string, StepResult>,
+  ): Record<string, unknown> {
+    const result: Record<string, unknown> = {}
+
+    if (input.static) {
+      Object.assign(result, input.static)
+    }
+
+    if (input.fromContext) {
+      for (const [localKey, contextPath] of Object.entries(input.fromContext)) {
+        result[localKey] = this.getNestedValue(context.variables, contextPath)
+      }
+    }
+
+    if (input.fromSteps) {
+      for (const [localKey, path] of Object.entries(input.fromSteps)) {
+        const [stepId, ...rest] = path.split('.')
+        const stepResult = stepResults[stepId]
+        if (stepResult?.output) {
+          result[localKey] = rest.length > 0
+            ? this.getNestedValue(stepResult.output, rest.join('.'))
+            : stepResult.output
+        }
+      }
+    }
+
+    if (input.template) {
+      for (const [key, template] of Object.entries(input.template)) {
+        result[key] = this.interpolate(template, { context, steps: stepResults })
+      }
+    }
+
+    return result
+  }
+
+  private collectOutput(workflow: Workflow, stepResults: Record<string, StepResult>): Record<string, unknown> {
+    const output: Record<string, unknown> = {}
+
+    for (const step of workflow.steps) {
+      if (step.output && stepResults[step.id]?.output) {
+        output[step.output] = stepResults[step.id].output
+      }
+    }
+
+    return output
+  }
+
+  private getNestedValue(obj: unknown, path: string): unknown {
+    return path.split('.').reduce((current: unknown, key) => {
+      if (current === null || current === undefined) return undefined
+      return (current as Record<string, unknown>)[key]
+    }, obj)
+  }
+
+  private interpolate(template: string, data: Record<string, unknown>): string {
+    return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_match, path) => {
+      const value = this.getNestedValue(data, path)
+      return value !== undefined ? String(value) : ''
+    })
+  }
+
+  private validateWorkflow(workflow: Workflow): void {
+    if (!workflow.id) throw new Error('工作流必须有 ID')
+    if (!workflow.name) throw new Error('工作流必须有名称')
+    if (!workflow.trigger) throw new Error('工作流必须有触发器')
+    if (!workflow.steps || workflow.steps.length === 0) throw new Error('工作流必须有至少一个步骤')
+
+    const stepIds = new Set<string>()
+    for (const step of workflow.steps) {
+      if (stepIds.has(step.id)) throw new Error(`步骤 ID 重复: ${step.id}`)
+      stepIds.add(step.id)
+    }
+
+    for (const step of workflow.steps) {
+      for (const depId of step.dependsOn || []) {
+        if (!stepIds.has(depId)) {
+          throw new Error(`步骤 ${step.id} 依赖不存在的步骤: ${depId}`)
+        }
+      }
+      if (step.fallbackStepId && !stepIds.has(step.fallbackStepId)) {
+        throw new Error(`步骤 ${step.id} 的 fallback 步骤不存在: ${step.fallbackStepId}`)
+      }
+    }
   }
 
   private registerBuiltInActions(): void {
@@ -440,190 +761,30 @@ export class WorkflowEngine {
     this.registerAction('generate', reportHandler)
     this.registerAction('report', reportHandler)
 
-    this.registerAction('classify', (input, { step }) => ({
-      ...baseOutput(step.action, input, `${step.name} 已完成`),
-      category: 'general',
-      priority: 'medium',
-    }))
-
-    this.registerAction('assign', (input, { step }) => ({
-      ...baseOutput(step.action, input, `${step.name} 已完成`),
-      assignee: 'unassigned',
-    }))
-
-    this.registerAction('build', (input, { step }) => ({
-      ...baseOutput(step.action, input, `${step.name} 已完成`),
-      success: true,
-      artifact: `${input.version || 'current'}-build`,
-    }))
-
-    this.registerAction('publish', (input, { step }) => ({
-      ...baseOutput(step.action, input, `${step.name} 已完成`),
-      published: true,
-    }))
+    const externalAction: WorkflowActionHandler = (_input, { step }) => {
+      throw new Error(`工作流动作 ${step.action} 需要调用 registerAction() 配置外部执行器`)
+    }
+    this.registerAction('test', externalAction)
+    this.registerAction('build', externalAction)
+    this.registerAction('publish', externalAction)
   }
+}
 
-  // ========== 辅助方法 ==========
-
-  // 构建步骤依赖图
-  private buildStepGraph(steps: WorkflowStep[]): Map<string, string[]> {
-    const graph = new Map<string, string[]>()
-
-    for (const step of steps) {
-      graph.set(step.id, step.dependsOn || [])
-    }
-
-    return graph
+function parseConditionLiteral(value: string): unknown {
+  const trimmed = value.trim()
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return trimmed.replace(/^(['"])(.*)\1$/, '$2')
   }
+}
 
-  // 评估条件
-  private evaluateCondition(
-    condition: StepCondition,
-    context: WorkflowContext,
-    stepResults: Record<string, StepResult>
-  ): boolean {
-    // 基于上下文的条件
-    if (condition.context) {
-      const { key, operator, value } = condition.context
-      const actualValue = this.getNestedValue(context.variables, key)
+function createAbortError(reason?: unknown): Error {
+  const error = reason instanceof Error ? reason : new Error('Aborted')
+  error.name = 'AbortError'
+  return error
+}
 
-      switch (operator) {
-        case 'eq': return actualValue === value
-        case 'neq': return actualValue !== value
-        case 'gt': return Number(actualValue) > Number(value)
-        case 'lt': return Number(actualValue) < Number(value)
-        case 'gte': return Number(actualValue) >= Number(value)
-        case 'lte': return Number(actualValue) <= Number(value)
-        case 'contains': return String(actualValue).includes(String(value))
-        case 'exists': return actualValue !== undefined && actualValue !== null
-        default: return true
-      }
-    }
-
-    return true
-  }
-
-  // 准备输入
-  private prepareInput(
-    input: WorkflowStep['input'],
-    context: WorkflowContext,
-    stepResults: Record<string, StepResult>
-  ): Record<string, unknown> {
-    const result: Record<string, unknown> = {}
-
-    // 静态值
-    if (input.static) {
-      Object.assign(result, input.static)
-    }
-
-    // 从上下文获取
-    if (input.fromContext) {
-      for (const [localKey, contextPath] of Object.entries(input.fromContext)) {
-        result[localKey] = this.getNestedValue(context.variables, contextPath)
-      }
-    }
-
-    // 从其他步骤输出获取
-    if (input.fromSteps) {
-      for (const [localKey, path] of Object.entries(input.fromSteps)) {
-        const [stepId, ...rest] = path.split('.')
-        const stepResult = stepResults[stepId]
-        if (stepResult?.output) {
-          result[localKey] = rest.length > 0
-            ? this.getNestedValue(stepResult.output, rest.join('.'))
-            : stepResult.output
-        }
-      }
-    }
-
-    // 模板
-    if (input.template) {
-      for (const [key, template] of Object.entries(input.template)) {
-        result[key] = this.interpolate(template, { context, steps: stepResults })
-      }
-    }
-
-    return result
-  }
-
-  // 收集输出
-  private collectOutput(workflow: Workflow, stepResults: Record<string, StepResult>): Record<string, unknown> {
-    // 收集所有步骤的输出
-    const output: Record<string, unknown> = {}
-
-    for (const step of workflow.steps) {
-      if (step.output && stepResults[step.id]?.output) {
-        output[step.output] = stepResults[step.id].output
-      }
-    }
-
-    return output
-  }
-
-  // 获取嵌套值
-  private getNestedValue(obj: unknown, path: string): unknown {
-    return path.split('.').reduce((current: unknown, key) => {
-      if (current === null || current === undefined) return undefined
-      return (current as Record<string, unknown>)[key]
-    }, obj)
-  }
-
-  // 插值
-  private interpolate(template: string, data: Record<string, unknown>): string {
-    return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (_, path) => {
-      const value = this.getNestedValue(data, path)
-      return value !== undefined ? String(value) : ''
-    })
-  }
-
-  // 创建超时 Promise
-  private createTimeout(ms: number): Promise<never> {
-    return new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`步骤执行超时: ${ms}ms`)), ms)
-    })
-  }
-
-  // 睡眠
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms))
-  }
-
-  // 验证工作流
-  private validateWorkflow(workflow: Workflow): void {
-    if (!workflow.id) {
-      throw new Error('工作流必须有 ID')
-    }
-
-    if (!workflow.name) {
-      throw new Error('工作流必须有名称')
-    }
-
-    if (!workflow.trigger) {
-      throw new Error('工作流必须有触发器')
-    }
-
-    if (!workflow.steps || workflow.steps.length === 0) {
-      throw new Error('工作流必须有至少一个步骤')
-    }
-
-    // 验证步骤 ID 唯一性
-    const stepIds = new Set<string>()
-    for (const step of workflow.steps) {
-      if (stepIds.has(step.id)) {
-        throw new Error(`步骤 ID 重复: ${step.id}`)
-      }
-      stepIds.add(step.id)
-    }
-
-    // 验证依赖关系
-    for (const step of workflow.steps) {
-      if (step.dependsOn) {
-        for (const depId of step.dependsOn) {
-          if (!stepIds.has(depId)) {
-            throw new Error(`步骤 ${step.id} 依赖不存在的步骤: ${depId}`)
-          }
-        }
-      }
-    }
-  }
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
 }

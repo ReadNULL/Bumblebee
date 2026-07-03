@@ -17,6 +17,7 @@ import type { CollaborationRoomImpl } from '../collaboration/room.js'
 import type { VoiceEngineImpl } from '../voice/engine.js'
 import { BumblebeeConfig } from './config.js'
 import { callLLM, type LLMCallResult } from './session-factory.js'
+import { createBumblebeeAgentTools } from './agent-tools.js'
 
 const DEFAULT_MEMORY_DIR = join(homedir(), '.bumblebee', 'memory')
 
@@ -28,11 +29,6 @@ export interface BumblebeeAgentConfig {
   }
   memory?: {
     enabled?: boolean
-    maxHistory?: number
-  }
-  ai?: {
-    provider?: string
-    model?: string
   }
   rolesDir?: string  // 自定义角色存储目录
 }
@@ -50,6 +46,7 @@ export class BumblebeeAgent {
   private dashboard: DashboardImpl | null = null
   private collaborationRoom: CollaborationRoomImpl | null = null
   private voiceEngine: VoiceEngineImpl | null = null
+  private unsubscribeAgentMetrics: (() => void) | null = null
   private config: BumblebeeConfig
   private sessionManager: SessionManager | null = null
 
@@ -78,7 +75,8 @@ export class BumblebeeAgent {
     // 初始化 Agent 系统（依赖 roleManager）
     if (config.agents?.enabled !== false) {
       this.agentManager = new AgentManager(this.roleManager, {
-        ai: this.config.ai,
+        llm: this.config.llm,
+        maxConcurrent: this.config.agents.maxConcurrent,
       })
       this.agentOrchestrator = new AgentOrchestrator(this.agentManager)
     }
@@ -105,7 +103,10 @@ export class BumblebeeAgent {
 
     // 初始化工作流引擎（依赖 agentManager）
     if (this.config.workflows?.enabled !== false && this.agentManager) {
-      this.workflowEngine = new WorkflowEngine(this.agentManager)
+      this.workflowEngine = new WorkflowEngine(this.agentManager, {
+        defaultTimeout: this.config.workflows.defaultTimeout,
+        maxConcurrent: this.config.workflows.maxConcurrentWorkflows,
+      })
       for (const templateId of getWorkflowTemplateIds()) {
         this.workflowEngine.register(createWorkflowFromTemplate(templateId))
       }
@@ -117,6 +118,14 @@ export class BumblebeeAgent {
       dashConfig.refreshInterval = this.config.dashboard.refreshInterval
       this.dashboard = new DashboardImpl(dashConfig)
       await this.dashboard.initialize()
+      this.syncDashboardMetrics()
+      this.unsubscribeAgentMetrics = this.agentManager?.onTaskCompleted(metric => {
+        this.syncDashboardMetrics()
+        this.dashboard?.addTimeSeries({
+          timestamp: metric.timestamp,
+          values: { duration: metric.duration },
+        })
+      }) ?? null
     }
 
     // 协作模块（懒加载，依赖浏览器 WebSocket）
@@ -130,8 +139,9 @@ export class BumblebeeAgent {
           autoReconnect: this.config.collaboration.autoReconnect,
           heartbeatInterval: this.config.collaboration.heartbeatInterval,
         })
-      } catch {
-        console.warn('协作模块在当前环境不可用')
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        console.warn(`协作模块在当前环境不可用: ${reason}`)
       }
     }
 
@@ -146,8 +156,9 @@ export class BumblebeeAgent {
           interimResults: this.config.voice.interimResults,
         })
         await this.voiceEngine.initialize()
-      } catch {
-        console.warn('语音模块在当前环境不可用')
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        console.warn(`语音模块在当前环境不可用: ${reason}`)
         this.voiceEngine = null
       }
     }
@@ -164,6 +175,8 @@ export class BumblebeeAgent {
 
   // 释放资源
   async dispose(): Promise<void> {
+    this.unsubscribeAgentMetrics?.()
+    this.unsubscribeAgentMetrics = null
     this.workflowEngine = null
     this.agentOrchestrator = null
     this.agentManager = null
@@ -201,8 +214,7 @@ export class BumblebeeAgent {
     // 显示配置信息
     console.log(`\n配置信息:`)
     console.log(`  - 人格强度: ${this.config.personality.intensity}`)
-    console.log(`  - AI 提供商: ${this.config.ai.provider}`)
-    console.log(`  - 模型: ${this.config.ai.model}`)
+    console.log('  - 模型: 由 pi-coding-agent /model 管理')
     console.log(`  - 记忆系统: ${this.config.memory.enabled ? '启用' : '禁用'}`)
     console.log(`  - 角色目录: ${this.roleManager.getRolesDir()}`)
     console.log('')
@@ -231,10 +243,10 @@ export class BumblebeeAgent {
     return callLLM({
       systemPrompt,
       userPrompt,
-      ai: this.config.ai,
       sessionManager: this.sessionManager ?? undefined,
       disposeAfter: !this.sessionManager,
-      timeoutMs: this.config.ai.timeoutMs,
+      timeoutMs: this.config.llm.timeoutMs,
+      customTools: createBumblebeeAgentTools(this),
     })
   }
 
@@ -371,7 +383,19 @@ export class BumblebeeAgent {
 
   // 获取仪表盘
   getDashboard(): DashboardImpl | null {
+    this.syncDashboardMetrics()
     return this.dashboard
+  }
+
+  private syncDashboardMetrics(): void {
+    if (!this.dashboard || !this.agentManager) return
+    const agents = this.agentManager.getStats()
+    const performance = this.agentManager.getPerformanceStats()
+    this.dashboard.updateMetric('agent.count', agents.total)
+    this.dashboard.updateMetric('task.count', performance.taskCount)
+    this.dashboard.updateMetric('task.successRate', `${(performance.successRate * 100).toFixed(1)}%`)
+    this.dashboard.updateMetric('response.p50', performance.p50)
+    this.dashboard.updateMetric('response.p99', performance.p99)
   }
 
   // ========== 协作 + 语音 ==========

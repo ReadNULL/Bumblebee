@@ -34,6 +34,9 @@ export class VoiceEngineImpl implements VoiceAdapter {
   // ========== 生命周期 ==========
 
   async initialize(): Promise<void> {
+    if (this.engine !== 'browser') {
+      throw new Error(`语音引擎 ${this.engine} 尚未实现，当前仅支持 browser`)
+    }
     // 检查浏览器支持
     if (typeof window === 'undefined') {
       throw new Error('语音功能仅在浏览器环境中可用')
