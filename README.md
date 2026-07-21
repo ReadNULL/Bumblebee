@@ -17,7 +17,7 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 
 ## 当前范围
 
-当前分支包含最小项目骨架和第 1 个基础积木：
+当前分支包含最小项目骨架和前 4 个基础积木：
 
 - pi 包清单；
 - 空的 TypeScript 扩展入口；
@@ -25,7 +25,8 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - 独立且按功能分类的测试目录；
 - 统一错误模型与错误边界归一化；
 - 结构化日志、安全序列化、敏感信息脱敏和异步 trace 上下文；
-- 基于 AbortSignal 的取消、超时与可中断等待。
+- 基于 AbortSignal 的取消、超时与可中断等待；
+- 公平并发限制与按会话键串行执行。
 
 目前没有注册命令、工具或事件处理器，也没有 Agent、记忆、知识、工作流、渠道等运行时功能。
 
@@ -41,6 +42,12 @@ src/
     │   ├── index.ts
     │   ├── sleep.ts
     │   └── with-timeout.ts
+    ├── concurrency/
+    │   ├── fifo-queue.ts
+    │   ├── index.ts
+    │   ├── keyed-serial-queue.ts
+    │   ├── semaphore.ts
+    │   └── types.ts
     ├── errors/
     │   ├── bumblebee-error.ts
     │   └── index.ts
@@ -57,6 +64,9 @@ test/
     │   ├── abort.spec.ts
     │   ├── sleep.spec.ts
     │   └── with-timeout.spec.ts
+    ├── concurrency/
+    │   ├── keyed-serial-queue.spec.ts
+    │   └── semaphore.spec.ts
     ├── errors/
     │   └── bumblebee-error.spec.ts
     └── logging/
@@ -150,6 +160,33 @@ await abortableSleep(backoffMs, parentSignal);
 `withTimeout()` 会创建子 signal，并把父级取消向下传播。截止时间到达时抛出 `TIMEOUT`，父级或用户主动取消时抛出 `CANCELLED`，任务自身的异常保持原样。等待结束后会清理 timer 和事件监听器。
 
 AbortSignal 是协作式取消：底层 SDK 必须接收并响应 signal 才能真正停止工作。如果任务忽略 signal，`withTimeout()` 只能让调用方停止等待，无法撤销已经发生的副作用；同步 CPU 阻塞也无法被 timer 强制中断。
+
+## 并发控制
+
+`Semaphore` 限制共享资源的同时运行数量，`KeyedSerialQueue` 保证同一个键内的任务按 FIFO 串行执行，不同键之间仍可并行：
+
+```typescript
+import {
+  KeyedSerialQueue,
+  Semaphore,
+} from "./src/foundation/concurrency/index.js";
+
+const modelSlots = new Semaphore(3);
+const sessions = new KeyedSerialQueue<string>();
+
+await sessions.enqueue(
+  sessionId,
+  (sessionSignal) => modelSlots.runExclusive(
+    (limitedSignal) => callModel({ signal: limitedSignal }),
+    { signal: sessionSignal },
+  ),
+  { signal: requestSignal },
+);
+```
+
+信号量按照等待顺序发放许可，`runExclusive()` 会在成功或失败后自动释放；手动取得的 permit 也支持幂等 `release()`。串行队列会在键空闲后删除内部状态，避免历史会话长期驻留。
+
+等待中的许可或任务可以立即取消，并从 O(1) 双向队列中移除。任务开始运行后，取消仍会通过 signal 传给任务，但并发许可和会话键必须等任务真正结束后才释放，防止忽略取消的底层操作与后续任务发生重叠。超时策略不在并发模块中重复实现，调用方可以组合 `withTimeout()`。
 
 ## 环境要求
 

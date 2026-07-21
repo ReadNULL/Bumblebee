@@ -1,4 +1,4 @@
-export { throwIfAborted } from "./abort.js";
+export { getAbortError, throwIfAborted } from "./abort.js";
 export { abortableSleep } from "./sleep.js";
 export { withTimeout } from "./with-timeout.js";
 
