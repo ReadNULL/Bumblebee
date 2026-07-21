@@ -17,7 +17,7 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 
 ## 当前范围
 
-当前分支包含最小项目骨架和前 4 个基础积木：
+当前分支包含最小项目骨架和前 5 个基础积木：
 
 - pi 包清单；
 - 空的 TypeScript 扩展入口；
@@ -26,7 +26,8 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - 统一错误模型与错误边界归一化；
 - 结构化日志、安全序列化、敏感信息脱敏和异步 trace 上下文；
 - 基于 AbortSignal 的取消、超时与可中断等待；
-- 公平并发限制与按会话键串行执行。
+- 公平并发限制与按会话键串行执行；
+- 初始化失败回滚、逆序资源清理与幂等释放。
 
 目前没有注册命令、工具或事件处理器，也没有 Agent、记忆、知识、工作流、渠道等运行时功能。
 
@@ -51,6 +52,11 @@ src/
     ├── errors/
     │   ├── bumblebee-error.ts
     │   └── index.ts
+    ├── lifecycle/
+    │   ├── cleanup-stack.ts
+    │   ├── index.ts
+    │   ├── lifecycle.ts
+    │   └── types.ts
     └── logging/
         ├── index.ts
         ├── sanitizer.ts
@@ -69,6 +75,8 @@ test/
     │   └── semaphore.spec.ts
     ├── errors/
     │   └── bumblebee-error.spec.ts
+    ├── lifecycle/
+    │   └── lifecycle.spec.ts
     └── logging/
         ├── sanitizer.spec.ts
         ├── structured-logger.spec.ts
@@ -187,6 +195,32 @@ await sessions.enqueue(
 信号量按照等待顺序发放许可，`runExclusive()` 会在成功或失败后自动释放；手动取得的 permit 也支持幂等 `release()`。串行队列会在键空闲后删除内部状态，避免历史会话长期驻留。
 
 等待中的许可或任务可以立即取消，并从 O(1) 双向队列中移除。任务开始运行后，取消仍会通过 signal 传给任务，但并发许可和会话键必须等任务真正结束后才释放，防止忽略取消的底层操作与后续任务发生重叠。超时策略不在并发模块中重复实现，调用方可以组合 `withTimeout()`。
+
+## 生命周期
+
+`Lifecycle` 管理一次初始化作用域。每成功获得一个资源，就立即登记对应清理动作：
+
+```typescript
+import { Lifecycle } from "./src/foundation/lifecycle/index.js";
+
+const lifecycle = new Lifecycle();
+
+await lifecycle.initialize(async ({ defer, signal }) => {
+  const store = await openStore({ signal });
+  defer("store", () => store.close());
+
+  const channel = await connectChannel({ signal });
+  defer("channel", () => channel.disconnect());
+});
+
+await lifecycle.dispose();
+```
+
+正常释放和初始化失败回滚都按 LIFO 执行，上例会先断开 channel，再关闭它依赖的 store。初始化 setup 抛错或收到取消时，已经登记的资源会自动回滚；回滚成功时保留原始初始化错误。
+
+`context.signal` 覆盖整个生命周期：初始化失败或调用 `dispose()` 时会先取消该 signal，让后台任务停止接收新工作，再开始资源清理。`dispose()` 可以重复或并发调用，清理栈只执行一次；初始化期间调用它会等待 setup 退出并完成回滚。单个清理失败不会阻止其他清理，所有失败最终通过 `INTERNAL` 错误和 `AggregateError` 一并报告。
+
+清理回调不会接收已经取消的 lifecycle signal，也没有固定超时时间，避免关键资源释放到一半被统一截止时间打断。清理逻辑不应复用 `context.signal`；确实需要截止时间时，应在自己的回调中显式组合 `withTimeout()`。清理回调不得反向等待同一个 Lifecycle 的 `dispose()`，否则会形成自等待。
 
 ## 环境要求
 

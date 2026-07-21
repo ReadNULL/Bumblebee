@@ -28,6 +28,10 @@
     "src/foundation/logging/structured-logger.ts",
     "src/foundation/logging/trace-context.ts",
     "src/foundation/logging/types.ts",
+    "src/foundation/lifecycle/cleanup-stack.ts",
+    "src/foundation/lifecycle/index.ts",
+    "src/foundation/lifecycle/lifecycle.ts",
+    "src/foundation/lifecycle/types.ts",
     "README.md",
     "LICENSE"
   ],
