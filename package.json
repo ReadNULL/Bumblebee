@@ -11,6 +11,8 @@
   ],
   "files": [
     "src/extension.ts",
+    "src/foundation/errors/bumblebee-error.ts",
+    "src/foundation/errors/index.ts",
     "README.md",
     "LICENSE"
   ],

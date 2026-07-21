@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import bumblebeeExtension from "./extension.js";
+import bumblebeeExtension from "../src/extension.js";
 
 describe("bumblebeeExtension", () => {
   it("loads without registering behavior", () => {
