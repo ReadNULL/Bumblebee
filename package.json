@@ -13,6 +13,11 @@
     "src/extension.ts",
     "src/foundation/errors/bumblebee-error.ts",
     "src/foundation/errors/index.ts",
+    "src/foundation/logging/index.ts",
+    "src/foundation/logging/sanitizer.ts",
+    "src/foundation/logging/structured-logger.ts",
+    "src/foundation/logging/trace-context.ts",
+    "src/foundation/logging/types.ts",
     "README.md",
     "LICENSE"
   ],
