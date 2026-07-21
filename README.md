@@ -24,7 +24,8 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - 严格的 TypeScript 配置；
 - 独立且按功能分类的测试目录；
 - 统一错误模型与错误边界归一化；
-- 结构化日志、安全序列化、敏感信息脱敏和异步 trace 上下文。
+- 结构化日志、安全序列化、敏感信息脱敏和异步 trace 上下文；
+- 基于 AbortSignal 的取消、超时与可中断等待。
 
 目前没有注册命令、工具或事件处理器，也没有 Agent、记忆、知识、工作流、渠道等运行时功能。
 
@@ -34,6 +35,12 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 src/
 ├── extension.ts
 └── foundation/
+    ├── cancellation/
+    │   ├── abort.ts
+    │   ├── duration.ts
+    │   ├── index.ts
+    │   ├── sleep.ts
+    │   └── with-timeout.ts
     ├── errors/
     │   ├── bumblebee-error.ts
     │   └── index.ts
@@ -46,6 +53,10 @@ src/
 test/
 ├── extension.spec.ts
 └── foundation/
+    ├── cancellation/
+    │   ├── abort.spec.ts
+    │   ├── sleep.spec.ts
+    │   └── with-timeout.spec.ts
     ├── errors/
     │   └── bumblebee-error.spec.ts
     └── logging/
@@ -113,6 +124,32 @@ await traceContext.run(async () => {
 固定日志字段包括 `timestamp`、`level`、`message`、`scope`、`traceId`、`fields` 和 `error`。`TraceContext` 使用 `AsyncLocalStorage` 跨 `await` 传播 traceId，并隔离并发任务。
 
 日志参数会经过有界序列化，循环引用、异常 getter、BigInt 和错误 cause 不会破坏 JSON 输出。默认规则会脱敏常见令牌、密码、Cookie、Authorization 和私钥字段，也可配置额外敏感键。脱敏属于防御措施，调用方仍不应主动把完整凭证写入日志。
+
+## 取消与超时
+
+所有耗时操作都由调用场景显式提供超时时间，不使用统一的固定值：
+
+```typescript
+import {
+  abortableSleep,
+  withTimeout,
+} from "./src/foundation/cancellation/index.js";
+
+const response = await withTimeout(
+  (signal) => callModel({ prompt, signal }),
+  {
+    operationName: "model request",
+    signal: parentSignal,
+    timeoutMs: modelTimeoutMs,
+  },
+);
+
+await abortableSleep(backoffMs, parentSignal);
+```
+
+`withTimeout()` 会创建子 signal，并把父级取消向下传播。截止时间到达时抛出 `TIMEOUT`，父级或用户主动取消时抛出 `CANCELLED`，任务自身的异常保持原样。等待结束后会清理 timer 和事件监听器。
+
+AbortSignal 是协作式取消：底层 SDK 必须接收并响应 signal 才能真正停止工作。如果任务忽略 signal，`withTimeout()` 只能让调用方停止等待，无法撤销已经发生的副作用；同步 CPU 阻塞也无法被 timer 强制中断。
 
 ## 环境要求
 

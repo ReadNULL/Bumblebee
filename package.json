@@ -11,6 +11,11 @@
   ],
   "files": [
     "src/extension.ts",
+    "src/foundation/cancellation/abort.ts",
+    "src/foundation/cancellation/duration.ts",
+    "src/foundation/cancellation/index.ts",
+    "src/foundation/cancellation/sleep.ts",
+    "src/foundation/cancellation/with-timeout.ts",
     "src/foundation/errors/bumblebee-error.ts",
     "src/foundation/errors/index.ts",
     "src/foundation/logging/index.ts",
