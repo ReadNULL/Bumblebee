@@ -4,9 +4,14 @@ const HELP_GROUPS: Array<{ name: string; commands: Array<{ cmd: string; desc: st
   {
     name: 'Bumblebee 角色',
     commands: [
-      { cmd: '/roles', desc: '列出所有可用角色' },
-      { cmd: '/switch <id>', desc: '切换角色' },
-      { cmd: '/role', desc: '显示当前角色详情' },
+      { cmd: '/roles', desc: '角色管理' },
+      { cmd: '/roles create', desc: '创建新角色' },
+      { cmd: '/roles switch <id>', desc: '切换角色' },
+      { cmd: '/roles show [id]', desc: '显示角色详情' },
+      { cmd: '/roles delete <id>', desc: '删除角色' },
+      { cmd: '/roles dir', desc: '显示角色存储目录' },
+      { cmd: '/switch <id>', desc: '切换角色（兼容快捷入口）' },
+      { cmd: '/role', desc: '显示当前角色详情（兼容快捷入口）' },
       { cmd: '/personality', desc: '显示人格状态' },
     ],
   },

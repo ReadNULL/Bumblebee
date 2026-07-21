@@ -145,6 +145,8 @@ bumblebee
 /perf
 /dashboard
 /roles
+/roles create
+/roles switch <id>
 /switch
 /agents
 /workflows
@@ -154,7 +156,18 @@ bumblebee
 
 会话历史由 pi 框架管理。恢复历史会话请使用 `/resume`，不要找 `/history`。
 
-## 8. 运行 Agent 团队
+## 8. 创建或切换角色
+
+```text
+/roles create
+/roles switch security-auditor
+/roles show
+/roles dir
+```
+
+`/roles create` 会把角色保存到 `~/.bumblebee/roles/<role-id>.json`。README 中提到的 8 种专业 Agent 模板用于 `/agents run` 团队编排，不会自动写入角色库；如果需要长期切换，请创建为自定义角色。
+
+## 9. 运行 Agent 团队
 
 ```text
 /agents run code-review 请检查当前项目的安全风险
@@ -170,7 +183,7 @@ bumblebee
 | `quality` | 质量检查 |
 | `full` | 综合团队 |
 
-## 9. 运行工作流
+## 10. 运行工作流
 
 ```text
 /workflows run pr-review
@@ -189,7 +202,7 @@ bumblebee
 
 `pr-review`、`issue-triage` 和 `code-quality` 是 Agent 分析模板。`release` 中的 `test`、`build`、`publish` 需要使用库 API 的 `registerAction()` 接入真实执行器；未配置时会明确失败。当前仓库没有内置 webhook/cron 服务，工作流通过命令、API 或 Agent 工具手动触发。
 
-## 10. 连接 IM 渠道
+## 11. 连接 IM 渠道
 
 进入 TUI 后：
 

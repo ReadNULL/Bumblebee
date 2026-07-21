@@ -9,9 +9,9 @@ export interface TuiToolCatalogItem {
 }
 
 export const BUMBLEBEE_COMMANDS: TuiCommandCatalogItem[] = [
-  { name: 'roles', description: '列出所有可用角色' },
-  { name: 'switch', description: '切换角色' },
-  { name: 'role', description: '显示当前角色详情' },
+  { name: 'roles', description: '角色管理（列表、创建、切换、查看、删除）' },
+  { name: 'switch', description: '切换角色（兼容快捷入口）' },
+  { name: 'role', description: '显示当前角色详情（兼容快捷入口）' },
   { name: 'personality', description: '显示人格状态' },
   { name: 'memory', description: '记忆管理' },
   { name: 'knowledge', description: '知识图谱管理' },

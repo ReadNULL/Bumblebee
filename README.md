@@ -82,7 +82,7 @@ graph TB
 
 ### 角色系统
 
-Bumblebee 不是一个固定人格的 Agent。它支持**用户自定义角色**，每个角色拥有独立的专业领域、沟通风格、系统提示词和能力声明。
+Bumblebee 不是一个固定人格的 Agent。它支持**用户自定义角色**，每个角色拥有独立的专业领域、沟通风格、系统提示词和能力声明。用户可以在 TUI 中使用 `/roles create` 创建角色，或通过 Library API 创建：
 
 ```typescript
 await agent.createRole({
@@ -109,7 +109,9 @@ await agent.createRole({
 agent.switchRole('security-auditor')
 ```
 
-内置 8 种专业 Agent 模板：`code-reviewer` / `test-writer` / `doc-generator` / `debugger` / `architect` / `refactorer` / `security-auditor` / `optimizer`
+角色会保存到 `~/.bumblebee/roles/<role-id>.json`，可通过 `/roles` 查看、`/roles switch <id>` 切换、`/roles show [id]` 查看详情、`/roles delete <id>` 删除。
+
+内置 8 种专业 Agent 模板：`code-reviewer` / `test-writer` / `doc-generator` / `debugger` / `architect` / `refactorer` / `security-auditor` / `optimizer`。这些模板用于多 Agent 团队编排，不会自动写入用户角色库；需要直接切换的长期角色请使用 `/roles create` 创建。
 
 ### 记忆系统
 
@@ -205,9 +207,14 @@ Bumblebee 通过 [pi-coding-agent](https://github.com/earendil-works/pi-coding-a
 | `/help <命令>` | 显示命令用法 |
 | `/status` | 系统健康状态概览 |
 | `/perf` | Agent 任务成功率和响应时间 p50/p99 |
-| `/roles` | 列出所有可用角色 |
-| `/switch <id>` | 切换角色（支持 Tab 补全，无参数弹出选择窗口） |
-| `/role` | 显示当前角色详情 |
+| `/roles` | 角色管理（无参数弹出选择窗口） |
+| `/roles create` | 创建新角色并保存到角色库 |
+| `/roles switch <id>` | 切换角色 |
+| `/roles show [id]` | 显示角色详情 |
+| `/roles delete <id>` | 删除非当前、非内置默认角色 |
+| `/roles dir` | 显示角色存储目录 |
+| `/switch <id>` | 切换角色（兼容快捷入口，支持 Tab 补全，无参数弹出选择窗口） |
+| `/role` | 显示当前角色详情（兼容快捷入口） |
 | `/personality` | 显示人格状态 |
 | `/memory` | 记忆管理（无参数弹出选择窗口） |
 | `/knowledge` | 知识图谱统计 |
