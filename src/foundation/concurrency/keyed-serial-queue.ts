@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import {
   getAbortError,
   throwIfAborted,
@@ -55,7 +57,8 @@ export class KeyedSerialQueue<Key> {
 
     const result = new Promise<T>((resolve, reject) => {
       const task: QueuedTask = {
-        operation,
+        // 后续任务由前一任务唤醒，必须保留 enqueue 调用者的异步上下文。
+        operation: AsyncLocalStorage.bind(operation),
         reject,
         removeAbortListener: () => {},
         resolve: (value) => resolve(value as T),

@@ -67,4 +67,19 @@ describe("TraceContext", () => {
     expect(caught).toBeInstanceOf(BumblebeeError);
     expect((caught as BumblebeeError).code).toBe(ERROR_CODES.INVALID_INPUT);
   });
+
+  it("disposes AsyncLocalStorage idempotently and rejects reuse", () => {
+    const context = new TraceContext();
+
+    context.run(() => {
+      expect(context.getTraceId()).toBe("trace-before-dispose");
+      context.dispose();
+      expect(context.getTraceId()).toBeUndefined();
+    }, "trace-before-dispose");
+    context.dispose();
+
+    expect(() => context.run(() => undefined)).toThrowError(
+      expect.objectContaining({ code: ERROR_CODES.CONFLICT }),
+    );
+  });
 });

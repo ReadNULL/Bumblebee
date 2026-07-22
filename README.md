@@ -17,7 +17,7 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 
 ## 当前范围
 
-当前分支包含最小项目骨架和前 5 个基础积木：
+当前分支已完成最小项目骨架和 6 轮基础层建设：
 
 - pi 包清单；
 - 空的 TypeScript 扩展入口；
@@ -27,7 +27,8 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - 结构化日志、安全序列化、敏感信息脱敏和异步 trace 上下文；
 - 基于 AbortSignal 的取消、超时与可中断等待；
 - 公平并发限制与按会话键串行执行；
-- 初始化失败回滚、逆序资源清理与幂等释放。
+- 初始化失败回滚、逆序资源清理与幂等释放；
+- 统一基础层出口、依赖方向约束与跨积木故障注入测试。
 
 目前没有注册命令、工具或事件处理器，也没有 Agent、记忆、知识、工作流、渠道等运行时功能。
 
@@ -37,6 +38,7 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 src/
 ├── extension.ts
 └── foundation/
+    ├── index.ts
     ├── cancellation/
     │   ├── abort.ts
     │   ├── duration.ts
@@ -66,6 +68,8 @@ src/
 test/
 ├── extension.spec.ts
 └── foundation/
+    ├── architecture/
+    │   └── dependency-direction.spec.ts
     ├── cancellation/
     │   ├── abort.spec.ts
     │   ├── sleep.spec.ts
@@ -75,6 +79,8 @@ test/
     │   └── semaphore.spec.ts
     ├── errors/
     │   └── bumblebee-error.spec.ts
+    ├── integration/
+    │   └── foundation-integration.spec.ts
     ├── lifecycle/
     │   └── lifecycle.spec.ts
     └── logging/
@@ -141,7 +147,9 @@ await traceContext.run(async () => {
 
 固定日志字段包括 `timestamp`、`level`、`message`、`scope`、`traceId`、`fields` 和 `error`。`TraceContext` 使用 `AsyncLocalStorage` 跨 `await` 传播 traceId，并隔离并发任务。
 
-日志参数会经过有界序列化，循环引用、异常 getter、BigInt 和错误 cause 不会破坏 JSON 输出。默认规则会脱敏常见令牌、密码、Cookie、Authorization 和私钥字段，也可配置额外敏感键。脱敏属于防御措施，调用方仍不应主动把完整凭证写入日志。
+每个 Bumblebee 实例持有自己的 `TraceContext`。实例生命周期结束时应调用 `traceContext.dispose()`，释放 `AsyncLocalStorage` 关联的上下文；释放后再次调用 `run()` 会返回 `CONFLICT`。
+
+日志参数会经过有界序列化，循环引用、异常 getter、BigInt、错误 cause 和 `AggregateError.errors` 不会破坏 JSON 输出。默认规则会脱敏常见令牌、密码、Cookie、Authorization 和私钥字段，也可配置额外敏感键。脱敏属于防御措施，调用方仍不应主动把完整凭证写入日志。
 
 ## 取消与超时
 
@@ -221,6 +229,47 @@ await lifecycle.dispose();
 `context.signal` 覆盖整个生命周期：初始化失败或调用 `dispose()` 时会先取消该 signal，让后台任务停止接收新工作，再开始资源清理。`dispose()` 可以重复或并发调用，清理栈只执行一次；初始化期间调用它会等待 setup 退出并完成回滚。单个清理失败不会阻止其他清理，所有失败最终通过 `INTERNAL` 错误和 `AggregateError` 一并报告。
 
 清理回调不会接收已经取消的 lifecycle signal，也没有固定超时时间，避免关键资源释放到一半被统一截止时间打断。清理逻辑不应复用 `context.signal`；确实需要截止时间时，应在自己的回调中显式组合 `withTimeout()`。清理回调不得反向等待同一个 Lifecycle 的 `dispose()`，否则会形成自等待。
+
+## 基础层总复盘
+
+未来业务层统一从 `src/foundation/index.ts` 导入基础能力。基础模块内部仍通过各功能目录的 `index.ts` 跨模块访问，禁止依赖 pi、第三方包或未来的 Agent、渠道和插件代码。
+
+```mermaid
+flowchart BT
+  Logging["logging"] --> Errors["errors"]
+  Cancellation["cancellation"] --> Errors
+  Concurrency["concurrency"] --> Cancellation
+  Concurrency --> Errors
+  Lifecycle["lifecycle"] --> Cancellation
+  Lifecycle --> Errors
+  Facade["foundation/index.ts"] --> Logging
+  Facade --> Cancellation
+  Facade --> Concurrency
+  Facade --> Lifecycle
+  Facade --> Errors
+```
+
+`test/foundation/architecture` 会解析 TypeScript import/export，阻止反向依赖、跨功能目录绕过公共出口，以及基础层引入第三方或业务模块；同时确保每个运行时源码都进入 npm 发布清单，`test/` 不会被发布。
+
+一条请求进入未来业务层后的标准组合顺序是：
+
+```mermaid
+flowchart LR
+  Request["请求"] --> Trace["TraceContext"]
+  Trace --> Timeout["withTimeout"]
+  Timeout --> Session["KeyedSerialQueue"]
+  Session --> Limit["Semaphore"]
+  Limit --> Operation["模型或工具调用"]
+  Operation --> Error["BumblebeeError"]
+  Error --> Log["StructuredLogger + 脱敏"]
+  Shutdown["dispose"] --> LifecycleSignal["Lifecycle signal"]
+  LifecycleSignal --> Timeout
+  LifecycleSignal --> Cleanup["LIFO cleanup"]
+```
+
+队列在 `enqueue()` 时捕获提交者的 AsyncLocalStorage 上下文，因此同一会话中后一任务由前一任务唤醒时，仍保留自己的 traceId。集成测试还会注入初始化超时，验证 `TIMEOUT` 原样进入回滚和结构化日志，而不是被误写为普通内部错误。
+
+当前基础层有明确边界：取消是协作式的，无法中断同步 CPU 阻塞；并发控制仅在当前 Node.js 进程内生效，等待队列暂未设置容量上限；日志 sink 是同步注入边界，生产实现不应抛错或执行长时间阻塞 I/O；Lifecycle 是一次性状态机，不负责重试、健康检查或依赖注入。这些策略应由后续真实业务需求驱动，而不是提前加入基础层。
 
 ## 环境要求
 

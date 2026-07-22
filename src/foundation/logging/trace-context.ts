@@ -17,13 +17,30 @@ interface TraceState {
  * AsyncLocalStorage 负责跨 await 传播，并隔离并发异步调用链。
  */
 export class TraceContext {
+  private disposed = false;
   private readonly storage = new AsyncLocalStorage<TraceState>();
+
+  /** 释放 AsyncLocalStorage 关联的异步上下文；重复调用不会产生副作用。 */
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+
+    this.disposed = true;
+    this.storage.disable();
+  }
 
   getTraceId(): string | undefined {
     return this.storage.getStore()?.traceId;
   }
 
   run<T>(callback: () => T, traceId: string = randomUUID()): T {
+    if (this.disposed) {
+      throw new BumblebeeError("TraceContext has been disposed", {
+        code: ERROR_CODES.CONFLICT,
+      });
+    }
+
     const normalizedTraceId = traceId.trim();
 
     if (

@@ -8,6 +8,7 @@ import {
   withTimeout,
 } from "../../../src/foundation/cancellation/index.js";
 import { ERROR_CODES } from "../../../src/foundation/errors/index.js";
+import { TraceContext } from "../../../src/foundation/logging/index.js";
 
 function createGate(): {
   readonly promise: Promise<void>;
@@ -70,6 +71,33 @@ describe("KeyedSerialQueue", () => {
     secondGate.open();
     await Promise.all([first, second]);
     expect(queue.activeKeyCount).toBe(0);
+  });
+
+  it("preserves each queued task's asynchronous context", async () => {
+    const queue = new KeyedSerialQueue<string>();
+    const traceContext = new TraceContext();
+    const gate = createGate();
+    const observedTraceIds: Array<string | undefined> = [];
+    const first = traceContext.run(
+      () => queue.enqueue("session-a", async () => {
+        observedTraceIds.push(traceContext.getTraceId());
+        await gate.promise;
+      }),
+      "trace-first",
+    );
+    const second = traceContext.run(
+      () => queue.enqueue("session-a", () => {
+        observedTraceIds.push(traceContext.getTraceId());
+      }),
+      "trace-second",
+    );
+
+    await Promise.resolve();
+    gate.open();
+    await Promise.all([first, second]);
+
+    expect(observedTraceIds).toEqual(["trace-first", "trace-second"]);
+    traceContext.dispose();
   });
 
   it("continues with the next task after a failure", async () => {

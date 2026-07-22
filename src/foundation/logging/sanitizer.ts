@@ -163,6 +163,10 @@ function sanitizeError(
     output.stack = sanitizeString(error.stack, state.options.maxStringLength);
   }
 
+  if (error instanceof AggregateError) {
+    output.errors = sanitizeValue(error.errors, depth + 1, state);
+  }
+
   if (error instanceof BumblebeeError) {
     output.code = error.code;
     output.retryable = error.retryable;

@@ -11,6 +11,7 @@
   ],
   "files": [
     "src/extension.ts",
+    "src/foundation/index.ts",
     "src/foundation/cancellation/abort.ts",
     "src/foundation/cancellation/duration.ts",
     "src/foundation/cancellation/index.ts",

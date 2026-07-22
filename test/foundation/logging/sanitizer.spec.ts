@@ -68,6 +68,33 @@ describe("sanitizeForLogging", () => {
     expect(() => JSON.stringify(value)).not.toThrow();
   });
 
+  it("preserves and sanitizes AggregateError members", () => {
+    const error = new AggregateError(
+      [
+        new Error("disconnect used Bearer cleanup-secret"),
+        { token: "nested-secret", resource: "channel" },
+      ],
+      "cleanup failed",
+    );
+
+    const value = sanitizeForLogging(error);
+
+    expect(value).toMatchObject({
+      name: "AggregateError",
+      message: "cleanup failed",
+      errors: [
+        {
+          name: "Error",
+          message: "disconnect used Bearer [REDACTED]",
+        },
+        {
+          token: REDACTED_VALUE,
+          resource: "channel",
+        },
+      ],
+    });
+  });
+
   it("handles cycles, unsupported primitives, and throwing getters", () => {
     const circular: Record<string, unknown> = {
       bigint: 12n,
