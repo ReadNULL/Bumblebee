@@ -1204,10 +1204,14 @@ benchmark/
 │   ├── agentdojo/
 │   └── longmemeval/
 ├── scoring/
-└── reports/
+├── history/
+│   ├── runs.jsonl
+│   └── lessons/
+├── reports/
+└── artifacts/
 ```
 
-`bumblebee-eval-host.ts` 负责用无头 Pi Session 驱动同一套 Bumblebee 扩展组合；各 Python benchmark 只通过稳定的 JSON Lines 协议提交任务和读取结果。评分器统一输出版本化 JSON 和 Markdown 报告。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖保留在独立评估环境中，不加入生产安装路径。
+`bumblebee-eval-host.ts` 负责用无头 Pi Session 驱动同一套 Bumblebee 扩展组合；各 Python benchmark 只通过稳定的 JSON Lines 协议提交任务和读取结果。评分器统一输出版本化 JSON 和 Markdown 报告。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖保留在独立评估环境中，不加入生产安装路径。`artifacts/` 保存本地原始轨迹并加入 `.gitignore`；去除敏感信息后的运行索引、摘要和经验记录保存在 `history/`，随代码提交。
 
 计划提供三个入口：
 
@@ -1216,6 +1220,73 @@ npm run benchmark:smoke  # 小型固定样例和少量外部任务
 npm run benchmark:full   # 完整 P0/P1 评估
 npm run benchmark:score  # 只对已有原始结果重新评分
 ```
+
+### 结果留存与改进闭环
+
+每次测试都必须生成记录，无论结果是成功、失败、取消还是评估基础设施无效。历史记录采用追加写入，不覆盖、不删除旧结果；修复后的新结果通过 `parentRunId` 指向触发修改的旧运行。
+
+每个 run 使用不可重复的 `runId`，并至少保存：
+
+| 数据 | 内容 |
+| --- | --- |
+| 身份信息 | Bumblebee commit、工作区是否干净、pi/Node.js/操作系统版本 |
+| 评估配置 | score spec、suite 版本、任务 ID、数据哈希、模型和 thinking level |
+| 执行边界 | 时间、token、成本、并发、权限和重复次数预算 |
+| 任务结果 | `passed/failed/cancelled/invalid`、reward、耗时、token、成本 |
+| Agent 轨迹 | 工具名、参数摘要、授权决定、重试、取消和最终输出 |
+| 验证证据 | verifier 输出、硬门槛违规、失败分类和产物校验和 |
+| 经验关联 | lesson ID、修复 commit、复验 runId 和最终采纳状态 |
+
+原始模型输出和工具轨迹可能很大，也可能包含外部测试集内容，因此不直接提交 Git。评估工程提交以下小型、可审计记录：
+
+```text
+benchmark/history/runs.jsonl
+benchmark/history/lessons/<lesson-id>.md
+benchmark/reports/<run-id>-summary.json
+benchmark/reports/<run-id>-summary.md
+```
+
+完整 artifacts 保存在本地受限目录或 CI artifact/object storage 中，摘要记录其 SHA-256 和位置。写入历史前再次经过脱敏器，不保存 API Key、平台密钥、真实用户消息或未经许可的仓库内容。
+
+失败必须分类，不能把所有失败都归因给模型：
+
+| 分类 | 示例 | 是否计入 Agent 分数 |
+| --- | --- | --- |
+| `bumblebee` | 权限误判、取消未传播、会话串扰、记忆旧值残留 | 是 |
+| `model` | 未调用必要工具、推理或代码修改错误 | 是 |
+| `adapter` | JSONL 转换错误、工具 schema 映射错误 | 否，本轮任务无效 |
+| `infrastructure` | Docker、网络、API 限流、磁盘故障 | 否，本轮任务无效 |
+| `dataset` | 任务不可执行、verifier 或参考答案错误 | 否，隔离并记录证据 |
+| `expected-policy` | 危险任务被权限系统按设计阻止 | 按安全成功计分 |
+
+成功任务同样需要分析：记录是否依赖偶然重试、是否产生不必要工具调用、权限交互是否过多、成本是否异常，以及该成功策略能否在相邻任务复现。只看失败会遗漏“结果正确但过程脆弱”的问题。
+
+```mermaid
+flowchart LR
+  Run["运行 benchmark"] --> Evidence["保存不可变证据"]
+  Evidence --> Triage["分类成功、失败和无效任务"]
+  Triage --> Lesson["形成 lesson 与可证伪假设"]
+  Lesson --> Change["最小修改或重构"]
+  Change --> Dev["开发集聚焦回归"]
+  Dev --> Holdout["保留集复验"]
+  Holdout --> Decision{"指标与门槛改善？"}
+  Decision -->|是| Promote["采纳并关联 commit"]
+  Decision -->|否| Reject["回退方案并保留结论"]
+  Promote --> Run
+  Reject --> Run
+```
+
+每条 lesson 至少包含“证据、根因假设、拟修改边界、预期影响指标、负面影响、开发集结果、保留集结果和结论”。没有对应失败证据的重构不能以“提高 benchmark”为理由合入。
+
+为避免针对公开题目反复调参造成过拟合：
+
+- 每套模型相关 benchmark 划分 `dev`、`holdout` 和最终 `release` 子集；
+- 日常修改只查看 dev 任务的详细轨迹，holdout 只返回聚合指标；
+- release 集只在版本候选阶段运行，不用于逐次调试；
+- 修复一个失败样例时增加相邻正例、负例和变形任务，验证规则没有过度拟合；
+- 上游 verifier、官方任务和 BCS-v1 权重保持只读，发现问题时隔离任务而不是修改答案；
+- 只有硬门槛继续通过、目标指标改善且其他分项没有显著回退时才采纳修改；
+- “不错的成绩”在第一次完整 baseline 后按置信区间和实际分布确定，不能事后移动标准。
 
 ### 当前成果
 
