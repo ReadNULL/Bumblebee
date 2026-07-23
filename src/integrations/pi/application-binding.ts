@@ -24,6 +24,9 @@ import {
   type LifecycleInitializeOptions,
 } from "../../foundation/index.js";
 import type {
+  ManagedMemory,
+} from "../../memory/index.js";
+import type {
   TaskExecutionRequest,
   TaskOperation,
 } from "../../runtime/index.js";
@@ -81,6 +84,7 @@ export interface PiExtensionApplicationOptions {
   readonly feishuGatewayFactory?: FeishuGatewayFactory;
   readonly feishuLogger?: FeishuDiagnosticLogger;
   readonly feishuStartupTimeoutMs?: number;
+  readonly memory?: ManagedMemory;
 }
 
 /**
@@ -96,6 +100,7 @@ export class PiExtensionApplication {
   private readonly getThinkingLevel:
     () => ReturnType<ExtensionAPI["getThinkingLevel"]>;
   private readonly lifecycle = new Lifecycle();
+  private readonly memory: ManagedMemory | undefined;
   private readonly runtime: PiApplicationRuntime;
 
   constructor(
@@ -113,6 +118,7 @@ export class PiExtensionApplication {
     this.feishuLogger = options.feishuLogger ?? SILENT_FEISHU_LOGGER;
     this.feishuStartupTimeoutMs = options.feishuStartupTimeoutMs;
     this.getThinkingLevel = () => pi.getThinkingLevel();
+    this.memory = options.memory;
     this.runtime = runtime;
   }
 
@@ -123,6 +129,11 @@ export class PiExtensionApplication {
       await this.runtime.initialize({ signal });
       defer("bumblebee-runtime", () => this.runtime.dispose());
 
+      if (this.memory !== undefined) {
+        defer("lightweight-memory", () => this.memory?.dispose());
+        await this.memory.initialize({ cwd: context.cwd, signal });
+      }
+
       const feishuConfig = loadFeishuConfig(this.environment);
       if (feishuConfig === undefined) {
         return;
@@ -132,6 +143,9 @@ export class PiExtensionApplication {
         cwd: context.cwd,
         getModel: () => this.currentModel,
         getThinkingLevel: this.getThinkingLevel,
+        ...(this.memory === undefined
+          ? {}
+          : { memoryContextProvider: this.memory }),
         modelRegistry: context.modelRegistry,
       });
       defer("pi-conversation-bridge", () => bridge.dispose());

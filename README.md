@@ -41,9 +41,15 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 | 11 | Pi Conversation Bridge | 把渠道会话映射为隔离、可恢复且可取消的 Pi AgentSession |
 | 12 | FeishuAdapter | 通过飞书官方 SDK 接收可信用户消息，并接入统一渠道处理链路 |
 
+### 记忆层
+
+| 轮次 | 积木 | 解决的问题 |
+| --- | --- | --- |
+| 13 | Lightweight Memory | 用有界 JSON、稳定键更新和轻量词法检索保存明确的长期偏好与项目约定，并在每轮按需注入 |
+
 ## 当前范围
 
-当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent、第 10 轮 Channel Core、第 11 轮 Pi Conversation Bridge 和第 12 轮 FeishuAdapter：
+当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent、第 10 至 12 轮渠道链路，以及第 13 轮 Lightweight Memory：
 
 - pi 包清单；
 - 最小 TypeScript 扩展入口；
@@ -61,9 +67,10 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - 单任务、只读、内存隔离的 Sub-Agent，以及 `delegate_task` Pi 工具适配器；
 - 平台无关的渠道消息、回复、对话端口和适配器契约，以及有界去重、运行时调度和生命周期管理；
 - 按渠道会话隔离的持久 Pi 会话、稳定哈希目录、有界 LRU、模型设置同步、取消传播和当前轮回复提取；
-- 基于飞书官方 SDK 的长连接接入、文本事件转换、发送者白名单、幂等回复和统一启动/关闭。
+- 基于飞书官方 SDK 的长连接接入、文本事件转换、发送者白名单、幂等回复和统一启动/关闭；
+- 全局/项目两级持久记忆、稳定键去重更新、中文/英文 BM25 风格检索、敏感信息拦截、原子 JSON 写入和每轮有界上下文注入。
 
-目前注册了 `session_start`、`session_shutdown`、`session_tree`、`model_select` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流或 Dashboard。飞书渠道只有在显式设置 `BUMBLEBEE_FEISHU_ENABLED=true` 后才会创建后台连接，默认安装不会读取飞书凭据或访问网络。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
+目前注册了 `session_start`、`session_shutdown`、`session_tree`、`model_select`、`before_agent_start` 和 `tool_call` 事件，以及 `delegate_task`、`bumblebee_memory` 两个自定义工具；没有注册自定义斜杠命令，也没有角色、团队、知识图谱、工作流或 Dashboard。飞书渠道只有在显式设置 `BUMBLEBEE_FEISHU_ENABLED=true` 后才会创建后台连接，默认安装不会读取飞书凭据或访问网络。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
 
 ## 目录约定
 
@@ -97,11 +104,24 @@ src/
 │       ├── application-binding.ts
 │       ├── index.ts
 │       ├── lifecycle-binding.ts
+│       ├── memory-binding.ts
+│       ├── memory-context-extension.ts
 │       ├── permission-binding.ts
 │       ├── pi-conversation-bridge.ts
 │       ├── pi-subagent-executor.ts
 │       ├── read-only-workspace-guard.ts
 │       └── subagent-binding.ts
+├── memory/
+│   ├── index.ts
+│   └── core/
+│       ├── context-builder.ts
+│       ├── index.ts
+│       ├── json-memory-repository.ts
+│       ├── lexical-search.ts
+│       ├── lightweight-memory.ts
+│       ├── normalization.ts
+│       ├── secret-scanner.ts
+│       └── types.ts
 ├── runtime/
 │   ├── bumblebee-runtime.ts
 │   ├── index.ts
@@ -171,10 +191,19 @@ test/
 │   └── pi/
 │       ├── application-binding.spec.ts
 │       ├── lifecycle-binding.spec.ts
+│       ├── memory-binding.spec.ts
 │       ├── permission-binding.spec.ts
 │       ├── pi-conversation-bridge.spec.ts
 │       ├── pi-subagent-executor.spec.ts
 │       └── subagent-binding.spec.ts
+├── memory/
+│   ├── architecture.spec.ts
+│   └── core/
+│       ├── context-builder.spec.ts
+│       ├── json-memory-repository.spec.ts
+│       ├── lexical-search.spec.ts
+│       ├── lightweight-memory.spec.ts
+│       └── secret-scanner.spec.ts
 ├── runtime/
 │   ├── architecture.spec.ts
 │   ├── bumblebee-runtime.spec.ts
@@ -886,11 +915,162 @@ Agent 失败时只会回复错误模型允许暴露的 `userMessage`，不会把
 - 官方回复 API 没有暴露 `AbortSignal` 参数，当前在请求前后检查取消，并用稳定 UUID 抑制重复回复；
 - 没有使用真实飞书凭据执行 CI 集成测试；SDK 边界通过模块替身验证，实际应用权限与企业配置仍需按上述步骤人工验收。
 
+## Lightweight Memory
+
+Lightweight Memory 用于保存用户明确要求长期记住的偏好、已经确认的事实和当前项目约定。它借鉴了社区扩展 [pi-hermes-memory](https://pi.dev/packages/pi-hermes-memory) 的全局/项目分层与上下文安全边界，以及 [pi-memory](https://pi.dev/packages/pi-memory) 的显式记忆工具思路，但没有引入向量数据库、SQLite、会话全文索引或后台 LLM 提取任务。
+
+本模块只解决一个清晰问题：让少量、稳定、可复用的信息跨会话保留，并在相关对话中自动回到模型上下文。它不是知识库、聊天记录备份或用户画像推断系统。
+
+### 什么时候触发
+
+记忆读取和记忆写入是两条独立链路：
+
+1. `session_start` 时加载一份全局 JSON 和当前工作区对应的一份项目 JSON；
+2. 每轮 `before_agent_start` 根据当前用户提示检索相关记录，将有限内容追加到本轮 `systemPrompt`；
+3. 只有用户明确表达“请记住”、确认长期偏好或纠正旧信息时，模型才应调用 `bumblebee_memory`；
+4. 直接工具调用先经过 PermissionSystem，用户拒绝时不会写入或删除任何记录；
+5. `session_shutdown` 先阻止新操作，等待在途写入结束，再释放记忆和运行时。
+
+```mermaid
+sequenceDiagram
+  participant User as 用户
+  participant Pi as pi
+  participant Memory as LightweightMemory
+  participant Search as 词法检索
+  participant Model as 模型
+  participant Permission as PermissionSystem
+  participant Store as JSON Repository
+
+  Pi->>Memory: session_start(cwd)
+  Memory->>Store: 加载 global.json 与项目文件
+  User->>Pi: 当前轮提示
+  Pi->>Memory: before_agent_start(prompt)
+  Memory->>Search: 选择置顶记录与相关记录
+  Search-->>Memory: 有界结果
+  Memory-->>Pi: 追加只读历史上下文
+  Pi->>Model: systemPrompt + 当前提示
+  opt 用户明确要求长期记住或删除
+    Model->>Pi: bumblebee_memory
+    Pi->>Permission: tool_call 授权检查
+    alt 用户允许
+      Permission->>Memory: upsert 或 remove
+      Memory->>Store: 临时文件 + fsync + rename
+      Store-->>Memory: 持久化成功
+      Memory-->>Model: 记录 ID、状态与 revision
+    else 用户拒绝
+      Permission-->>Model: 阻止工具调用
+    end
+  end
+```
+
+记忆上下文不是普通聊天消息，不会追加到 Pi 会话历史。`/resume` 恢复会话或 Pi 压缩历史后，下一轮仍会从持久化文件重新检索并注入，因此关键偏好不依赖旧消息是否还留在上下文窗口中。
+
+### 记录模型与去重更新
+
+每条记录包含以下字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `scope` | `global` 跨项目共享；`project` 只属于当前规范化工作区 |
+| `category` | `preference`、`fact`、`decision`、`convention` 或 `lesson` |
+| `key` | 稳定业务键，例如 `package-manager`，也是去重和更新入口 |
+| `content` | 已确认的实际内容，最多 2000 个字符 |
+| `keywords` | 最多 12 个辅助检索词 |
+| `pinned` | 是否在每轮优先注入 |
+| `id` | 由 `scope + 规范化 key` 生成的稳定 ID |
+| `revision` | 内容变化时递增，便于确认记录是否被更新 |
+| `createdAt/updatedAt` | 创建和最近更新时间 |
+
+```json
+{
+  "category": "decision",
+  "content": "当前项目统一使用 pnpm。",
+  "id": "mem_0123456789abcdef01234567",
+  "key": "package-manager",
+  "keywords": ["依赖", "包管理器"],
+  "pinned": true,
+  "revision": 2,
+  "scope": "project"
+}
+```
+
+`key` 会经过 NFKC、首尾空白、连续空白和大小写归一化。同一 scope 内再次写入相同 key 时不会新增重复记录：内容相同返回 `unchanged` 且不写磁盘；内容变化保留原 ID 和创建时间、递增 revision。不同 scope 可以使用相同 key。相同 scope 的并发写入由 `KeyedSerialQueue` 串行化，避免两个更新基于同一旧快照互相覆盖。
+
+### 工具动作
+
+`bumblebee_memory` 是一个带判别动作的工具，不增加与 pi 重复的斜杠命令：
+
+| action | 用途 | 必要输入 |
+| --- | --- | --- |
+| `upsert` | 新建或按稳定 key 更新记录 | `scope/category/key/content` |
+| `search` | 按当前问题检索相关记录 | `query`，可选 `scope/limit` |
+| `list` | 查看记录及其 ID | 可选 `scope/limit` |
+| `remove` | 显式删除一条记录 | `scope/id` |
+
+用户可以直接用自然语言操作，例如：
+
+```text
+请记住：这个项目使用 pnpm，范围仅限当前项目。
+把我的回答偏好更新为“先给结论，再给必要步骤”，所有项目都适用。
+列出当前项目已经保存的长期记忆。
+忘记项目记忆 mem_0123456789abcdef01234567。
+```
+
+是否调用工具由当前模型根据明确请求决定，Bumblebee 不在后台扫描整段对话，也不使用正则猜测用户画像。这样能避免把玩笑、临时要求、模型推测或仓库中的恶意文本静默写成长期事实。需要确定性保存时，应在提示中明确使用“请记住”并说明全局或项目范围。
+
+### 检索与上下文控制
+
+检索使用 Node.js 内置 `Intl.Segmenter` 对中文和英文分词，再进行 BM25 风格打分。`key`、`keywords` 和 `content` 分别使用不同权重，并为完整 key、关键词或正文匹配增加额外分数。检索是纯读取，不修改访问次数或文件内容。
+
+每轮最多优先选择 4 条置顶记录和 6 条相关记录，去重后再受默认 4096 字符总预算约束。记录以 JSON Lines 放入 `<memory-context>`，并明确标记为“不可信的历史参考数据”；当前用户请求和已经验证的仓库事实始终优先。标签字符会转义，避免历史内容闭合上下文边界并伪造系统指令。
+
+主 TUI 与远程渠道采用不同能力：
+
+| 入口 | 可见 scope | 自动读取 | 直接写入 |
+| --- | --- | --- | --- |
+| 主 TUI | `global + project` | 每轮选择性注入 | 可调用工具，先经过权限确认 |
+| 飞书渠道 | 仅 `project` | 每轮只读注入 | 不注册记忆工具 |
+
+飞书用户不会看到全局个人偏好，也不能通过远程消息创建、更新或删除记忆。当前项目记忆会在该工作区的所有允许飞书用户之间共享，因此不要把个人隐私保存为项目记忆。
+
+### 文件与持久化
+
+默认根目录为：
+
+```text
+<pi agent dir>/bumblebee/memory/
+├── global.json
+└── projects/
+    └── <sha256(canonical workspace path)>.json
+```
+
+项目文件名来自规范化工作区绝对路径的 SHA-256，不暴露原始路径。相同工作区中的新会话和 `/resume` 会读取同一文件；移动或重命名工作区会得到新的项目记忆文件。可用 `BUMBLEBEE_MEMORY_DIR` 覆盖根目录，例如：
+
+```powershell
+$env:BUMBLEBEE_MEMORY_DIR = "$HOME\.bumblebee-memory"
+pi -e ./src/extension.ts
+```
+
+每次更新先在同一目录创建独占临时文件，完整写入后执行 `fsync`，关闭文件再原子重命名；只有持久化成功才替换内存快照。失败写入不会产生“当前进程记住了、重启却丢失”的半成功状态。单文件最多 1 MiB，每个 scope 默认最多 256 条记录和 8 条置顶记录，限制了 `JSON.parse/stringify` 对事件循环的最坏影响。POSIX 系统创建临时文件时使用 `0600`；Windows 仍依赖当前用户目录的 ACL，应把自定义根目录放在仅当前账户可访问的位置。
+
+### 安全边界与已知限制
+
+- 写入和加载时都会扫描私钥头、常见 API Token、JWT、凭据赋值和带账号密码的 URI；命中后拒绝持久化，日志也不记录 key、正文或查询内容；
+- 扫描器只拦截高置信度格式，不能证明任意文本都不含秘密，用户仍不应要求 Agent 保存凭据；
+- 当前是词法检索，不理解同义词和深层语义；数据量上限内用零额外运行时依赖换取可解释性；
+- 没有后台对话提取、用户画像推断、向量数据库、知识图谱或会话全文索引；
+- 没有跨进程文件锁；不要让两个 Bumblebee 进程同时写同一个记忆目录；
+- 没有回收站、历史 revision 内容或自动冲突合并，删除前应先通过 `list` 确认 ID；
+- 没有按远程发送者划分用户记忆，飞书只读取当前项目的共享记录；
+- JSON 结构损坏、scope 不一致、记录超限或文件内检测到凭据时会拒绝启动记忆模块，不会静默忽略；应先关闭 Bumblebee，再备份、修复或删除对应文件；
+- 运行期间不会监听手工文件修改，需要重启后重新加载。
+
 ## 环境要求
 
 - Node.js 22.19 或更高版本
 - pi（`@earendil-works/pi-coding-agent`）
 - 飞书渠道依赖官方 `@larksuiteoapi/node-sdk`，执行 `npm install` 时会自动安装
+- Lightweight Memory 只使用 Node.js 标准库，不增加数据库或向量检索依赖
 
 ## 开发验证
 

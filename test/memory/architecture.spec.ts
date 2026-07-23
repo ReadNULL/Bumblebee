@@ -4,57 +4,24 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as ts from "typescript";
 
-const RUNTIME_ROOT = path.resolve("src/runtime");
-const PI_INTEGRATION_ROOT = path.resolve("src/integrations/pi");
+const MEMORY_ROOT = path.resolve("src/memory");
 
-describe("runtime architecture", () => {
-  it("keeps runtime independent from pi and business integrations", async () => {
+describe("memory architecture", () => {
+  it("keeps memory independent from pi and upper application layers", async () => {
     const violations: string[] = [];
 
-    for (const sourceFile of await collectTypeScriptFiles(RUNTIME_ROOT)) {
-      const relative = normalizePath(path.relative(RUNTIME_ROOT, sourceFile));
-      const contents = await readFile(sourceFile, "utf8");
-
-      for (const specifier of getModuleSpecifiers(sourceFile, contents)) {
-        if (specifier.startsWith("./")) {
-          continue;
-        }
-
-        if (specifier === "../foundation/index.js") {
-          continue;
-        }
-
-        violations.push(`${relative}: disallowed dependency ${specifier}`);
-      }
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  it("keeps the pi adapter limited to pi and public layer facades", async () => {
-    const violations: string[] = [];
-
-    for (const sourceFile of await collectTypeScriptFiles(PI_INTEGRATION_ROOT)) {
-      const relative = normalizePath(
-        path.relative(PI_INTEGRATION_ROOT, sourceFile),
-      );
+    for (const sourceFile of await collectTypeScriptFiles(MEMORY_ROOT)) {
+      const relative = normalizePath(path.relative(MEMORY_ROOT, sourceFile));
       const contents = await readFile(sourceFile, "utf8");
 
       for (const specifier of getModuleSpecifiers(sourceFile, contents)) {
         if (
           specifier.startsWith("./") ||
           specifier.startsWith("node:") ||
-          specifier === "@earendil-works/pi-coding-agent" ||
-          specifier === "../../agents/index.js" ||
-          specifier === "../../channels/index.js" ||
-          specifier === "../../foundation/index.js" ||
-          specifier === "../../memory/index.js" ||
-          specifier === "../../runtime/index.js" ||
-          specifier === "../../security/index.js"
+          specifier === "../../foundation/index.js"
         ) {
           continue;
         }
-
         violations.push(`${relative}: disallowed dependency ${specifier}`);
       }
     }
@@ -62,7 +29,7 @@ describe("runtime architecture", () => {
     expect(violations).toEqual([]);
   });
 
-  it("publishes all runtime and pi integration sources", async () => {
+  it("publishes every memory source and excludes tests", async () => {
     const packageValue: unknown = JSON.parse(
       await readFile(path.resolve("package.json"), "utf8"),
     );
@@ -75,15 +42,13 @@ describe("runtime architecture", () => {
         (value): value is string => typeof value === "string",
       ),
     );
-    const sourceFiles = [
-      ...(await collectTypeScriptFiles(RUNTIME_ROOT)),
-      ...(await collectTypeScriptFiles(PI_INTEGRATION_ROOT)),
-    ];
-    const missing = sourceFiles
+    const missing = (await collectTypeScriptFiles(MEMORY_ROOT))
       .map((file) => normalizePath(path.relative(process.cwd(), file)))
       .filter((file) => !declaredFiles.has(file));
 
     expect(missing).toEqual([]);
+    expect([...declaredFiles].some((file) => file.startsWith("test/")))
+      .toBe(false);
   });
 });
 
@@ -99,7 +64,6 @@ async function collectTypeScriptFiles(directory: string): Promise<string[]> {
           : [];
     }),
   );
-
   return files.flat().sort();
 }
 
@@ -121,7 +85,6 @@ function getModuleSpecifiers(fileName: string, sourceText: string): string[] {
     ) {
       specifiers.push(node.moduleSpecifier.text);
     }
-
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);

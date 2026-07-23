@@ -15,6 +15,14 @@ export {
   type PiLifecycleRegistrar,
 } from "./lifecycle-binding.js";
 export {
+  bindPiMemory,
+  type PiMemoryRuntime,
+} from "./memory-binding.js";
+export {
+  bindPiMemoryContext,
+  createPiMemoryContextExtension,
+} from "./memory-context-extension.js";
+export {
   bindPiPermissionSystem,
   type PermissionExecutionRuntime,
   type PiPermissionBindingOptions,

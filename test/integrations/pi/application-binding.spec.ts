@@ -20,6 +20,9 @@ import {
   type PiConversationBridgeOptions,
   type PiModelSelectEvent,
 } from "../../../src/integrations/pi/index.js";
+import type {
+  ManagedMemory,
+} from "../../../src/memory/index.js";
 
 describe("bindPiApplicationLifecycle", () => {
   it("keeps the default extension network-free when Feishu is disabled", async () => {
@@ -56,6 +59,7 @@ describe("bindPiApplicationLifecycle", () => {
     let capturedBridgeOptions: PiConversationBridgeOptions | undefined;
     const captured = createRegistrar();
     const context = createContext(true, calls);
+    const memory = createMemory(calls);
 
     bindPiApplicationLifecycle(
       captured.registrar,
@@ -67,6 +71,7 @@ describe("bindPiApplicationLifecycle", () => {
         },
         environment: enabledEnvironment(),
         feishuGatewayFactory: () => gateway,
+        memory,
       },
     );
 
@@ -76,9 +81,11 @@ describe("bindPiApplicationLifecycle", () => {
     );
     expect(calls).toEqual([
       "runtime.initialize",
+      "memory.initialize",
       "gateway.start",
       "ui.notify:飞书渠道已连接。",
     ]);
+    expect(capturedBridgeOptions?.memoryContextProvider).toBe(memory);
 
     const nextModel = createModel("model-b");
     await captured.modelSelect?.(
@@ -91,9 +98,10 @@ describe("bindPiApplicationLifecycle", () => {
       { reason: "quit", type: "session_shutdown" },
       context,
     );
-    expect(calls.slice(-3)).toEqual([
+    expect(calls.slice(-4)).toEqual([
       "gateway.stop",
       "bridge.dispose",
+      "memory.dispose",
       "runtime.dispose",
     ]);
   });
@@ -174,6 +182,20 @@ function createGateway(calls: string[]): FeishuGateway {
     },
     async stop() {
       calls.push("gateway.stop");
+    },
+  };
+}
+
+function createMemory(calls: string[]): ManagedMemory {
+  return {
+    async buildPromptContext() {
+      return "<memory-policy>test</memory-policy>";
+    },
+    async dispose() {
+      calls.push("memory.dispose");
+    },
+    async initialize() {
+      calls.push("memory.initialize");
     },
   };
 }

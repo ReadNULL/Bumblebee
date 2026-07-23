@@ -16,12 +16,20 @@ import {
   type PiConversationSession,
   type PiConversationSessionFactoryOptions,
 } from "../../../src/integrations/pi/index.js";
+import type {
+  MemoryContextProvider,
+} from "../../../src/memory/index.js";
 
 describe("PiConversationBridge", () => {
   it("isolates conversations in stable hashed session directories", async () => {
     const sessionRoot = path.resolve("virtual-agent", "channel-sessions");
     const captures: PiConversationSessionFactoryOptions[] = [];
     const controls: ControlledSession[] = [];
+    const memoryContextProvider: MemoryContextProvider = {
+      async buildPromptContext() {
+        return "<memory-policy>test</memory-policy>";
+      },
+    };
     const sessionFactory = vi.fn(
       async (options: PiConversationSessionFactoryOptions) => {
         captures.push(options);
@@ -35,7 +43,11 @@ describe("PiConversationBridge", () => {
         return control.session;
       },
     );
-    const bridge = createBridge({ sessionFactory, sessionRoot });
+    const bridge = createBridge({
+      memoryContextProvider,
+      sessionFactory,
+      sessionRoot,
+    });
 
     await expect(
       bridge.respond(
@@ -62,6 +74,7 @@ describe("PiConversationBridge", () => {
       path.join(sessionRoot, "feishu"),
     );
     expect(path.basename(firstDirectory ?? "")).toMatch(/^[a-f0-9]{64}$/u);
+    expect(captures[0]?.memoryContextProvider).toBe(memoryContextProvider);
 
     await bridge.dispose();
     expect(controls[0]?.dispose).toHaveBeenCalledOnce();
@@ -476,6 +489,7 @@ function createBridge(
     getModel: () => ExtensionContext["model"];
     getThinkingLevel: () => PiConversationSession["thinkingLevel"];
     maxOpenSessions: number;
+    memoryContextProvider: MemoryContextProvider;
     sessionFactory: (
       options: PiConversationSessionFactoryOptions,
     ) => Promise<PiConversationSession>;
@@ -490,6 +504,9 @@ function createBridge(
     ...(options.maxOpenSessions === undefined
       ? {}
       : { maxOpenSessions: options.maxOpenSessions }),
+    ...(options.memoryContextProvider === undefined
+      ? {}
+      : { memoryContextProvider: options.memoryContextProvider }),
     modelRegistry: {} as ExtensionContext["modelRegistry"],
     ...(options.sessionFactory === undefined
       ? {}

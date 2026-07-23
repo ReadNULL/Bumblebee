@@ -9,6 +9,7 @@ import {
   SettingsManager,
   type ExtensionAPI,
   type ExtensionContext,
+  type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -25,6 +26,12 @@ import {
   normalizeError,
   throwIfAborted,
 } from "../../foundation/index.js";
+import type {
+  MemoryContextProvider,
+} from "../../memory/index.js";
+import {
+  createPiMemoryContextExtension,
+} from "./memory-context-extension.js";
 import {
   createReadOnlyWorkspaceGuard,
   PI_READ_ONLY_TOOL_NAMES,
@@ -74,6 +81,7 @@ export interface PiConversationSessionFactoryOptions {
   readonly cwd: string;
   readonly model: PiModel;
   readonly modelRegistry: PiModelRegistry;
+  readonly memoryContextProvider?: MemoryContextProvider;
   readonly sessionDirectory: string;
   readonly thinkingLevel: PiThinkingLevel;
 }
@@ -88,6 +96,7 @@ export interface PiConversationBridgeOptions {
   readonly getModel: () => ExtensionContext["model"];
   readonly getThinkingLevel: () => PiThinkingLevel;
   readonly maxOpenSessions?: number;
+  readonly memoryContextProvider?: MemoryContextProvider;
   readonly modelRegistry: PiModelRegistry;
   readonly sessionFactory?: PiConversationSessionFactory;
   readonly sessionRoot?: string;
@@ -125,6 +134,7 @@ export class PiConversationBridge implements ConversationPort {
   private readonly getThinkingLevel: () => PiThinkingLevel;
   private readonly inFlight = new Set<Promise<ConversationResponse>>();
   private readonly maxOpenSessions: number;
+  private readonly memoryContextProvider: MemoryContextProvider | undefined;
   private readonly modelRegistry: PiModelRegistry;
   private readonly sessionFactory: PiConversationSessionFactory;
   private readonly sessionRoot: string;
@@ -144,6 +154,7 @@ export class PiConversationBridge implements ConversationPort {
     this.maxOpenSessions = normalizeCapacity(options.maxOpenSessions);
     this.getModel = options.getModel;
     this.getThinkingLevel = options.getThinkingLevel;
+    this.memoryContextProvider = options.memoryContextProvider;
     this.modelRegistry = options.modelRegistry;
     this.sessionFactory =
       options.sessionFactory ?? createDefaultConversationSession;
@@ -318,6 +329,9 @@ export class PiConversationBridge implements ConversationPort {
         cwd: this.cwd,
         model,
         modelRegistry: this.modelRegistry,
+        ...(this.memoryContextProvider === undefined
+          ? {}
+          : { memoryContextProvider: this.memoryContextProvider }),
         sessionDirectory: path.join(
           this.sessionRoot,
           identity.channel,
@@ -564,15 +578,21 @@ async function createDefaultConversationSession(
   options: PiConversationSessionFactoryOptions,
 ): Promise<PiConversationSession> {
   const settingsManager = SettingsManager.inMemory();
+  const extensionFactories: ExtensionFactory[] = [
+    createReadOnlyWorkspaceGuard({
+      boundaryMessage: CHANNEL_BOUNDARY_MESSAGE,
+    }),
+  ];
+  if (options.memoryContextProvider !== undefined) {
+    extensionFactories.push(
+      createPiMemoryContextExtension(options.memoryContextProvider),
+    );
+  }
   const resourceLoader = new DefaultResourceLoader({
     agentDir: options.agentDir,
     appendSystemPrompt: [CHANNEL_SYSTEM_PROMPT],
     cwd: options.cwd,
-    extensionFactories: [
-      createReadOnlyWorkspaceGuard({
-        boundaryMessage: CHANNEL_BOUNDARY_MESSAGE,
-      }),
-    ],
+    extensionFactories,
     noExtensions: true,
     noPromptTemplates: true,
     noSkills: true,
