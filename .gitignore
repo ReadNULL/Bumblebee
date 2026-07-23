@@ -30,3 +30,9 @@ Thumbs.db
 # Development-only material
 plan/
 issue.md
+
+# Benchmark local evidence and external environments
+benchmark/benchmark_*/artifacts/
+benchmark/**/.runtime/
+benchmark/**/.venv/
+benchmark/**/__pycache__/

@@ -1189,37 +1189,43 @@ LM = 0.35 * QAAccuracy
 - 不同模型、操作系统或硬件 profile 的结果不能直接合并比较；
 - 每份报告记录 Bumblebee commit、pi 版本、数据集版本、数据哈希和评分规范版本。
 
-### 计划中的评估工程
+### Benchmark 工程与 Benchmark 0
 
 ```text
 benchmark/
-├── manifests/
-│   └── bcs-v1.yaml
-├── bridge/
-│   └── bumblebee-eval-host.ts
-├── suites/
-│   └── bumblebee/
-├── adapters/
-│   ├── harbor/
-│   ├── agentdojo/
-│   └── longmemeval/
-├── scoring/
-├── history/
-│   ├── runs.jsonl
-│   └── lessons/
-├── reports/
-└── artifacts/
+├── README.md
+└── benchmark_0_evaluation_core/
+    ├── manifests/
+    │   └── bcs-v1.json
+    ├── src/
+    │   ├── artifacts/
+    │   ├── contracts/
+    │   ├── recording/
+    │   └── scoring/
+    └── test/
 ```
 
-`bumblebee-eval-host.ts` 负责用无头 Pi Session 驱动同一套 Bumblebee 扩展组合；各 Python benchmark 只通过稳定的 JSON Lines 协议提交任务和读取结果。评分器统一输出版本化 JSON 和 Markdown 报告。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖保留在独立评估环境中，不加入生产安装路径。`artifacts/` 保存本地原始轨迹并加入 `.gitignore`；去除敏感信息后的运行索引、摘要和经验记录保存在 `history/`，随代码提交。
+评估积木统一命名为
+`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。后续测试集预计分别建立 `benchmark_1_bumblebee_bench`、`benchmark_2_terminal_bench_2_1`、`benchmark_3_agentdojo_workspace` 和 `benchmark_4_longmemeval_bumblebee`；当前尚未创建，必须逐积木设计、验证后再进入下一项。
 
-计划提供三个入口：
+`benchmark_0_evaluation_core` 是已经实现的评估基础积木，本身不调用模型或下载数据集：
 
-```text
-npm run benchmark:smoke  # 小型固定样例和少量外部任务
-npm run benchmark:full   # 完整 P0/P1 评估
-npm run benchmark:score  # 只对已有原始结果重新评分
+| 组成 | 职责 |
+| --- | --- |
+| Contracts | 固定 manifest、task result、run summary、artifact、gate 和 lesson 的 v1 数据结构 |
+| ArtifactStore | 先写临时文件并 `fsync`，再排他发布；记录 SHA-256、大小、位置与脱敏状态 |
+| EvaluationRunStore | run 开始和结束都追加 ledger；同一 run 串行写入，拒绝重复 trial 和结束后追加 |
+| LessonStore | 同一 lesson 追加 revision，关联证据 run、假设、修改边界、风险和复验结果 |
+| Gate Evaluator | 区分 `qualified`、`not-qualified` 和 `invalid`，拒绝缺失或伪造的 gate 结果 |
+| Composite Scorer | 只有全部硬门槛通过后才按冻结权重计算分数，否则返回 `score: null` |
+
+JSON artifact、ledger 和 lesson 写入前复用结构化日志脱敏器；`recordRawArtifact()` 保存的原始轨迹不会自动脱敏，其引用会明确标记 `sanitized: false`。artifact 写入后禁止覆盖，task 关联证据前会重新校验 SHA-256。当前只支持单评估进程写同一输出目录，跨进程文件锁将在实际并行 runner 出现后再设计。
+
+```bash
+npm run benchmark:0
 ```
+
+该入口只执行 Benchmark 0 的确定性测试。`benchmark:smoke`、`benchmark:full` 和 `benchmark:score` 要等具体测试集、无头 Pi bridge 与报告器实现后再开放，README 不提前声明不可用命令。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖将保留在各自独立评估目录中，不加入生产安装路径或 npm 发布包。
 
 ### 结果留存与改进闭环
 
@@ -1240,13 +1246,11 @@ npm run benchmark:score  # 只对已有原始结果重新评分
 原始模型输出和工具轨迹可能很大，也可能包含外部测试集内容，因此不直接提交 Git。评估工程提交以下小型、可审计记录：
 
 ```text
-benchmark/history/runs.jsonl
-benchmark/history/lessons/<lesson-id>.md
-benchmark/reports/<run-id>-summary.json
-benchmark/reports/<run-id>-summary.md
+benchmark/benchmark_0_evaluation_core/history/runs.jsonl
+benchmark/benchmark_0_evaluation_core/history/lessons/<lesson-id>.jsonl
 ```
 
-完整 artifacts 保存在本地受限目录或 CI artifact/object storage 中，摘要记录其 SHA-256 和位置。写入历史前再次经过脱敏器，不保存 API Key、平台密钥、真实用户消息或未经许可的仓库内容。
+lesson JSONL 是保留全部 revision 的机器可读事实源，可通过 `LessonStore.renderMarkdown()` 生成便于审阅的 Markdown；报告文件要等报告器积木实现后再声明。完整 artifacts 保存在被 `.gitignore` 排除的本地受限目录或 CI artifact/object storage 中，摘要记录其 SHA-256 和位置。写入历史前再次经过脱敏器，不保存 API Key、平台密钥、真实用户消息或未经许可的仓库内容。
 
 失败必须分类，不能把所有失败都归因给模型：
 
@@ -1290,14 +1294,15 @@ flowchart LR
 
 ### 当前成果
 
-以下结果对应提交 `69071eb`，它们是正式 benchmark 搭建前的工程基线，不是 BCS-v1：
+以下是 Benchmark 0 接入后的确定性工程基线，不是 BCS-v1：
 
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 47 个测试文件、251 项测试全部通过 |
-| 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory 依赖约束通过 |
-| npm 发布包 dry-run | 78 个文件，Memory 源码已包含，`test/` 未发布 |
+| Vitest | 53 个测试文件、272 项测试全部通过 |
+| 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
+| npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
+| Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
 | BumblebeeBench | 尚未实现和运行 |
 | Terminal-Bench 2.1 | 尚未接入 |
 | AgentDojo Workspace | 尚未接入 |

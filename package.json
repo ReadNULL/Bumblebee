@@ -89,6 +89,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "benchmark:0": "vitest run benchmark/benchmark_0_evaluation_core/test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

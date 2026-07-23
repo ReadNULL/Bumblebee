@@ -22,6 +22,7 @@
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
+    "benchmark/**/*.ts",
     "vitest.config.ts"
   ]
 }
