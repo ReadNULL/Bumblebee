@@ -1,4 +1,15 @@
 export {
+  bindPiApplicationLifecycle,
+  PiExtensionApplication,
+  type FeishuGatewayFactory,
+  type ManagedConversationBridge,
+  type PiApplicationRegistrar,
+  type PiApplicationRuntime,
+  type PiConversationBridgeFactory,
+  type PiExtensionApplicationOptions,
+  type PiModelSelectEvent,
+} from "./application-binding.js";
+export {
   bindPiLifecycle,
   type ManagedRuntime,
   type PiLifecycleRegistrar,

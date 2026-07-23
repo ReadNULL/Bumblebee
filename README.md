@@ -39,10 +39,11 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 | --- | --- | --- |
 | 10 | Channel Core | 统一平台消息契约、消息去重、会话调度和适配器生命周期 |
 | 11 | Pi Conversation Bridge | 把渠道会话映射为隔离、可恢复且可取消的 Pi AgentSession |
+| 12 | FeishuAdapter | 通过飞书官方 SDK 接收可信用户消息，并接入统一渠道处理链路 |
 
 ## 当前范围
 
-当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent、第 10 轮 Channel Core 和第 11 轮 Pi Conversation Bridge：
+当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent、第 10 轮 Channel Core、第 11 轮 Pi Conversation Bridge 和第 12 轮 FeishuAdapter：
 
 - pi 包清单；
 - 最小 TypeScript 扩展入口；
@@ -59,9 +60,10 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - pi 无关的权限内核、三位能力掩码、路径真实化、可恢复的精确/文件夹级会话授权和 `tool_call` 执行前拦截；
 - 单任务、只读、内存隔离的 Sub-Agent，以及 `delegate_task` Pi 工具适配器；
 - 平台无关的渠道消息、回复、对话端口和适配器契约，以及有界去重、运行时调度和生命周期管理；
-- 按渠道会话隔离的持久 Pi 会话、稳定哈希目录、有界 LRU、模型设置同步、取消传播和当前轮回复提取。
+- 按渠道会话隔离的持久 Pi 会话、稳定哈希目录、有界 LRU、模型设置同步、取消传播和当前轮回复提取；
+- 基于飞书官方 SDK 的长连接接入、文本事件转换、发送者白名单、幂等回复和统一启动/关闭。
 
-目前注册了 `session_start`、`session_shutdown`、`session_tree` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流或 Dashboard。Pi Conversation Bridge 已实现，但扩展入口尚未组合 `ChannelManager`，也没有真实平台适配器，因此安装当前版本不会自动连接飞书等渠道。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
+目前注册了 `session_start`、`session_shutdown`、`session_tree`、`model_select` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流或 Dashboard。飞书渠道只有在显式设置 `BUMBLEBEE_FEISHU_ENABLED=true` 后才会创建后台连接，默认安装不会读取飞书凭据或访问网络。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
 
 ## 目录约定
 
@@ -75,16 +77,24 @@ src/
 │       └── types.ts
 ├── channels/
 │   ├── index.ts
-│   └── core/
-│       ├── channel-dispatcher.ts
-│       ├── channel-manager.ts
+│   ├── core/
+│   │   ├── channel-dispatcher.ts
+│   │   ├── channel-manager.ts
+│   │   ├── index.ts
+│   │   ├── message-deduplicator.ts
+│   │   ├── normalization.ts
+│   │   └── types.ts
+│   └── feishu/
+│       ├── config.ts
+│       ├── feishu-adapter.ts
 │       ├── index.ts
-│       ├── message-deduplicator.ts
-│       ├── normalization.ts
+│       ├── message-parser.ts
+│       ├── official-feishu-gateway.ts
 │       └── types.ts
 ├── extension.ts
 ├── integrations/
 │   └── pi/
+│       ├── application-binding.ts
 │       ├── index.ts
 │       ├── lifecycle-binding.ts
 │       ├── permission-binding.ts
@@ -146,14 +156,20 @@ test/
 │       └── subagent-runner.spec.ts
 ├── channels/
 │   ├── architecture.spec.ts
-│   └── core/
-│       ├── channel-dispatcher.spec.ts
-│       ├── channel-manager.spec.ts
-│       ├── message-deduplicator.spec.ts
-│       └── normalization.spec.ts
+│   ├── core/
+│   │   ├── channel-dispatcher.spec.ts
+│   │   ├── channel-manager.spec.ts
+│   │   ├── message-deduplicator.spec.ts
+│   │   └── normalization.spec.ts
+│   └── feishu/
+│       ├── config.spec.ts
+│       ├── feishu-adapter.spec.ts
+│       ├── message-parser.spec.ts
+│       └── official-feishu-gateway.spec.ts
 ├── extension.spec.ts
 ├── integrations/
 │   └── pi/
+│       ├── application-binding.spec.ts
 │       ├── lifecycle-binding.spec.ts
 │       ├── permission-binding.spec.ts
 │       ├── pi-conversation-bridge.spec.ts
@@ -673,7 +689,7 @@ interface ConversationPort {
 
 ```mermaid
 sequenceDiagram
-  participant SDK as 未来的平台 SDK
+  participant SDK as 平台 SDK
   participant Adapter as ChannelAdapter
   participant Manager as ChannelManager
   participant Dispatcher as ChannelDispatcher
@@ -747,7 +763,7 @@ Channel Core 没有默认任务超时。构造 `ChannelDispatcher` 时可以按�
 | 生命周期 | 部分启动失败自动回滚，正常关闭逆序停止适配器并等待在途消息 |
 | 扩展运行时 | 提供统一 trace、可选超时、会话队列、信号量和退出追踪 |
 
-当前扩展入口仍不会创建 `ChannelManager` 实例，因此当前版本没有后台连接和额外控制台输出。Pi Conversation Bridge 已在下一节独立实现并验收；下一个渠道积木会使用飞书官方 SDK 实现首个真实 `FeishuAdapter`，再把 Manager、Bridge 和 Adapter 组合起来。远程渠道的写操作授权、凭据加载和富媒体仍不属于 Channel Core。
+扩展组合根现在会在飞书被显式启用时创建 `ChannelManager`，并依次接入 `FeishuAdapter`、`ChannelDispatcher` 和 Pi Conversation Bridge。平台凭据解析、事件字段转换和 SDK 调用仍留在 `src/channels/feishu`，没有反向污染 Channel Core。远程渠道的写操作授权和富媒体仍不属于 Channel Core。
 
 ## Pi Conversation Bridge
 
@@ -807,12 +823,74 @@ Bridge 不保存 Bumblebee 自己的模型配置。创建会话以及每轮复�
 
 消息 signal 被取消时，Bridge 会调用对应会话的 `abort()`，等待中止完成后保留会话，使下一条消息仍能继续；Bridge 自身 `dispose()` 时会先拒绝新消息、取消所有活跃生成、等待在途响应退出，再幂等释放全部缓存会话。Bridge 没有固定 60 秒超时，实际截止时间由 `ChannelDispatcher` 按渠道场景配置。
 
-当前 Bridge 只是可组合积木，尚未在扩展入口实例化，也未接入平台凭据、富媒体、流式进度或主动消息。第 12 轮 `FeishuAdapter` 完成前，用户不会看到渠道连接入口。
+当前 Bridge 已由扩展组合根接入飞书渠道，但仍不负责平台凭据、富媒体、流式进度或主动消息。它只处理来自发送者白名单的文本消息，并维持远程会话与 Pi 会话之间的一对一映射。
+
+## FeishuAdapter
+
+FeishuAdapter 是 Bumblebee 的第一个真实渠道适配器。它使用官方 `@larksuiteoapi/node-sdk` 建立长连接，只负责飞书协议边界；消息去重、会话串行、Agent 调用和生命周期分别复用 Channel Core、Pi Conversation Bridge 与基础积木。
+
+### 启用步骤
+
+1. 在[飞书开放平台](https://open.feishu.cn/)创建企业自建应用并启用机器人能力。
+2. 在应用的凭证页面取得 App ID 和 App Secret。
+3. 为应用开通接收单聊消息、接收群聊中提及机器人的消息以及发送消息所需权限。
+4. 在事件订阅中选择“使用长连接接收事件”，订阅 `im.message.receive_v1`，然后发布并在企业内安装应用。
+5. 在启动 pi 的同一个 PowerShell 窗口设置环境变量：
+
+```powershell
+$env:BUMBLEBEE_FEISHU_ENABLED = "true"
+$env:FEISHU_APP_ID = "cli_0123456789abcdef"
+$env:FEISHU_APP_SECRET = "replace-with-your-app-secret"
+$env:FEISHU_ALLOWED_OPEN_IDS = "ou_owner,ou_teammate"
+pi -e ./src/extension.ts
+```
+
+`FEISHU_ALLOWED_OPEN_IDS` 是允许驱动本地 Agent 的飞书用户 `open_id`，多个 ID 用英文逗号分隔。可以从收到的事件中查看 `sender.sender_id.open_id`，或使用飞书开放平台的 API 调试工具查询。只有完全隔离且可信的测试环境才应显式设置为 `*`；生产或日常开发环境应维护最小白名单。
+
+飞书配置必须全部来自当前进程环境。不要把 App Secret 写入 README、源码或提交到 Git 的配置文件。`BUMBLEBEE_FEISHU_ENABLED` 未设置或为 `false` 时，其余飞书变量不会被读取，也不会创建 SDK 长连接。
+
+### 消息处理流程
+
+```mermaid
+sequenceDiagram
+  participant Feishu as 飞书长连接
+  participant Gateway as OfficialFeishuGateway
+  participant Adapter as FeishuAdapter
+  participant Manager as ChannelManager
+  participant Bridge as PiConversationBridge
+  participant Pi as Pi AgentSession
+  Feishu->>Gateway: im.message.receive_v1
+  Gateway->>Adapter: 投递事件并立即完成 SDK 回调
+  Adapter->>Adapter: 校验文本、用户身份和白名单
+  Adapter->>Manager: onMessage(ChannelMessage)
+  Manager->>Bridge: 去重、排队后 respond()
+  Bridge->>Pi: 恢复会话并执行 prompt()
+  Pi-->>Bridge: 当前轮 assistant 文本
+  Bridge-->>Manager: ConversationResponse
+  Manager->>Adapter: send(ChannelReply)
+  Adapter->>Gateway: reply(message_id, text, uuid)
+  Gateway->>Feishu: 官方回复 API
+```
+
+飞书要求长连接事件处理器尽快返回。Gateway 因此只完成事件交接，Adapter 再通过微任务异步驱动 Agent；模型耗时不会占用 SDK 事件确认窗口。平台重投由 Channel Core 的消息租约去重，回复请求还会根据原消息 ID 生成稳定 UUID，降低“已发送但本地未确认”时的重复回复概率。
+
+事件解析只接受 `sender_type=user` 的文本消息。适配器会解析飞书文本 JSON、移除开头连续的机器人提及占位符，并优先以 `thread_id` 隔离话题会话，否则使用 `chat_id`。不支持的消息类型会被忽略，非法事件交给可注入的诊断日志处理，不会让长连接回调崩溃；默认实现不会直接向控制台打印这些事件。
+
+Agent 失败时只会回复错误模型允许暴露的 `userMessage`，不会把内部异常、路径、令牌或 SDK payload 发给用户。启动等待有独立的 30 秒超时；扩展关闭会先取消共享 signal，再关闭飞书连接阻止新事件，随后等待在途 Agent 调用退出。SDK 自身日志被注入的空日志器接管，避免破坏 pi TUI 的输入区域。
+
+### 当前边界
+
+- 只支持接收文本和回复纯文本，不支持图片、文件、卡片、流式进度或主动推送；
+- 远程会话只拥有 `read/grep/find/ls`，不能写文件或执行 Shell；
+- 去重状态只存在于当前进程，多实例部署和跨重启幂等尚未实现；
+- 官方回复 API 没有暴露 `AbortSignal` 参数，当前在请求前后检查取消，并用稳定 UUID 抑制重复回复；
+- 没有使用真实飞书凭据执行 CI 集成测试；SDK 边界通过模块替身验证，实际应用权限与企业配置仍需按上述步骤人工验收。
 
 ## 环境要求
 
 - Node.js 22.19 或更高版本
 - pi（`@earendil-works/pi-coding-agent`）
+- 飞书渠道依赖官方 `@larksuiteoapi/node-sdk`，执行 `npm install` 时会自动安装
 
 ## 开发验证
 

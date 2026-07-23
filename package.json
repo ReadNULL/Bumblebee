@@ -22,6 +22,12 @@
     "src/channels/core/message-deduplicator.ts",
     "src/channels/core/normalization.ts",
     "src/channels/core/types.ts",
+    "src/channels/feishu/config.ts",
+    "src/channels/feishu/feishu-adapter.ts",
+    "src/channels/feishu/index.ts",
+    "src/channels/feishu/message-parser.ts",
+    "src/channels/feishu/official-feishu-gateway.ts",
+    "src/channels/feishu/types.ts",
     "src/foundation/index.ts",
     "src/foundation/cancellation/abort.ts",
     "src/foundation/cancellation/duration.ts",
@@ -45,6 +51,7 @@
     "src/foundation/lifecycle/lifecycle.ts",
     "src/foundation/lifecycle/types.ts",
     "src/integrations/pi/index.ts",
+    "src/integrations/pi/application-binding.ts",
     "src/integrations/pi/lifecycle-binding.ts",
     "src/integrations/pi/permission-binding.ts",
     "src/integrations/pi/pi-conversation-bridge.ts",
@@ -90,5 +97,8 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.71.1"
   }
 }

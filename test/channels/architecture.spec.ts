@@ -5,13 +5,17 @@ import { describe, expect, it } from "vitest";
 import * as ts from "typescript";
 
 const CHANNELS_ROOT = path.resolve("src/channels");
+const CHANNEL_CORE_ROOT = path.resolve("src/channels/core");
+const FEISHU_ROOT = path.resolve("src/channels/feishu");
 
 describe("channels architecture", () => {
   it("keeps the channel core independent from pi and platform SDKs", async () => {
     const violations: string[] = [];
 
-    for (const sourceFile of await collectTypeScriptFiles(CHANNELS_ROOT)) {
-      const relative = normalizePath(path.relative(CHANNELS_ROOT, sourceFile));
+    for (const sourceFile of await collectTypeScriptFiles(CHANNEL_CORE_ROOT)) {
+      const relative = normalizePath(
+        path.relative(CHANNEL_CORE_ROOT, sourceFile),
+      );
       const contents = await readFile(sourceFile, "utf8");
 
       for (const specifier of getModuleSpecifiers(sourceFile, contents)) {
@@ -20,6 +24,30 @@ describe("channels architecture", () => {
           specifier.startsWith("node:") ||
           specifier === "../../foundation/index.js" ||
           specifier === "../../runtime/index.js"
+        ) {
+          continue;
+        }
+        violations.push(`${relative}: disallowed dependency ${specifier}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps the Feishu SDK behind the platform adapter boundary", async () => {
+    const violations: string[] = [];
+
+    for (const sourceFile of await collectTypeScriptFiles(FEISHU_ROOT)) {
+      const relative = normalizePath(path.relative(FEISHU_ROOT, sourceFile));
+      const contents = await readFile(sourceFile, "utf8");
+
+      for (const specifier of getModuleSpecifiers(sourceFile, contents)) {
+        if (
+          specifier.startsWith("./") ||
+          specifier.startsWith("node:") ||
+          specifier === "../core/index.js" ||
+          specifier === "../../foundation/index.js" ||
+          specifier === "@larksuiteoapi/node-sdk"
         ) {
           continue;
         }

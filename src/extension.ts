@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import {
-  bindPiLifecycle,
+  bindPiApplicationLifecycle,
   bindPiPermissionSystem,
   bindPiSubAgent,
 } from "./integrations/pi/index.js";
@@ -12,7 +12,7 @@ export default function bumblebeeExtension(pi: ExtensionAPI): void {
   const runtime = new BumblebeeRuntime();
   const permissionSystem = new PermissionSystem();
 
-  bindPiLifecycle(pi, runtime);
+  bindPiApplicationLifecycle(pi, runtime);
   bindPiPermissionSystem(pi, runtime, permissionSystem);
   bindPiSubAgent(pi, runtime);
 }

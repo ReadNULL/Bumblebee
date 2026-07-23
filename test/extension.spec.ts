@@ -5,12 +5,17 @@ import type {
   SessionShutdownEvent,
   SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import bumblebeeExtension from "../src/extension.js";
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("bumblebeeExtension", () => {
   it("registers runtime and permission boundaries in lifecycle order", async () => {
+    vi.stubEnv("BUMBLEBEE_FEISHU_ENABLED", "false");
     const handlers = new Map<string, unknown[]>();
     const tools: Array<{ name?: string }> = [];
     const api = new Proxy({} as ExtensionAPI, {
@@ -33,12 +38,14 @@ describe("bumblebeeExtension", () => {
     expect(bumblebeeExtension(api)).toBeUndefined();
     expect([...handlers.keys()]).toEqual([
       "session_start",
+      "model_select",
       "session_shutdown",
       "session_tree",
       "tool_call",
     ]);
     expect(handlers.get("session_start")).toHaveLength(2);
     expect(handlers.get("session_shutdown")).toHaveLength(2);
+    expect(handlers.get("model_select")).toHaveLength(1);
     expect(handlers.get("session_tree")).toHaveLength(1);
     expect(handlers.get("tool_call")).toHaveLength(1);
     expect(tools).toHaveLength(1);
