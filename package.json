@@ -90,6 +90,8 @@
   ],
   "scripts": {
     "benchmark:0": "vitest run benchmark/benchmark_0_evaluation_core/test",
+    "benchmark:1": "tsc -p benchmark/benchmark_1_bumblebee_bench/tsconfig.runner.json && node benchmark/benchmark_1_bumblebee_bench/.runtime/build/benchmark/benchmark_1_bumblebee_bench/src/cli.js --profile smoke",
+    "benchmark:1:full": "tsc -p benchmark/benchmark_1_bumblebee_bench/tsconfig.runner.json && node benchmark/benchmark_1_bumblebee_bench/.runtime/build/benchmark/benchmark_1_bumblebee_bench/src/cli.js --profile full",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

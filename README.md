@@ -1189,24 +1189,33 @@ LM = 0.35 * QAAccuracy
 - 不同模型、操作系统或硬件 profile 的结果不能直接合并比较；
 - 每份报告记录 Bumblebee commit、pi 版本、数据集版本、数据哈希和评分规范版本。
 
-### Benchmark 工程与 Benchmark 0
+### Benchmark 工程
 
 ```text
 benchmark/
 ├── README.md
-└── benchmark_0_evaluation_core/
+├── benchmark_0_evaluation_core/
+│   ├── manifests/
+│   │   └── bcs-v1.json
+│   ├── src/
+│   │   ├── artifacts/
+│   │   ├── contracts/
+│   │   ├── recording/
+│   │   └── scoring/
+│   └── test/
+└── benchmark_1_bumblebee_bench/
     ├── manifests/
-    │   └── bcs-v1.json
+    │   └── bumblebee-bench-v1.json
     ├── src/
-    │   ├── artifacts/
     │   ├── contracts/
-    │   ├── recording/
-    │   └── scoring/
-    └── test/
+    │   ├── runner/
+    │   └── scenarios/
+    ├── test/
+    └── tsconfig.runner.json
 ```
 
 评估积木统一命名为
-`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。后续测试集预计分别建立 `benchmark_1_bumblebee_bench`、`benchmark_2_terminal_bench_2_1`、`benchmark_3_agentdojo_workspace` 和 `benchmark_4_longmemeval_bumblebee`；当前尚未创建，必须逐积木设计、验证后再进入下一项。
+`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 和 Benchmark 1 已实现；后续测试集预计分别建立 `benchmark_2_terminal_bench_2_1`、`benchmark_3_agentdojo_workspace` 和 `benchmark_4_longmemeval_bumblebee`，必须逐积木设计、验证后再进入下一项。
 
 `benchmark_0_evaluation_core` 是已经实现的评估基础积木，本身不调用模型或下载数据集：
 
@@ -1226,6 +1235,15 @@ npm run benchmark:0
 ```
 
 该入口只执行 Benchmark 0 的确定性测试。`benchmark:smoke`、`benchmark:full` 和 `benchmark:score` 要等具体测试集、无头 Pi bridge 与报告器实现后再开放，README 不提前声明不可用命令。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖将保留在各自独立评估目录中，不加入生产安装路径或 npm 发布包。
+
+Benchmark 1 已提供可运行的 BumblebeeBench：
+
+```bash
+npm run benchmark:1       # 每个场景执行 1 次，用于快速回归
+npm run benchmark:1:full  # 每个场景执行 30 次，用于延迟分布
+```
+
+它直接运行 12 个冻结场景并复用 Benchmark 0 保存证据。smoke 结果只能确认功能和硬门槛，单次 p95/p99 没有统计意义；正式比较必须使用 full profile。场景、触发流程、输出目录和已知边界见 `benchmark/benchmark_1_bumblebee_bench/README.md`。
 
 ### 结果留存与改进闭环
 
@@ -1294,16 +1312,17 @@ flowchart LR
 
 ### 当前成果
 
-以下是 Benchmark 0 接入后的确定性工程基线，不是 BCS-v1：
+以下是 Benchmark 1 接入后的确定性工程基线，不是 BCS-v1：
 
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 53 个测试文件、272 项测试全部通过 |
+| Vitest | 58 个测试文件、287 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
 | npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
-| BumblebeeBench | 尚未实现和运行 |
+| Benchmark 1 | 已实现，5 个测试文件、15 项测试全部通过 |
+| BumblebeeBench | smoke profile 的 12/12 场景通过，硬门槛合格，BB = 100；该结果仅用于快速回归，不作为 full 正式成绩 |
 | Terminal-Bench 2.1 | 尚未接入 |
 | AgentDojo Workspace | 尚未接入 |
 | LongMemEval-Bumblebee | 尚未构建 |
