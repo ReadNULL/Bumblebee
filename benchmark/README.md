@@ -19,6 +19,7 @@ benchmark/benchmark_<序号>_<测试集或能力名称>/
 | ---: | --- | --- | --- |
 | 0 | `benchmark_0_evaluation_core` | 统一评估契约、追加式运行记录、制品完整性、硬门槛与 lesson | 已实现 |
 | 1 | `benchmark_1_bumblebee_bench` | Runtime、取消、权限、Sub-Agent、Channel、Memory 的确定性工程基准 | 已实现 |
+| 2 | `benchmark_2_terminal_bench_2_1` | Harbor/Terminal-Bench 2.1 适配、三轮基线校准、结果归一化与评分 | 已实现，待真实评估 |
 
 原始模型输出、工具轨迹和 verifier 产物必须写入各积木的 `artifacts/`
 或外部 CI artifact/object storage。仓库只提交脱敏后的配置、摘要和经验记录。

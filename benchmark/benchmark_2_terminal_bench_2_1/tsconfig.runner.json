@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noCheck": true,
+    "noEmit": false,
+    "outDir": ".runtime/build",
+    "rootDir": "../..",
+    "sourceMap": false
+  },
+  "include": [
+    "../../src/**/*.ts",
+    "../benchmark_0_evaluation_core/src/**/*.ts",
+    "src/**/*.ts"
+  ]
+}

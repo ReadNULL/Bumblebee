@@ -1132,7 +1132,7 @@ DomainScore = 0.80 * Correctness + 0.20 * SLOCompliance
 
 ### Terminal-Bench 2.1
 
-[Terminal-Bench 2.1](https://www.tbench.ai/benchmarks) 用真实终端环境中的可执行验证器衡量端到端任务结果。Bumblebee 通过 [Harbor 自定义 Agent Adapter](https://www.harborframework.com/docs/datasets/adapters-human) 接入，不修改上游任务和 verifier。
+[Terminal-Bench 2.1](https://github.com/harbor-framework/terminal-bench-2-1) 用真实终端环境中的可执行验证器衡量端到端任务结果。Bumblebee 通过 [Harbor 自定义 Agent](https://www.harborframework.com/docs/agents) 接入，不修改上游任务和 verifier。
 
 ```text
 TB = 0.80 * OfficialReward
@@ -1141,7 +1141,7 @@ TB = 0.80 * OfficialReward
    + 0.05 * Stability
 ```
 
-`OfficialReward` 使用上游 verifier 原始结果。成本和时间预算先通过三轮固定版本的 `pi-baseline` 建立并冻结；失败任务的效率分为 0。`Stability` 统计没有 Agent 崩溃、协议错误和基础设施错误的任务比例。
+`OfficialReward` 使用上游 verifier 原始结果。成本和时间预算先通过三轮固定版本的 `pi-baseline` 建立并冻结；失败任务的效率分为 0。`Stability` 统计没有 Agent 崩溃、协议错误和基础设施错误的任务比例。Benchmark 2 已实现 Harbor 0.20.0 薄适配器、逐任务中位数校准、结果归一化和硬门槛；尚未运行真实模型，因此当前没有 TB 分数。
 
 ### AgentDojo Workspace
 
@@ -1203,19 +1203,31 @@ benchmark/
 │   │   ├── recording/
 │   │   └── scoring/
 │   └── test/
-└── benchmark_1_bumblebee_bench/
+├── benchmark_1_bumblebee_bench/
+│   ├── manifests/
+│   │   └── bumblebee-bench-v1.json
+│   ├── src/
+│   │   ├── contracts/
+│   │   ├── runner/
+│   │   └── scenarios/
+│   ├── test/
+│   └── tsconfig.runner.json
+└── benchmark_2_terminal_bench_2_1/
+    ├── harbor_agent/
     ├── manifests/
-    │   └── bumblebee-bench-v1.json
     ├── src/
     │   ├── contracts/
+    │   ├── harbor/
+    │   ├── importer/
     │   ├── runner/
-    │   └── scenarios/
+    │   └── scoring/
     ├── test/
+    ├── requirements.txt
     └── tsconfig.runner.json
 ```
 
 评估积木统一命名为
-`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 和 Benchmark 1 已实现；后续测试集预计分别建立 `benchmark_2_terminal_bench_2_1`、`benchmark_3_agentdojo_workspace` 和 `benchmark_4_longmemeval_bumblebee`，必须逐积木设计、验证后再进入下一项。
+`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0、Benchmark 1 和 Benchmark 2 已实现；后续测试集预计分别建立 `benchmark_3_agentdojo_workspace` 和 `benchmark_4_longmemeval_bumblebee`，必须逐积木设计、验证后再进入下一项。
 
 `benchmark_0_evaluation_core` 是已经实现的评估基础积木，本身不调用模型或下载数据集：
 
@@ -1244,6 +1256,14 @@ npm run benchmark:1:full  # 每个场景执行 30 次，用于延迟分布
 ```
 
 它直接运行 12 个冻结场景并复用 Benchmark 0 保存证据。smoke 结果只能确认功能和硬门槛，单次 p95/p99 没有统计意义；正式比较必须使用 full profile。场景、触发流程、输出目录和已知边界见 `benchmark/benchmark_1_bumblebee_bench/README.md`。
+
+Benchmark 2 已提供 Terminal-Bench 2.1 的评估工程入口：
+
+```bash
+npm run benchmark:2
+```
+
+该命令默认只显示帮助，不调用模型。`plan` 生成 baseline/candidate Harbor 命令，`calibrate` 从恰好三轮固定版本的 Pi job 冻结逐任务成本和时延预算，`import` 将已有 candidate job 归一化并复用 Benchmark 0 保存全部成功、失败、取消和无效结果。未提供预算时仍保存原始分项，但明确返回 `NQ`。环境准备、Windows positional 参数、运行顺序和失败分类见 `benchmark/benchmark_2_terminal_bench_2_1/README.md`。
 
 ### 结果留存与改进闭环
 
@@ -1312,18 +1332,19 @@ flowchart LR
 
 ### 当前成果
 
-以下是 Benchmark 1 接入后的确定性工程基线，不是 BCS-v1：
+以下是当前确定性工程验证结果，不是 Terminal-Bench 实测成绩或 BCS-v1：
 
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 58 个测试文件、287 项测试全部通过 |
+| Vitest | 66 个测试文件、312 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
 | npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
 | Benchmark 1 | 已实现，5 个测试文件、15 项测试全部通过 |
 | BumblebeeBench | 2026-07-23 full 基线：360/360 trial 通过，9 个硬门槛合格，BB = 100.00；详细结果见 `benchmark/benchmark_1_bumblebee_bench/README.md` |
-| Terminal-Bench 2.1 | 尚未接入 |
+| Benchmark 2 | 已实现，8 个测试文件、25 项确定性测试全部通过 |
+| Terminal-Bench 2.1 | Harbor 适配、三轮校准和评分链路已实现；尚未运行真实模型，TB = `N/A` |
 | AgentDojo Workspace | 尚未接入 |
 | LongMemEval-Bumblebee | 尚未构建 |
 | BCS-v1 | `N/A` |
