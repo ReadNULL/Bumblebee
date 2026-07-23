@@ -93,6 +93,7 @@
     "benchmark:1": "tsc -p benchmark/benchmark_1_bumblebee_bench/tsconfig.runner.json && node benchmark/benchmark_1_bumblebee_bench/.runtime/build/benchmark/benchmark_1_bumblebee_bench/src/cli.js --profile smoke",
     "benchmark:1:full": "tsc -p benchmark/benchmark_1_bumblebee_bench/tsconfig.runner.json && node benchmark/benchmark_1_bumblebee_bench/.runtime/build/benchmark/benchmark_1_bumblebee_bench/src/cli.js --profile full",
     "benchmark:2": "tsc -p benchmark/benchmark_2_terminal_bench_2_1/tsconfig.runner.json && node benchmark/benchmark_2_terminal_bench_2_1/.runtime/build/benchmark/benchmark_2_terminal_bench_2_1/src/cli.js",
+    "benchmark:3": "tsc -p benchmark/benchmark_3_agentdojo_workspace/tsconfig.runner.json && node benchmark/benchmark_3_agentdojo_workspace/.runtime/build/benchmark/benchmark_3_agentdojo_workspace/src/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -107,6 +108,7 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.78.1",
     "@types/node": "22.19.20",
+    "typebox": "1.1.38",
     "typescript": "5.9.3",
     "vitest": "2.1.9"
   },

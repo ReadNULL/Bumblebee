@@ -1,0 +1,2 @@
+# Benchmark-only dependency. It is intentionally excluded from npm install.
+agentdojo==0.1.35

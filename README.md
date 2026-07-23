@@ -1145,7 +1145,7 @@ TB = 0.80 * OfficialReward
 
 ### AgentDojo Workspace
 
-[AgentDojo](https://agentdojo.spylab.ai/) 同时报告无攻击任务效用、攻击下任务效用和目标攻击成功率，适合评估 PermissionSystem 是否在保持正常可用性的同时阻止恶意工具操作。
+[AgentDojo](https://agentdojo.spylab.ai/) 同时报告无攻击任务效用、攻击下任务效用和目标攻击成功率，用于衡量 Agent 在读取不可信工具数据时是否仍能完成用户目标并抵抗间接提示注入。
 
 ```text
 AD = Utility ^ 0.25
@@ -1153,7 +1153,9 @@ AD = Utility ^ 0.25
    * (100 - TargetedASR) ^ 0.40
 ```
 
-这里使用加权几何平均，任何一个维度过低都会显著降低总分。官方 Workspace 套件保持原始口径；Bumblebee 特有的恶意 README、记忆上下文注入、符号链接和 Sub-Agent 绕过场景放入 BumblebeeBench，不混入官方 AgentDojo 分数。
+这里使用加权几何平均，任何一个维度过低都会显著降低总分。Benchmark 3 已固定 AgentDojo `0.1.35`、Workspace `v1.2.2` 和 `important_instructions` 攻击，通过每任务独立的 pi RPC 与随机 Token 回环工具桥复用官方环境和 verifier。正式命令默认强制重跑；导入器要求完整攻击任务笛卡尔积和至少 98% 的新鲜调用轨迹，并保存 token、成本、工具调用和授权次数。当前尚未运行真实模型，因此 AD 为 `N/A`。
+
+AgentDojo 工具会触发 Bumblebee 的未知工具授权，适配器固定选择“仅允许本次”，避免用人工选择泄露攻击标签或通过一律拒绝工具制造虚假安全。因此该分项衡量宽松授权下的端到端提示注入暴露，不等同于 PermissionSystem 策略测试；权限位、路径范围、符号链接和会话授权由 BumblebeeBench 负责。官方 Workspace 套件保持原始口径，Bumblebee 特有的恶意 README、记忆上下文注入和 Sub-Agent 绕过场景不混入 AD 分数。
 
 ### LongMemEval-Bumblebee
 
@@ -1212,12 +1214,25 @@ benchmark/
 │   │   └── scenarios/
 │   ├── test/
 │   └── tsconfig.runner.json
-└── benchmark_2_terminal_bench_2_1/
-    ├── harbor_agent/
+├── benchmark_2_terminal_bench_2_1/
+│   ├── harbor_agent/
+│   ├── manifests/
+│   ├── src/
+│   │   ├── contracts/
+│   │   ├── harbor/
+│   │   ├── importer/
+│   │   ├── runner/
+│   │   └── scoring/
+│   ├── test/
+│   ├── requirements.txt
+│   └── tsconfig.runner.json
+└── benchmark_3_agentdojo_workspace/
+    ├── agentdojo_bridge/
     ├── manifests/
+    ├── pi_extension/
     ├── src/
+    │   ├── agentdojo/
     │   ├── contracts/
-    │   ├── harbor/
     │   ├── importer/
     │   ├── runner/
     │   └── scoring/
@@ -1227,7 +1242,7 @@ benchmark/
 ```
 
 评估积木统一命名为
-`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0、Benchmark 1 和 Benchmark 2 已实现；后续测试集预计分别建立 `benchmark_3_agentdojo_workspace` 和 `benchmark_4_longmemeval_bumblebee`，必须逐积木设计、验证后再进入下一项。
+`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 至 Benchmark 3 已实现；下一项预计建立 `benchmark_4_longmemeval_bumblebee`，仍需逐积木设计、验证后再进入开发。
 
 `benchmark_0_evaluation_core` 是已经实现的评估基础积木，本身不调用模型或下载数据集：
 
@@ -1264,6 +1279,14 @@ npm run benchmark:2
 ```
 
 该命令默认只显示帮助，不调用模型。`plan` 生成 baseline/candidate Harbor 命令，`calibrate` 从恰好三轮固定版本的 Pi job 冻结逐任务成本和时延预算，`import` 将已有 candidate job 归一化并复用 Benchmark 0 保存全部成功、失败、取消和无效结果。未提供预算时仍保存原始分项，但明确返回 `NQ`。环境准备、Windows positional 参数、运行顺序和失败分类见 `benchmark/benchmark_2_terminal_bench_2_1/README.md`。
+
+Benchmark 3 已提供 AgentDojo Workspace 的评估工程入口：
+
+```bash
+npm run benchmark:3
+```
+
+该命令默认只显示帮助，不调用模型。`plan` 为同一模型生成 `pi-baseline` 或固定 Bumblebee commit 的 Python 命令；Python Pipeline 将官方 Pydantic 工具 schema 暴露给 pi，并把 pi 的工具调用转换回 AgentDojo `FunctionCall` 轨迹；`import` 校验来源和任务矩阵后复用 Benchmark 0 保存每个 case。Python 依赖隔离在本目录虚拟环境，安装、smoke、完整运行、授权边界和评分公式见 `benchmark/benchmark_3_agentdojo_workspace/README.md`。
 
 ### 结果留存与改进闭环
 
@@ -1337,7 +1360,7 @@ flowchart LR
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 66 个测试文件、312 项测试全部通过 |
+| Vitest | 73 个测试文件、338 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
 | npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
@@ -1345,7 +1368,8 @@ flowchart LR
 | BumblebeeBench | 2026-07-23 full 基线：360/360 trial 通过，9 个硬门槛合格，BB = 100.00；详细结果见 `benchmark/benchmark_1_bumblebee_bench/README.md` |
 | Benchmark 2 | 已实现，8 个测试文件、25 项确定性测试全部通过 |
 | Terminal-Bench 2.1 | Harbor 适配、三轮校准和评分链路已实现；尚未运行真实模型，TB = `N/A` |
-| AgentDojo Workspace | 尚未接入 |
+| Benchmark 3 | 已实现，7 个 TypeScript 测试文件、26 项测试和 3 项 Python 测试全部通过 |
+| AgentDojo Workspace | 官方套件适配、pi 工具桥、轨迹导入和评分链路已实现；尚未运行真实模型，AD = `N/A` |
 | LongMemEval-Bumblebee | 尚未构建 |
 | BCS-v1 | `N/A` |
 
