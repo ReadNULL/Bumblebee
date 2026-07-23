@@ -33,9 +33,15 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 | --- | --- | --- |
 | 9 | 只读 Sub-Agent | 把独立的代码库调查委派给隔离子会话，减少主对话上下文噪声并限制副作用 |
 
+### 渠道层
+
+| 轮次 | 积木 | 解决的问题 |
+| --- | --- | --- |
+| 10 | Channel Core | 统一平台消息契约、消息去重、会话调度和适配器生命周期 |
+
 ## 当前范围
 
-当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统和第 9 轮只读 Sub-Agent：
+当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent 和第 10 轮 Channel Core：
 
 - pi 包清单；
 - 最小 TypeScript 扩展入口；
@@ -50,9 +56,10 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - pi 无关的统一任务执行器和运行时组合根；
 - `session_start`、`session_shutdown` 与运行时生命周期接线；
 - pi 无关的权限内核、三位能力掩码、路径真实化、可恢复的精确/文件夹级会话授权和 `tool_call` 执行前拦截；
-- 单任务、只读、内存隔离的 Sub-Agent，以及 `delegate_task` Pi 工具适配器。
+- 单任务、只读、内存隔离的 Sub-Agent，以及 `delegate_task` Pi 工具适配器；
+- 平台无关的渠道消息、回复、对话端口和适配器契约，以及有界去重、运行时调度和生命周期管理。
 
-目前注册了 `session_start`、`session_shutdown`、`session_tree` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流、Dashboard 或渠道等业务功能。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
+目前注册了 `session_start`、`session_shutdown`、`session_tree` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流或 Dashboard。Channel Core 尚未接入 Pi Conversation Bridge 和任何真实平台适配器，因此安装当前版本不会自动连接飞书等渠道。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
 
 ## 目录约定
 
@@ -63,6 +70,15 @@ src/
 │   └── subagent/
 │       ├── index.ts
 │       ├── subagent-runner.ts
+│       └── types.ts
+├── channels/
+│   ├── index.ts
+│   └── core/
+│       ├── channel-dispatcher.ts
+│       ├── channel-manager.ts
+│       ├── index.ts
+│       ├── message-deduplicator.ts
+│       ├── normalization.ts
 │       └── types.ts
 ├── extension.ts
 ├── integrations/
@@ -124,6 +140,13 @@ test/
 │   ├── architecture.spec.ts
 │   └── subagent/
 │       └── subagent-runner.spec.ts
+├── channels/
+│   ├── architecture.spec.ts
+│   └── core/
+│       ├── channel-dispatcher.spec.ts
+│       ├── channel-manager.spec.ts
+│       ├── message-deduplicator.spec.ts
+│       └── normalization.spec.ts
 ├── extension.spec.ts
 ├── integrations/
 │   └── pi/
@@ -605,6 +628,121 @@ sequenceDiagram
 | PermissionSystem | 主会话确认是否发起委派，子会话限制为工作区内只读访问 |
 
 当前版本刻意没有复制社区扩展中的角色配置、Agent 团队、并行 fan-out、链式委派、持久化子会话或子任务 DAG。进程内 Pi SDK 方案可以直接复用当前模型和鉴权，避免子进程协议与临时文件，但它不适合执行不可信插件或 CPU 密集任务；真实需求出现后再评估 Worker/子进程隔离。当前也不流式回传子 Agent 的中间进度，长任务执行期间只响应取消，后续应先通过用户使用反馈确认是否值得增加进度事件。
+
+## Channel Core
+
+Channel Core 解决的是不同 IM 平台在消息字段、回调方式和生命周期上的差异。如果飞书、钉钉等 SDK 直接进入 Agent 逻辑，后续每接一个渠道都需要重新实现消息校验、会话排序、去重、取消和关闭流程。本轮先建立平台无关内核，真实平台只负责把 SDK 事件转换成统一消息，并把统一回复转换回平台 API。
+
+### 核心契约
+
+| 契约 | 职责 |
+| --- | --- |
+| `ChannelMessage` | 统一渠道、消息、会话、发送者、文本、时间戳和有限 metadata |
+| `ConversationPort` | 接收规范化消息并返回文本响应；下一轮由 Pi Conversation Bridge 实现 |
+| `ChannelReply` | 统一回复目标、原消息关联、正文和有限 metadata |
+| `ChannelAdapter` | 平台 SDK 边界，只实现 `start/send/stop` |
+| `ChannelDispatcher` | 校验消息、申请去重租约、生成会话键、调用对话端口并发送回复 |
+| `ChannelManager` | 启动多个适配器，跟踪在途消息，初始化失败回滚并在关闭时逆序释放 |
+
+```typescript
+interface ChannelAdapter {
+  readonly id: string;
+  start(context: ChannelAdapterStartContext): PromiseLike<void> | void;
+  send(reply: ChannelReply, signal: AbortSignal): PromiseLike<void> | void;
+  stop(): PromiseLike<void> | void;
+}
+
+interface ConversationPort {
+  respond(
+    message: ChannelMessage,
+    signal: AbortSignal,
+  ): PromiseLike<ConversationResponse | undefined>
+    | ConversationResponse
+    | undefined;
+}
+```
+
+`src/channels/core` 只依赖 Node.js、`foundation` 和 `runtime` 的公共出口，不依赖 Pi、飞书 SDK 或其他平台包。架构测试会阻止平台实现反向进入渠道内核。
+
+### 一条消息的处理流程
+
+```mermaid
+sequenceDiagram
+  participant SDK as 未来的平台 SDK
+  participant Adapter as ChannelAdapter
+  participant Manager as ChannelManager
+  participant Dispatcher as ChannelDispatcher
+  participant Dedup as MessageDeduplicator
+  participant Runtime as BumblebeeRuntime
+  participant Conversation as ConversationPort
+  SDK->>Adapter: 平台消息事件
+  Adapter->>Manager: onMessage(ChannelMessage)
+  Manager->>Dispatcher: dispatch(adapter, message, signal)
+  Dispatcher->>Dispatcher: 校验字段并冻结副本
+  Dispatcher->>Dedup: tryAcquire(channel + messageId)
+  alt 已处理或正在处理
+    Dedup-->>Dispatcher: duplicate
+    Dispatcher-->>Adapter: status=duplicate
+  else 首次处理
+    Dedup-->>Dispatcher: lease
+    Dispatcher->>Runtime: execute(哈希会话键, 哈希 traceId)
+    Runtime->>Conversation: respond(message, signal)
+    alt 无需回复
+      Conversation-->>Runtime: undefined
+      Dispatcher->>Dedup: commit()
+      Dispatcher-->>Adapter: status=no-reply
+    else 返回文本
+      Conversation-->>Runtime: ConversationResponse
+      Dispatcher->>Adapter: send(ChannelReply, signal)
+      Adapter-->>Dispatcher: 发送完成
+      Dispatcher->>Dedup: commit()
+      Dispatcher-->>Adapter: status=delivered
+    end
+  end
+```
+
+`ChannelDispatcher` 用 `channel + conversationId` 的 SHA-256 指纹生成稳定 `sessionKey`。因此同一渠道、同一会话的消息会复用 `BumblebeeRuntime` 的串行队列，不同会话仍可并行；原始会话 ID 不会进入运行时日志。`channel + messageId` 同样生成哈希 traceId，日志只记录渠道和状态，不记录发送者、消息正文、回复正文或 metadata。
+
+### 输入边界
+
+适配器 ID 必须是最多 64 个字符的小写标识，只允许字母、数字、`.`、`_` 和 `-`。消息、会话和发送者 ID 最多 256 个字符且不能包含控制字符；消息与回复文本不能为空，最长 32 Ki 个 JavaScript 字符。时间戳必须由适配器转换成非负安全整数。
+
+metadata 不是平台原始事件的透传通道：最多 32 项，值只能是 `null`、有限数字、布尔值或最长 2048 字符的字符串。核心层会复制到冻结的无原型对象，防止后续 SDK 修改数据及 `__proto__` 原型污染。图片、文件、富文本和平台原始 payload 等到真实需求明确后再扩展为显式类型。
+
+### 去重语义
+
+`MessageDeduplicator` 默认最多保留 1024 个消息 ID，成功记录保留 10 分钟。它采用租约而不是简单的 `Set`：
+
+| 状态 | 再次收到相同消息 | 最终处理 |
+| --- | --- | --- |
+| `processing` | 直接返回 `duplicate`，不并发执行第二次 | 成功时 `commit`，失败时 `release` |
+| `completed` 且 TTL 未过期 | 返回 `duplicate` | TTL 到期后允许重新处理 |
+| 处理或发送失败 | 当前租约被删除 | 平台重投可以再次执行 |
+
+容量不足时优先淘汰最早完成的记录，不淘汰仍在处理的消息；如果容量全部被在途消息占用，则返回可重试的 `UNAVAILABLE`，而不是冒险重复执行副作用。正在处理的租约不按 TTL 强制过期，因为旧任务可能仍在运行；忽略取消并永久挂起的实现最终会触发容量告警，而不会静默放行重复任务。
+
+去重目前只存在于当前进程，重启后不会保留。回复发送失败会释放租约，因此平台重投会重新调用 `ConversationPort`；这可能重复一次模型计算。等飞书真实重投和消息发送语义验证后，再决定是否需要持久化回复缓存或使用平台幂等键，本轮不提前引入数据库。
+
+### 生命周期与取消
+
+`ChannelManager.initialize()` 按配置顺序启动适配器，并在调用每个 `start()` 前登记 `stop()`。因此即使 SDK 启动到一半抛错，当前适配器和此前已启动适配器也会逆序关闭。适配器契约要求 `stop()` 幂等，并能清理由失败 `start()` 留下的部分资源。
+
+关闭时 Lifecycle 会先取消共享 signal，使所有在途分发停止；随后逆序停止适配器，阻止新事件进入；最后等待已经登记的消息回调退出。消息级 signal、Manager 生命周期 signal 和运行时关闭最终会传播到 `ConversationPort` 与 `adapter.send()`。与其他模块相同，取消是协作式的，忽略 signal 的 SDK 或对话实现仍会延长关闭时间。
+
+Channel Core 没有默认任务超时。构造 `ChannelDispatcher` 时可以按实际平台场景显式提供 `timeoutMs`，不把短回调和长 Agent 任务统一限制为 60 秒。
+
+### 复用的已有积木
+
+| 积木 | Channel Core 中的作用 |
+| --- | --- |
+| 错误模型 | 区分非法平台输入、容量不足、发送失败、取消和内部契约错误 |
+| 结构化日志 | 使用哈希 traceId 关联消息，不记录用户文本和平台原始 payload |
+| 取消与超时 | 平台、Manager 和运行时 signal 传播到对话处理与回复发送 |
+| 并发控制 | 同一渠道会话串行，不同会话共享全局并发配额 |
+| 生命周期 | 部分启动失败自动回滚，正常关闭逆序停止适配器并等待在途消息 |
+| 扩展运行时 | 提供统一 trace、可选超时、会话队列、信号量和退出追踪 |
+
+本轮不会创建 `ChannelManager` 实例，也没有修改扩展入口，因此当前版本没有后台连接和额外控制台输出。下一轮先实现 Pi Conversation Bridge，解决外部消息与 Agent 最终回复的可靠关联；桥接经过独立验收后，再使用飞书官方 SDK 实现第一个真实 `FeishuAdapter`。远程渠道的写操作授权、凭据加载、富媒体和持久化会话均不属于本轮范围。
 
 ## 环境要求
 
