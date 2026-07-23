@@ -1170,7 +1170,7 @@ LM = 0.35 * QAAccuracy
    + 0.10 * IsolationAccuracy
 ```
 
-所有指标按题型宏平均，避免简单题数量较多而掩盖知识更新、拒答或隔离问题。改编集还要覆盖旧值失效、项目移动、上下文压缩、`/resume`、恶意记录、敏感信息和飞书只读范围。
+QA 和检索指标按题型宏平均，更新与隔离只聚合有对应标注的题型；`AbstentionF1` 在完整矩阵上把“应拒答”作为正类统一计算，避免没有拒答正例的题型产生无意义 F1。当前已冻结 12 个项目原创场景，覆盖旧值失效、项目移动、上下文压缩、`/resume`、恶意记录、敏感信息和飞书只读范围。无模型的 `memory-core` 只诊断真实持久化、检索与隔离并固定返回 NQ；正式 `bumblebee-full` 通过 pi SDK 对 12 题各执行 3 次，只有完整 36 条回答、干净 commit 和全部安全门槛通过后才发布 LM。
 
 ### 消融与统计规范
 
@@ -1226,23 +1226,33 @@ benchmark/
 │   ├── test/
 │   ├── requirements.txt
 │   └── tsconfig.runner.json
-└── benchmark_3_agentdojo_workspace/
-    ├── agentdojo_bridge/
+├── benchmark_3_agentdojo_workspace/
+│   ├── agentdojo_bridge/
+│   ├── manifests/
+│   ├── pi_extension/
+│   ├── src/
+│   │   ├── agentdojo/
+│   │   ├── contracts/
+│   │   ├── importer/
+│   │   ├── runner/
+│   │   └── scoring/
+│   ├── test/
+│   ├── requirements.txt
+│   └── tsconfig.runner.json
+└── benchmark_4_longmemeval_bumblebee/
+    ├── datasets/
     ├── manifests/
-    ├── pi_extension/
     ├── src/
-    │   ├── agentdojo/
     │   ├── contracts/
-    │   ├── importer/
+    │   ├── reader/
     │   ├── runner/
     │   └── scoring/
     ├── test/
-    ├── requirements.txt
     └── tsconfig.runner.json
 ```
 
 评估积木统一命名为
-`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 至 Benchmark 3 已实现；下一项预计建立 `benchmark_4_longmemeval_bumblebee`，仍需逐积木设计、验证后再进入开发。
+`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 至 Benchmark 4 均已实现；真实模型评估将在所有适配器完成后统一执行。
 
 `benchmark_0_evaluation_core` 是已经实现的评估基础积木，本身不调用模型或下载数据集：
 
@@ -1287,6 +1297,16 @@ npm run benchmark:3
 ```
 
 该命令默认只显示帮助，不调用模型。`plan` 为同一模型生成 `pi-baseline` 或固定 Bumblebee commit 的 Python 命令；Python Pipeline 将官方 Pydantic 工具 schema 暴露给 pi，并把 pi 的工具调用转换回 AgentDojo `FunctionCall` 轨迹；`import` 校验来源和任务矩阵后复用 Benchmark 0 保存每个 case。Python 依赖隔离在本目录虚拟环境，安装、smoke、完整运行、授权边界和评分公式见 `benchmark/benchmark_3_agentdojo_workspace/README.md`。
+
+Benchmark 4 已提供 LongMemEval-Bumblebee 的评估工程入口：
+
+```bash
+npm run benchmark:4
+npm run benchmark:4 -- run memory-core
+npm run benchmark:4 -- run bumblebee-full <provider> <model> <thinking>
+```
+
+默认入口只显示帮助。`memory-core` 重放 12 个显式记忆场景，不调用模型且固定返回 NQ；`bumblebee-full` 使用无工具、逐题隔离的 pi SDK 会话运行三轮，统计 QA、Recall@5、Precision@5、更新、拒答和隔离。数据使用跨平台规范化 SHA-256 固定，原始 LongMemEval 数据不会复制进仓库，完整触发流程、门槛、当前诊断结果和非官方分数边界见 `benchmark/benchmark_4_longmemeval_bumblebee/README.md`。
 
 ### 结果留存与改进闭环
 
@@ -1360,7 +1380,7 @@ flowchart LR
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 73 个测试文件、338 项测试全部通过 |
+| Vitest | 80 个测试文件、362 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
 | npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
@@ -1370,7 +1390,8 @@ flowchart LR
 | Terminal-Bench 2.1 | Harbor 适配、三轮校准和评分链路已实现；尚未运行真实模型，TB = `N/A` |
 | Benchmark 3 | 已实现，7 个 TypeScript 测试文件、26 项测试和 3 项 Python 测试全部通过 |
 | AgentDojo Workspace | 官方套件适配、pi 工具桥、轨迹导入和评分链路已实现；尚未运行真实模型，AD = `N/A` |
-| LongMemEval-Bumblebee | 尚未构建 |
+| Benchmark 4 | 已实现，7 个测试文件、24 项确定性测试全部通过 |
+| LongMemEval-Bumblebee | `memory-core` 诊断 12/12 有效，Recall@5 = 100、Precision@5 = 85、更新/隔离 = 100、scope 泄漏和凭据落盘 = 0；尚未运行真实模型，LM = `N/A` |
 | BCS-v1 | `N/A` |
 
 ## 环境要求
