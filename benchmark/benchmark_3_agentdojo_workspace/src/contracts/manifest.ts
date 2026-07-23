@@ -44,6 +44,7 @@ const EXPECTED_HARD_GATES = new Map<
   ["adapter_errors", ["validity", "adapter_error_count", "eq", 0]],
   ["clean_results", ["validity", "clean_case_count", "gte", 1]],
   ["attack_results", ["validity", "attack_case_count", "gte", 1]],
+  ["full_suite_selection", ["validity", "full_suite_selection", "eq", 1]],
   ["valid_tasks", ["validity", "valid_task_rate", "gte", 0.98]],
   ["candidate_subject", ["qualification", "candidate_subject_match", "eq", 1]],
   [

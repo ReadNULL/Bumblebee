@@ -29,6 +29,8 @@ export interface RawResultOptions {
   readonly profile?: AgentDojoSubjectProfile;
   readonly status?: "completed" | "failed";
   readonly traceCount?: number;
+  readonly datasetUserTaskCount?: number;
+  readonly datasetInjectionTaskCount?: number;
 }
 
 export function loadRawManifest(): Record<string, unknown> {
@@ -116,8 +118,11 @@ export function createRawResult(
       suite: manifest.dataset.suite,
       attack: manifest.dataset.attack,
       contentSha256: "a".repeat(64),
-      userTaskCount: 40,
-      injectionTaskCount: 27,
+      userTaskCount:
+        options.datasetUserTaskCount ?? cleanCases.length,
+      injectionTaskCount:
+        options.datasetInjectionTaskCount ??
+        injectionUtilityCases.length,
       toolCount: 20,
     },
     subject,

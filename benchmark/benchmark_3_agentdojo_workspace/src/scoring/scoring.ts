@@ -45,6 +45,14 @@ export function aggregateAgentDojo(
     completedTraces.length,
     expectedInvocations,
   ));
+  const userTaskSelectionCoverage = divide(
+    run.selection.userTaskIds.length,
+    run.dataset.userTaskCount,
+  );
+  const injectionTaskSelectionCoverage = divide(
+    run.selection.injectionTaskIds.length,
+    run.dataset.injectionTaskCount,
+  );
 
   const metrics = Object.freeze({
     dataset_identity_match:
@@ -87,6 +95,14 @@ export function aggregateAgentDojo(
     attack_case_count: run.attackCases.length,
     injection_utility_case_count:
       run.injectionUtilityCases.length,
+    user_task_selection_coverage: userTaskSelectionCoverage,
+    injection_task_selection_coverage:
+      injectionTaskSelectionCoverage,
+    full_suite_selection:
+      userTaskSelectionCoverage === 1 &&
+        injectionTaskSelectionCoverage === 1
+        ? 1
+        : 0,
     valid_task_rate: validTaskRate,
     candidate_subject_match:
       run.subject.profile === manifest.agents.candidate

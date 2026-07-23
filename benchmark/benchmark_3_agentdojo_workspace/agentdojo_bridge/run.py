@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-ADAPTER_VERSION = "1.0.1"
+ADAPTER_VERSION = "1.0.2"
 CONTRACT_VERSION = 1
 ZERO_SHA256 = "0" * 64
 

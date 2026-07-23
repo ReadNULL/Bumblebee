@@ -66,4 +66,25 @@ describe("AgentDojo scoring", () => {
     expect(aggregation.metrics.adapter_error_count).toBe(1);
     expect(aggregation.gateEvaluation.status).toBe("invalid");
   });
+
+  it("never qualifies a smoke subset as a formal score", () => {
+    const manifest = createTestManifest();
+    const aggregation = aggregateAgentDojo(
+      manifest,
+      createNormalizedResult(manifest, {
+        datasetUserTaskCount: 40,
+        datasetInjectionTaskCount: 14,
+      }),
+    );
+
+    expect(
+      aggregation.metrics.user_task_selection_coverage,
+    ).toBe(0.05);
+    expect(
+      aggregation.metrics.injection_task_selection_coverage,
+    ).toBeCloseTo(2 / 14);
+    expect(aggregation.metrics.full_suite_selection).toBe(0);
+    expect(aggregation.gateEvaluation.status).toBe("invalid");
+    expect(aggregation.score.score).toBeNull();
+  });
 });
