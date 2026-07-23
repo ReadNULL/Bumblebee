@@ -95,6 +95,8 @@
     "benchmark:2": "tsc -p benchmark/benchmark_2_terminal_bench_2_1/tsconfig.runner.json && node benchmark/benchmark_2_terminal_bench_2_1/.runtime/build/benchmark/benchmark_2_terminal_bench_2_1/src/cli.js",
     "benchmark:3": "tsc -p benchmark/benchmark_3_agentdojo_workspace/tsconfig.runner.json && node benchmark/benchmark_3_agentdojo_workspace/.runtime/build/benchmark/benchmark_3_agentdojo_workspace/src/cli.js",
     "benchmark:4": "tsc -p benchmark/benchmark_4_longmemeval_bumblebee/tsconfig.runner.json && node benchmark/benchmark_4_longmemeval_bumblebee/.runtime/build/benchmark/benchmark_4_longmemeval_bumblebee/src/cli.js",
+    "benchmark:5": "tsc -p benchmark/benchmark_5_bcs_v1_scorecard/tsconfig.runner.json && node benchmark/benchmark_5_bcs_v1_scorecard/.runtime/build/benchmark/benchmark_5_bcs_v1_scorecard/src/cli.js",
+    "benchmark:score": "tsc -p benchmark/benchmark_5_bcs_v1_scorecard/tsconfig.runner.json && node benchmark/benchmark_5_bcs_v1_scorecard/.runtime/build/benchmark/benchmark_5_bcs_v1_scorecard/src/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

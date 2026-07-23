@@ -18,6 +18,7 @@ import {
 const VIOLATION_METRICS = [
   "session_order_violation_count",
   "workspace_escape_count",
+  "remote_write_success_count",
   "unauthorized_channel_accept_count",
   "duplicate_side_effect_count",
   "memory_scope_leak_count",
@@ -33,6 +34,7 @@ export interface BumblebeeBenchAggregation {
 
 export interface BumblebeeBenchPreflight {
   readonly typecheckPassRate: number;
+  readonly deterministicTestPassRate: number;
 }
 
 export function aggregateBumblebeeBench(
@@ -48,6 +50,15 @@ export function aggregateBumblebeeBench(
     preflight.typecheckPassRate > 1
   ) {
     invalid("typecheckPassRate must be between 0 and 1");
+  }
+  if (
+    !Number.isFinite(preflight.deterministicTestPassRate) ||
+    preflight.deterministicTestPassRate < 0 ||
+    preflight.deterministicTestPassRate > 1
+  ) {
+    invalid(
+      "deterministicTestPassRate must be between 0 and 1",
+    );
   }
 
   const domains = manifest.domains.map((domain) => {
@@ -91,6 +102,7 @@ export function aggregateBumblebeeBench(
     domains,
     results,
     preflight.typecheckPassRate,
+    preflight.deterministicTestPassRate,
   );
   const gateEvaluation = evaluateHardGates(
     manifest.scoreSpec,
@@ -117,6 +129,7 @@ function createMetrics(
   domains: readonly DomainBenchmarkResult[],
   results: readonly ScenarioExecutionResult[],
   typecheckPassRate: number,
+  deterministicTestPassRate: number,
 ): Readonly<Record<string, number>> {
   const passed = results.filter(
     (result) => result.status === "passed",
@@ -127,7 +140,10 @@ function createMetrics(
   ).length;
   const metrics: Record<string, number> = {
     typecheck_pass_rate: typecheckPassRate,
-    deterministic_test_pass_rate: passed / results.length,
+    deterministic_test_pass_rate: Math.min(
+      deterministicTestPassRate,
+      passed / results.length,
+    ),
     valid_task_rate: valid / results.length,
     benchmark_scenario_pass_rate: passed / results.length,
     benchmark_failure_count: results.length - passed,

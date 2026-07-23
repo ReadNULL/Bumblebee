@@ -23,6 +23,7 @@ export interface RunBumblebeeBenchOptions {
   readonly subject: SubjectIdentity;
   readonly environment: EnvironmentIdentity;
   readonly typecheckPassRate: number;
+  readonly deterministicTestPassRate: number;
   readonly parentRunId?: string;
   readonly signal?: AbortSignal;
   readonly clock?: () => Date;
@@ -106,7 +107,11 @@ export async function runBumblebeeBench(
     options.manifest,
     results,
     profile.repetitions,
-    { typecheckPassRate: options.typecheckPassRate },
+    {
+      typecheckPassRate: options.typecheckPassRate,
+      deterministicTestPassRate:
+        options.deterministicTestPassRate,
+    },
   );
   const report: BumblebeeBenchReport = Object.freeze({
     contractVersion: BUMBLEBEE_BENCH_CONTRACT_VERSION,

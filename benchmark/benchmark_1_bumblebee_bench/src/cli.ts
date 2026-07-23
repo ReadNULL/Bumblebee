@@ -62,10 +62,16 @@ async function main(): Promise<void> {
     );
   }
 
-  const [commit, status, typecheckPassRate] = await Promise.all([
+  const [
+    commit,
+    status,
+    typecheckPassRate,
+    deterministicTestPassRate,
+  ] = await Promise.all([
     runGit(projectRoot, ["rev-parse", "HEAD"]),
     runGit(projectRoot, ["status", "--porcelain"]),
     runTypecheck(projectRoot),
+    runDeterministicTests(projectRoot),
   ]);
   const controller = new AbortController();
   const onInterrupt = () => {
@@ -103,6 +109,7 @@ async function main(): Promise<void> {
         hardwareProfile: createHardwareProfile(),
       },
       typecheckPassRate,
+      deterministicTestPassRate,
       ...(cli.parentRunId === undefined
         ? {}
         : { parentRunId: cli.parentRunId }),
@@ -212,6 +219,34 @@ async function runTypecheck(projectRoot: string): Promise<number> {
     });
     process.stderr.write(
       `Typecheck preflight failed [${error.code}].\n`,
+    );
+    return 0;
+  }
+}
+
+async function runDeterministicTests(
+  projectRoot: string,
+): Promise<number> {
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        path.join("node_modules", "vitest", "vitest.mjs"),
+        "run",
+      ],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
+    return 1;
+  } catch (cause: unknown) {
+    const error = normalizeError(cause, {
+      message: "Deterministic test preflight failed",
+    });
+    process.stderr.write(
+      `Deterministic test preflight failed [${error.code}].\n`,
     );
     return 0;
   }

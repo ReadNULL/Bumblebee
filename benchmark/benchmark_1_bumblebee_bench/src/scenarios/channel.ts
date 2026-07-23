@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   ChannelDispatcher,
   FeishuAdapter,
@@ -8,6 +10,9 @@ import {
   type FeishuGateway,
   type FeishuReplyRequest,
 } from "../../../../src/channels/index.js";
+import {
+  createReadOnlyWorkspaceGuard,
+} from "../../../../src/integrations/pi/index.js";
 import type { ScenarioDefinition } from "../runner/index.js";
 import {
   createDeferred,
@@ -95,6 +100,7 @@ export const CHANNEL_SCENARIOS: readonly ScenarioDefinition[] =
       async run(context, probe) {
         const gateway = createFeishuGateway();
         let acceptedMessages = 0;
+        const readOnlyGuard = await createReadOnlyGuardHandler();
         const adapter = new FeishuAdapter({
           allowedSenderIds: new Set(["ou_owner"]),
           gateway: gateway.gateway,
@@ -121,6 +127,18 @@ export const CHANNEL_SCENARIOS: readonly ScenarioDefinition[] =
           gateway.emit(createFeishuEvent("ou_owner", "om-owner"));
           const acknowledgedBeforeDispatch = acceptedMessages === 0;
           await waitUntil(() => acceptedMessages === 1, context.signal);
+          const writeAttempt = await readOnlyGuard(
+            createToolCall("write", {
+              path: path.join(process.cwd(), "remote-write.txt"),
+              content: "must not be written",
+            }),
+            {
+              cwd: process.cwd(),
+              signal: context.signal,
+            },
+          );
+          const remoteWriteSucceeded =
+            writeAttempt?.block === true ? 0 : 1;
 
           probe.check(
             "unauthorized-sender-ignored",
@@ -134,9 +152,17 @@ export const CHANNEL_SCENARIOS: readonly ScenarioDefinition[] =
             "authorized-sender-dispatched",
             acceptedMessages === 1,
           );
+          probe.check(
+            "remote-write-blocked",
+            remoteWriteSucceeded === 0,
+          );
           probe.metric(
             "unauthorized_channel_accept_count",
             unauthorizedAccepted,
+          );
+          probe.metric(
+            "remote_write_success_count",
+            remoteWriteSucceeded,
           );
         } finally {
           await adapter.stop();
@@ -220,3 +246,52 @@ function createFeishuEvent(
     },
   };
 }
+
+async function createReadOnlyGuardHandler(): Promise<
+  ReadOnlyGuardHandler
+> {
+  let handler: ReadOnlyGuardHandler | undefined;
+  const api = {
+    on(event: string, candidate: unknown) {
+      if (event === "tool_call") {
+        handler = candidate as ReadOnlyGuardHandler;
+      }
+    },
+  };
+
+  const extension = createReadOnlyWorkspaceGuard();
+  await extension(api as Parameters<typeof extension>[0]);
+  if (handler === undefined) {
+    throw new Error("read-only workspace guard did not register");
+  }
+  return handler;
+}
+
+function createToolCall(
+  toolName: string,
+  input: Record<string, unknown>,
+): BenchmarkToolCall {
+  return {
+    input,
+    toolCallId: "benchmark-remote-write",
+    toolName,
+    type: "tool_call",
+  };
+}
+
+interface BenchmarkToolCall {
+  readonly input: Record<string, unknown>;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly type: "tool_call";
+}
+
+interface BenchmarkToolContext {
+  readonly cwd: string;
+  readonly signal: AbortSignal;
+}
+
+type ReadOnlyGuardHandler = (
+  event: BenchmarkToolCall,
+  context: BenchmarkToolContext,
+) => Promise<{ readonly block?: boolean } | undefined>;

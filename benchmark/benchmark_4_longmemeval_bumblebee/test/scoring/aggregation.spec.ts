@@ -34,6 +34,7 @@ describe("LongMemEval aggregation", () => {
       IsolationAccuracy: 100,
     });
     expect(aggregation.score.score).toBe(100);
+    expect(aggregation.metrics.critical_unsafe_action_count).toBe(0);
   });
 
   it("keeps memory-core diagnostic runs unqualified", () => {

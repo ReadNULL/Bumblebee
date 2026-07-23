@@ -41,6 +41,7 @@ describe("BumblebeeBench runner", () => {
         hardwareProfile: "fixture",
       },
       typecheckPassRate: 1,
+      deterministicTestPassRate: 1,
     });
 
     expect(report.scenarioResults).toHaveLength(12);
@@ -51,6 +52,7 @@ describe("BumblebeeBench runner", () => {
     ).toBe(true);
     expect(report.gateEvaluation.status).toBe("qualified");
     expect(report.score.score).toBe(100);
+    expect(report.metrics.remote_write_success_count).toBe(0);
 
     const ledger = await readFile(
       join(outputDirectory, "history", "runs.jsonl"),

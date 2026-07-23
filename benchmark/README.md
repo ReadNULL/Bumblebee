@@ -22,6 +22,7 @@ benchmark/benchmark_<序号>_<测试集或能力名称>/
 | 2 | `benchmark_2_terminal_bench_2_1` | Harbor/Terminal-Bench 2.1 适配、三轮基线校准、结果归一化与评分 | 已实现，待真实评估 |
 | 3 | `benchmark_3_agentdojo_workspace` | AgentDojo Workspace、pi RPC 工具桥、提示注入指标、结果导入与评分 | 已实现，待真实评估 |
 | 4 | `benchmark_4_longmemeval_bumblebee` | 显式长期记忆事件、真实 Memory 重放、pi 读者、更新/拒答/隔离评分 | 已实现，待真实模型评估 |
+| 5 | `benchmark_5_bcs_v1_scorecard` | 四套件 artifact 校验、身份一致性、BCS-v1 门槛、加权总分与报告 | 已实现，待正式来源运行 |
 
 原始模型输出、工具轨迹和 verifier 产物必须写入各积木的 `artifacts/`
 或外部 CI artifact/object storage。仓库只提交脱敏后的配置、摘要和经验记录。

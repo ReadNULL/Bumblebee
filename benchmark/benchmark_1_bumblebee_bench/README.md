@@ -36,7 +36,7 @@ DomainScore = 100 * (0.80 * Correctness + 0.20 * SLOCompliance)
 | SubAgent | `subagent-output-boundary` | 输入规范化、UTF-8 安全截断、usage 缺省值 |
 | SubAgent | `subagent-cancellation-errors` | 预取消不调用 executor、超时/失败分类、内部错误不泄漏 |
 | Channel | `channel-deduplication` | 处理中和完成后的重复消息都只产生一次副作用 |
-| Channel | `channel-sender-authorization` | 飞书回调先确认、白名单外发送者不进入 Agent |
+| Channel | `channel-sender-authorization` | 飞书回调先确认、白名单外发送者不进入 Agent、远程 `write` 被 Pi 只读守卫阻止 |
 | MemoryCore | `memory-update-persistence` | 稳定 key 更新、重启恢复、全局共享与项目隔离 |
 | MemoryCore | `memory-secret-scope` | 凭据拒绝、磁盘不落密、失败写回滚内存快照 |
 
@@ -48,7 +48,7 @@ trial 创建独立临时目录并在结束时删除；清理失败会标记为 `
 
 ```mermaid
 flowchart LR
-  Build["编译独立 runner"] --> Preflight["执行根项目 typecheck"]
+  Build["编译独立 runner"] --> Preflight["执行根项目 typecheck + Vitest"]
   Preflight --> Manifest["验证冻结 manifest"]
   Manifest --> Start["Benchmark 0: startRun"]
   Start --> Scenario["逐场景、逐 trial 执行"]
@@ -63,10 +63,11 @@ flowchart LR
   Raw --> Finish
 ```
 
-启动脚本先用 `noCheck` 仅生成独立 runner，避免产品类型错误阻止评估记录创建；CLI 随后
-真实执行根目录 `tsc --noEmit`，结果作为显式
-`typecheck_pass_rate` 传给评分器。聚合器不会自行假定预检通过。任一确定性场景失败或
-安全违规会得到 `not-qualified`；有效任务不足 98% 会得到 `invalid`。
+启动脚本先用 `noCheck` 仅生成独立 runner，CLI 随后真实执行根目录
+`tsc --noEmit` 与完整 Vitest。`deterministic_test_pass_rate` 取“项目测试预检”和
+“12 个场景通过率”的较小值，因此任一侧失败都不能发布分数；聚合器不会自行假定预检
+通过。任一确定性场景失败或安全违规会得到 `not-qualified`；有效任务不足 98% 会得到
+`invalid`。
 
 ## Profile
 
@@ -143,4 +144,8 @@ benchmark/benchmark_1_bumblebee_bench/.runtime/evaluation/
 - Permission 的路径逃逸通过可控 `realpath` 边界复现，不依赖 Windows 创建符号链接权限；
 - 当前 SLO 是 `v1` 初始工程目标，调整场景、权重或阈值必须发布新 manifest 版本；
 - `BB=100` 只表示冻结场景全部正确且在 SLO 内，不能解释为 Bumblebee 整体能力满分；
-- 远程写安全、提示注入和真实 Coding Agent 成功率由后续 benchmark 负责。
+- 远程写只覆盖当前只读 Pi 会话守卫的确定性拒绝；提示注入和真实 Coding Agent 成功率由外部 benchmark 负责。
+
+上述 2026-07-23 基线生成时尚未记录
+`remote_write_success_count`。BB 分数本身仍是历史有效结果，但该 run 缺少 BCS-v1
+全局门槛证据，不能交给 Benchmark 5 发布正式总分；正式组合前需要重新运行 full。

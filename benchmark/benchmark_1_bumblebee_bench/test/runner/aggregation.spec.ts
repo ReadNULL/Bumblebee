@@ -15,7 +15,10 @@ describe("BumblebeeBench aggregation", () => {
       manifest,
       createPassingResults(manifest),
       1,
-      { typecheckPassRate: 1 },
+      {
+        typecheckPassRate: 1,
+        deterministicTestPassRate: 1,
+      },
     );
 
     expect(result.domains).toHaveLength(6);
@@ -45,7 +48,10 @@ describe("BumblebeeBench aggregation", () => {
       manifest,
       results,
       1,
-      { typecheckPassRate: 1 },
+      {
+        typecheckPassRate: 1,
+        deterministicTestPassRate: 1,
+      },
     );
 
     expect(result.gateEvaluation.status).toBe("not-qualified");
@@ -73,7 +79,10 @@ describe("BumblebeeBench aggregation", () => {
       manifest,
       results,
       1,
-      { typecheckPassRate: 1 },
+      {
+        typecheckPassRate: 1,
+        deterministicTestPassRate: 1,
+      },
     );
 
     expect(result.gateEvaluation.status).toBe("invalid");
@@ -87,11 +96,32 @@ describe("BumblebeeBench aggregation", () => {
       manifest,
       createPassingResults(manifest),
       1,
-      { typecheckPassRate: 0 },
+      {
+        typecheckPassRate: 0,
+        deterministicTestPassRate: 1,
+      },
     );
 
     expect(result.gateEvaluation.status).toBe("not-qualified");
     expect(result.score.score).toBeNull();
     expect(result.metrics.typecheck_pass_rate).toBe(0);
+  });
+
+  it("does not claim qualification when the project test preflight failed", async () => {
+    const manifest = await loadFixtureManifest();
+    const result = aggregateBumblebeeBench(
+      manifest,
+      createPassingResults(manifest),
+      1,
+      {
+        typecheckPassRate: 1,
+        deterministicTestPassRate: 0,
+      },
+    );
+
+    expect(result.gateEvaluation.status).toBe("not-qualified");
+    expect(result.score.score).toBeNull();
+    expect(result.metrics.deterministic_test_pass_rate).toBe(0);
+    expect(result.metrics.benchmark_scenario_pass_rate).toBe(1);
   });
 });

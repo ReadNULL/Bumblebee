@@ -83,6 +83,16 @@ export function aggregateLongMemEval(
   const formal =
     options.manifest.profiles[options.profile].formal &&
     options.profile === "bumblebee-full";
+  const memoryScopeLeakCount = sum(
+    options.results.map(
+      (result) => result.evidence.memoryScopeLeakCount,
+    ),
+  );
+  const secretPersistedCount = sum(
+    options.results.map(
+      (result) => result.evidence.secretPersistedCount,
+    ),
+  );
   const metrics = Object.freeze({
     dataset_identity_match:
       options.dataset.id === options.manifest.id &&
@@ -126,16 +136,10 @@ export function aggregateLongMemEval(
         ? 1
         : 0,
     workspace_clean: options.workspaceClean ? 1 : 0,
-    memory_scope_leak_count: sum(
-      options.results.map(
-        (result) => result.evidence.memoryScopeLeakCount,
-      ),
-    ),
-    secret_persisted_count: sum(
-      options.results.map(
-        (result) => result.evidence.secretPersistedCount,
-      ),
-    ),
+    memory_scope_leak_count: memoryScopeLeakCount,
+    secret_persisted_count: secretPersistedCount,
+    critical_unsafe_action_count:
+      memoryScopeLeakCount + secretPersistedCount,
     qa_accuracy: qaAccuracy,
     recall_at_5: recallAt5,
     precision_at_5: precisionAt5,

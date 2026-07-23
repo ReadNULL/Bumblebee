@@ -1188,7 +1188,7 @@ QA 和检索指标按题型宏平均，更新与隔离只聚合有对应标注�
 - 模型相关任务至少运行 3 次，性能测试完成预热后至少重复 30 次；
 - 使用任务级 bootstrap 计算 95% 置信区间，结果格式为 `score ± confidence interval`；
 - 同时保存成功率、成本、token、耗时、工具调用、授权次数和完整失败分类；
-- 不同模型、操作系统或硬件 profile 的结果不能直接合并比较；
+- 同一分项跨轮比较时必须固定模型、操作系统和硬件 profile；BCS 汇总允许各套件使用其冻结的独立环境，但逐项记录且不能把不同环境的同名分项直接比较；
 - 每份报告记录 Bumblebee commit、pi 版本、数据集版本、数据哈希和评分规范版本。
 
 ### Benchmark 工程
@@ -1239,12 +1239,22 @@ benchmark/
 │   ├── test/
 │   ├── requirements.txt
 │   └── tsconfig.runner.json
-└── benchmark_4_longmemeval_bumblebee/
-    ├── datasets/
+├── benchmark_4_longmemeval_bumblebee/
+│   ├── datasets/
+│   ├── manifests/
+│   ├── src/
+│   │   ├── contracts/
+│   │   ├── reader/
+│   │   ├── runner/
+│   │   └── scoring/
+│   ├── test/
+│   └── tsconfig.runner.json
+└── benchmark_5_bcs_v1_scorecard/
     ├── manifests/
     ├── src/
     │   ├── contracts/
-    │   ├── reader/
+    │   ├── importer/
+    │   ├── reporting/
     │   ├── runner/
     │   └── scoring/
     ├── test/
@@ -1252,7 +1262,7 @@ benchmark/
 ```
 
 评估积木统一命名为
-`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 至 Benchmark 4 均已实现；真实模型评估将在所有适配器完成后统一执行。
+`benchmark/benchmark_<序号>_<测试集或能力名称>/`。序号从 `0` 开始，名称使用小写英文和下划线。Benchmark 0 至 Benchmark 5 均已实现；真实模型评估将在所有适配器完成后统一执行。
 
 `benchmark_0_evaluation_core` 是已经实现的评估基础积木，本身不调用模型或下载数据集：
 
@@ -1271,7 +1281,7 @@ JSON artifact、ledger 和 lesson 写入前复用结构化日志脱敏器；`rec
 npm run benchmark:0
 ```
 
-该入口只执行 Benchmark 0 的确定性测试。`benchmark:smoke`、`benchmark:full` 和 `benchmark:score` 要等具体测试集、无头 Pi bridge 与报告器实现后再开放，README 不提前声明不可用命令。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖将保留在各自独立评估目录中，不加入生产安装路径或 npm 发布包。
+该入口只执行 Benchmark 0 的确定性测试。跨套件自动执行入口仍未开放，因为 Harbor、AgentDojo 与 pi reader 需要显式模型、预算和外部环境；`benchmark:score` 已由 Benchmark 5 提供，只读取既有 run，不调用模型。Harbor、AgentDojo、LongMemEval、Python 和 Docker 依赖保留在各自独立评估目录中，不加入生产安装路径或 npm 发布包。
 
 Benchmark 1 已提供可运行的 BumblebeeBench：
 
@@ -1307,6 +1317,15 @@ npm run benchmark:4 -- run bumblebee-full <provider> <model> <thinking>
 ```
 
 默认入口只显示帮助。`memory-core` 重放 12 个显式记忆场景，不调用模型且固定返回 NQ；`bumblebee-full` 使用无工具、逐题隔离的 pi SDK 会话运行三轮，统计 QA、Recall@5、Precision@5、更新、拒答和隔离。数据使用跨平台规范化 SHA-256 固定，原始 LongMemEval 数据不会复制进仓库，完整触发流程、门槛、当前诊断结果和非官方分数边界见 `benchmark/benchmark_4_longmemeval_bumblebee/README.md`。
+
+Benchmark 5 已提供 BCS-v1 总控与计分卡：
+
+```bash
+npm run benchmark:5
+npm run benchmark:score -- score <BB_RUN_DIR> <TB_RUN_DIR> <AD_RUN_DIR> <LM_RUN_DIR>
+```
+
+默认入口只显示帮助，不调用模型。`score` 读取四个 Benchmark 0 标准 run 目录，通过 ledger 引用重新校验 manifest、summary 和全部 task artifact 的 SHA-256；随后要求正式 profile、同一 Bumblebee commit、同一 pi 版本、TB/AD/LM 使用同一模型且工作区干净。全部来源和 BCS-v1 硬门槛通过后才按 `35/30/20/15` 发布总分，否则保留原始分项并输出 `score: null` 与明确原因。Benchmark 1 新增了远程只读写入拦截指标，旧的 BB=100 run 缺少该全局门槛证据，正式组合前必须重跑。输入目录、资格语义、指标来源和报告结构见 `benchmark/benchmark_5_bcs_v1_scorecard/README.md`。
 
 ### 结果留存与改进闭环
 
@@ -1380,11 +1399,11 @@ flowchart LR
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 80 个测试文件、362 项测试全部通过 |
+| Vitest | 86 个测试文件、378 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
-| npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
+| npm 发布边界 | dry-run 共 78 个生产文件，不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
-| Benchmark 1 | 已实现，5 个测试文件、15 项测试全部通过 |
+| Benchmark 1 | 已实现，5 个测试文件、16 项测试全部通过；smoke 已验证 typecheck、全量 Vitest 与远程写阻断预检 |
 | BumblebeeBench | 2026-07-23 full 基线：360/360 trial 通过，9 个硬门槛合格，BB = 100.00；详细结果见 `benchmark/benchmark_1_bumblebee_bench/README.md` |
 | Benchmark 2 | 已实现，8 个测试文件、25 项确定性测试全部通过 |
 | Terminal-Bench 2.1 | Harbor 适配、三轮校准和评分链路已实现；尚未运行真实模型，TB = `N/A` |
@@ -1392,6 +1411,7 @@ flowchart LR
 | AgentDojo Workspace | 官方套件适配、pi 工具桥、轨迹导入和评分链路已实现；尚未运行真实模型，AD = `N/A` |
 | Benchmark 4 | 已实现，7 个测试文件、24 项确定性测试全部通过 |
 | LongMemEval-Bumblebee | `memory-core` 诊断 12/12 有效，Recall@5 = 100、Precision@5 = 85、更新/隔离 = 100、scope 泄漏和凭据落盘 = 0；尚未运行真实模型，LM = `N/A` |
+| Benchmark 5 | 已实现，6 个测试文件、15 项测试全部通过；artifact 校验、身份一致性、NQ 与报告链路已验证 |
 | BCS-v1 | `N/A` |
 
 ## 环境要求
