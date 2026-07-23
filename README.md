@@ -1322,7 +1322,7 @@ flowchart LR
 | npm 发布边界 | `package.json#files` 不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
 | Benchmark 1 | 已实现，5 个测试文件、15 项测试全部通过 |
-| BumblebeeBench | smoke profile 的 12/12 场景通过，硬门槛合格，BB = 100；该结果仅用于快速回归，不作为 full 正式成绩 |
+| BumblebeeBench | 2026-07-23 full 基线：360/360 trial 通过，9 个硬门槛合格，BB = 100.00；详细结果见 `benchmark/benchmark_1_bumblebee_bench/README.md` |
 | Terminal-Bench 2.1 | 尚未接入 |
 | AgentDojo Workspace | 尚未接入 |
 | LongMemEval-Bumblebee | 尚未构建 |

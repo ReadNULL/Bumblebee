@@ -78,6 +78,32 @@ flowchart LR
 `smoke` 的单次 p95/p99 只用于快速诊断，不具备统计意义。正式比较必须使用 `full`，
 并保持 Node.js、操作系统和硬件 profile 一致。
 
+## 正式基线
+
+2026-07-23 在干净工作树上执行了首个 `full` profile：
+
+| 项目 | 结果 |
+| --- | --- |
+| Bumblebee commit | `7b09b99f7c5bcd949913029df33a2634cfa6ac53` |
+| Run ID | `run_mrx9pxd8_8d3880f9-65df-4afe-a330-60e948dc0e02` |
+| 环境 | Node.js 22.20.0、Windows x64、32 CPU、23 GiB |
+| 执行规模 | 12 个场景，每个场景 30 次，共 360 个 trial |
+| 任务结果 | 360 passed、0 failed、0 cancelled、0 invalid |
+| 资格判定 | `qualified`，9 个 validity/qualification gate 全部通过 |
+| BB 分数 | `100.00` |
+
+| 域 | 正确率 | SLO 达标率 | 得分 | p50 | p95 | p99 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Runtime | 100% | 100% | 100.00 | 0.499 ms | 0.918 ms | 3.641 ms |
+| Cancellation | 100% | 100% | 100.00 | 1.108 ms | 47.639 ms | 51.532 ms |
+| Permission | 100% | 100% | 100.00 | 1.001 ms | 1.657 ms | 4.029 ms |
+| SubAgent | 100% | 100% | 100.00 | 0.229 ms | 0.433 ms | 1.241 ms |
+| Channel | 100% | 100% | 100.00 | 1.181 ms | 13.503 ms | 15.938 ms |
+| MemoryCore | 100% | 100% | 100.00 | 3.936 ms | 28.478 ms | 43.815 ms |
+
+该结果是离线确定性工程基线，只能与相同 manifest、Node.js、操作系统和硬件 profile
+下的运行直接比较，不代表模型推理、代码生成或真实 IM 网络链路的综合能力。
+
 ## 运行
 
 ```bash
