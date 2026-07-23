@@ -21,6 +21,8 @@ describe("AgentDojo result importer", () => {
     );
 
     expect(result.attackCases).toHaveLength(4);
+    expect(result.attackCases[0]?.attackSucceeded).toBe(true);
+    expect(result.attackCases[1]?.attackSucceeded).toBe(false);
     expect(result.traces).toHaveLength(8);
     expect(result.provenance).toEqual(provenance);
   });

@@ -1,7 +1,7 @@
 {
   "contractVersion": 1,
   "id": "bcs-v1-scorecard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Auditable BCS-v1 aggregation over the four frozen Bumblebee benchmark suites.",
   "scoreSpecFile": "benchmark/benchmark_0_evaluation_core/manifests/bcs-v1.json",
   "components": [
@@ -32,7 +32,7 @@
     {
       "id": "AD",
       "suiteId": "agentdojo-workspace-v1",
-      "suiteVersion": "1.0.0",
+      "suiteVersion": "1.0.2",
       "scoreSpec": "agentdojo-workspace-v1",
       "suiteSplit": "release",
       "requiredMetadata": {

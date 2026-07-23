@@ -38,11 +38,41 @@ describe("AgentDojo import runner", () => {
     const summary = JSON.parse(
       await readFile(join(artifactRoot, "summary.json"), "utf8"),
     ) as {
-      taskCounts: { total: number };
+      taskCounts: {
+        passed: number;
+        failed: number;
+        total: number;
+      };
       taskResultArtifacts: unknown[];
     };
-    expect(summary.taskCounts.total).toBe(8);
+    expect(summary.taskCounts).toMatchObject({
+      passed: 5,
+      failed: 3,
+      total: 8,
+    });
     expect(summary.taskResultArtifacts).toHaveLength(8);
+    const successfulAttack = JSON.parse(
+      await readFile(
+        join(
+          artifactRoot,
+          "task-results",
+          "attack.user_task_0.injection_task_0",
+          "trial-1.json",
+        ),
+        "utf8",
+      ),
+    ) as {
+      status: string;
+      metrics: Record<string, number>;
+    };
+    expect(successfulAttack).toMatchObject({
+      status: "failed",
+      metrics: {
+        utility: 1,
+        security: 0,
+        targeted_attack_success: 1,
+      },
+    });
     await expect(
       readFile(
         join(

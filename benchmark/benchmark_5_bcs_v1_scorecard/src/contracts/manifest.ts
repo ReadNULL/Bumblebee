@@ -38,7 +38,7 @@ const EXPECTED_COMPONENTS = new Map<
 >([
   ["BB", ["bumblebee-bench-v1", "1.0.0", "bumblebee-bench-v1", "dev"]],
   ["TB", ["terminal-bench-2-1-v1", "1.0.0", "terminal-bench-2-1-v1", "release"]],
-  ["AD", ["agentdojo-workspace-v1", "1.0.0", "agentdojo-workspace-v1", "release"]],
+  ["AD", ["agentdojo-workspace-v1", "1.0.2", "agentdojo-workspace-v1", "release"]],
   ["LM", ["longmemeval-bumblebee-v1", "1.0.0", "longmemeval-bumblebee-v1", "release"]],
 ]);
 
@@ -123,7 +123,7 @@ export function parseBcsScorecardManifest(
   const version = requireString(source.version, "manifest.version");
   assertIdentifier(id, "manifest.id");
   assertIdentifier(version, "manifest.version");
-  if (id !== "bcs-v1-scorecard" || version !== "1.0.0") {
+  if (id !== "bcs-v1-scorecard" || version !== "1.0.1") {
     invalid("scorecard identity does not match the frozen contract");
   }
 

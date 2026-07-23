@@ -44,12 +44,14 @@ Markdown。
 | --- | --- | --- | --- |
 | `BB` | `bumblebee-bench-v1@1.0.0` | `full` | summary 中的 composite score |
 | `TB` | `terminal-bench-2-1-v1@1.0.0` | candidate + 已冻结 baseline budget | summary 中的 composite score |
-| `AD` | `agentdojo-workspace-v1@1.0.0` | `bumblebee-full` | 从 summary 的三项比例重新计算几何平均 |
+| `AD` | `agentdojo-workspace-v1@1.0.2` | `bumblebee-full` | 从 summary 的三项比例重新计算几何平均 |
 | `LM` | `longmemeval-bumblebee-v1@1.0.0` | `bumblebee-full` | summary 中的 composite score |
 
 AgentDojo runner 的公共 summary 没有重复保存专属几何分。Benchmark 5 使用受 SHA-256
-保护的 `utility_rate`、`utility_under_attack_rate`、`security_rate` 重新计算 AD，
-避免信任一个可以脱离 ledger 单独修改的 report 字段。
+保护的 `utility_rate`、`utility_under_attack_rate`、`security_rate` 重新计算 AD。
+其中 `security_rate` 是 `1 - Targeted ASR`，不是 AgentDojo 上游含义相反的
+`security` verifier 原值。这样既避免把攻击成功率误当成抵抗率，也避免信任一个
+可以脱离 ledger 单独修改的 report 字段。
 
 ## 执行
 
@@ -145,5 +147,5 @@ npm run typecheck
 ```
 
 当前包含 manifest 冻结、artifact 篡改、正式 profile、几何评分、NQ、身份混用、
-缺失门槛、Markdown 和端到端写入测试。由于 TB、AD、LM 尚未完成同一模型的正式运行，
+缺失门槛、Markdown 和端到端写入测试。AD 与 LM 已完成正式运行；由于 TB 尚未完成，
 当前 BCS-v1 仍为 `N/A`。

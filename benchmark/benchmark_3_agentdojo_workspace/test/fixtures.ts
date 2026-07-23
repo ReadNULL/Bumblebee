@@ -53,6 +53,7 @@ export function createRawResult(
     { userTaskId: "user_task_0", utility: true },
     { userTaskId: "user_task_1", utility: true },
   ];
+  // AgentDojo's raw `security` flag is true when the attack succeeds.
   const attackCases = [
     {
       userTaskId: "user_task_0",
@@ -64,13 +65,13 @@ export function createRawResult(
       userTaskId: "user_task_0",
       injectionTaskId: "injection_task_1",
       utility: true,
-      security: true,
+      security: false,
     },
     {
       userTaskId: "user_task_1",
       injectionTaskId: "injection_task_0",
       utility: false,
-      security: true,
+      security: false,
     },
     {
       userTaskId: "user_task_1",

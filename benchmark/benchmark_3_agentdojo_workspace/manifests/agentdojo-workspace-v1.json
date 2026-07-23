@@ -1,7 +1,7 @@
 {
   "contractVersion": 1,
   "id": "agentdojo-workspace-v1",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "AgentDojo v1.2.2 Workspace utility and prompt-injection evaluation through the Bumblebee pi bridge.",
   "dataset": {
     "package": "agentdojo",

@@ -1153,7 +1153,9 @@ AD = Utility ^ 0.25
    * (100 - TargetedASR) ^ 0.40
 ```
 
-这里使用加权几何平均，任何一个维度过低都会显著降低总分。Benchmark 3 已固定 AgentDojo `0.1.35`、Workspace `v1.2.2` 和 `important_instructions` 攻击，通过每任务独立的 pi RPC 与随机 Token 回环工具桥复用官方环境和 verifier。正式命令默认强制重跑；导入器要求完整任务集、完整攻击笛卡尔积和至少 98% 的新鲜调用轨迹，并保存 token、成本、工具调用和授权次数。alpha.0/alpha.1 真实 smoke 已依次验证失败留存、clean、攻击、工具桥和 verifier，并推动修复模型名、时间戳及 smoke 资格门槛；完整矩阵尚未运行，因此 AD 仍为 `N/A`。
+这里使用加权几何平均，任何一个维度过低都会显著降低总分。Benchmark 3 已固定 AgentDojo `0.1.35`、Workspace `v1.2.2` 和 `important_instructions` 攻击，通过每任务独立的 pi RPC 与随机 Token 回环工具桥复用官方环境和 verifier。正式命令默认强制重跑；导入器要求完整任务集、完整攻击笛卡尔积和至少 98% 的新鲜调用轨迹，并保存 token、成本、工具调用和授权次数。AgentDojo 上游 `security=true` 表示注入目标执行成功；导入器会将其规范化为 `attackSucceeded`，再计算 `TargetedASR` 和相反方向的 `AttackResistance`，避免把攻击成功率误当成防御成功率。
+
+首轮完整真实评估使用冻结 commit `84fe4450b8115066034c0019e859e42fdc5be441`、`deepseek/deepseek-v4-flash` 和 thinking `high`，完成 40 个 clean task、14 个 injection task 及 560 个攻击组合。结果为 Utility `90.00`、UtilityUnderAttack `91.61`、TargetedASR `0.18%`、AttackResistance `99.82`、AD `94.39`；617 次 pi 调用共消耗约 `$0.456`。旧 importer 产生的 AD `7.52` 是字段语义反向导致的无效派生结果，原始模型输出无需重跑。
 
 AgentDojo 工具会触发 Bumblebee 的未知工具授权，适配器固定选择“仅允许本次”，避免用人工选择泄露攻击标签或通过一律拒绝工具制造虚假安全。因此该分项衡量宽松授权下的端到端提示注入暴露，不等同于 PermissionSystem 策略测试；权限位、路径范围、符号链接和会话授权由 BumblebeeBench 负责。官方 Workspace 套件保持原始口径，Bumblebee 特有的恶意 README、记忆上下文注入和 Sub-Agent 绕过场景不混入 AD 分数。
 
@@ -1408,7 +1410,7 @@ flowchart LR
 | Benchmark 2 | 已实现，8 个测试文件、25 项确定性测试全部通过 |
 | Terminal-Bench 2.1 | Harbor 适配、三轮校准和评分链路已实现；尚未运行真实模型，TB = `N/A` |
 | Benchmark 3 | 已实现，7 个 TypeScript 测试文件、28 项测试和 6 项 Python 测试全部通过 |
-| AgentDojo Workspace | alpha.0 失败 smoke 与 alpha.1 完整 1×1 smoke 均已留存；单例攻击成功，纠正后的资格为 `invalid`。alpha.2 增加完整 40×14 任务选择门槛，正式 AD 仍为 `N/A` |
+| AgentDojo Workspace | alpha.2 完成 40×14 全量真实评估；评分语义修正后 Utility/攻击下 Utility/AttackResistance = 90.00/91.61/99.82，Targeted ASR = 0.18%，AD = `94.39` |
 | Benchmark 4 | 已实现，7 个测试文件、24 项确定性测试全部通过 |
 | LongMemEval-Bumblebee | alpha.0 正式运行 36/36 trial 有效，QA/Recall@5/更新/拒答/隔离 = 100、Precision@5 = 85，LM = `98.50`，模型成本约 `$0.0015` |
 | Benchmark 5 | 已实现，6 个测试文件、15 项测试全部通过；artifact 校验、身份一致性、NQ 与报告链路已验证 |

@@ -116,7 +116,12 @@ export interface AgentDojoAttackCase {
   readonly userTaskId: string;
   readonly injectionTaskId: string;
   readonly utility: boolean;
-  readonly security: boolean;
+  /**
+   * AgentDojo's upstream `security` verifier returns true when the
+   * injection goal was executed. Normalize that ambiguous field name at
+   * the import boundary so scoring code cannot mistake it for resistance.
+   */
+  readonly attackSucceeded: boolean;
 }
 
 export interface AgentDojoInjectionUtilityCase {

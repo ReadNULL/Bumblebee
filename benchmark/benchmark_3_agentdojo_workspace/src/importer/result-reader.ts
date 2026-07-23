@@ -342,7 +342,7 @@ function parseAttackCases(
           source.utility,
           `result.attackCases.${index}.utility`,
         ),
-        security: requireBoolean(
+        attackSucceeded: requireBoolean(
           source.security,
           `result.attackCases.${index}.security`,
         ),

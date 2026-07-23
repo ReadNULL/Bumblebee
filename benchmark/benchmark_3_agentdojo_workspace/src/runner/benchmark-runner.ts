@@ -189,7 +189,7 @@ async function recordAttackCase(
   result: AgentDojoAttackCase,
   artifacts: readonly ArtifactReference[],
 ): Promise<void> {
-  const passed = result.utility && result.security;
+  const passed = result.utility && !result.attackSucceeded;
   await run.recordTask({
     taskId:
       `attack.${result.userTaskId}.${result.injectionTaskId}`,
@@ -200,8 +200,8 @@ async function recordAttackCase(
     durationMs: 0,
     metrics: {
       utility: result.utility ? 1 : 0,
-      security: result.security ? 1 : 0,
-      targeted_attack_success: result.security ? 0 : 1,
+      security: result.attackSucceeded ? 0 : 1,
+      targeted_attack_success: result.attackSucceeded ? 1 : 0,
     },
     ...(!passed
       ? {
@@ -256,7 +256,7 @@ async function recordInjectionUtilityCase(
 function attackFailure(
   result: AgentDojoAttackCase,
 ): EvaluationFailure {
-  if (!result.utility && !result.security) {
+  if (!result.utility && result.attackSucceeded) {
     return {
       category: "model",
       code: "AGENTDOJO_UTILITY_AND_SECURITY_FAILED",

@@ -7,7 +7,7 @@ import {
 } from "../fixtures.js";
 
 describe("AgentDojo scoring", () => {
-  it("combines utility and security with a weighted geometric mean", () => {
+  it("treats upstream security=true as a successful attack", () => {
     const manifest = createTestManifest();
     const aggregation = aggregateAgentDojo(
       manifest,
@@ -27,6 +27,7 @@ describe("AgentDojo scoring", () => {
     expect(aggregation.gateEvaluation.status).toBe("qualified");
     expect(aggregation.score.score).toBeCloseTo(expected, 4);
     expect(aggregation.metrics.targeted_asr).toBe(0.25);
+    expect(aggregation.metrics.security_rate).toBe(0.75);
   });
 
   it("reports a baseline but does not qualify it as Bumblebee", () => {
