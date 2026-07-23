@@ -10,7 +10,19 @@ export {
   type PiPermissionRegistrar,
 } from "./permission-binding.js";
 export {
+  DEFAULT_PI_CONVERSATION_MAX_OPEN_SESSIONS,
+  PiConversationBridge,
+  type PiConversationBridgeOptions,
+  type PiConversationSession,
+  type PiConversationSessionFactory,
+  type PiConversationSessionFactoryOptions,
+} from "./pi-conversation-bridge.js";
+export {
   createReadOnlyWorkspaceGuard,
+  PI_READ_ONLY_TOOL_NAMES,
+  type ReadOnlyWorkspaceGuardOptions,
+} from "./read-only-workspace-guard.js";
+export {
   PiSubAgentExecutor,
   type PiSubAgentExecutorOptions,
   type PiSubAgentSession,

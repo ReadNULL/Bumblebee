@@ -38,10 +38,11 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 | 轮次 | 积木 | 解决的问题 |
 | --- | --- | --- |
 | 10 | Channel Core | 统一平台消息契约、消息去重、会话调度和适配器生命周期 |
+| 11 | Pi Conversation Bridge | 把渠道会话映射为隔离、可恢复且可取消的 Pi AgentSession |
 
 ## 当前范围
 
-当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent 和第 10 轮 Channel Core：
+当前分支已完成最小项目骨架、6 轮基础层建设、第 7 轮扩展运行时、第 8 轮权限系统、第 9 轮只读 Sub-Agent、第 10 轮 Channel Core 和第 11 轮 Pi Conversation Bridge：
 
 - pi 包清单；
 - 最小 TypeScript 扩展入口；
@@ -57,9 +58,10 @@ Bumblebee V2 正在基于 pi Extension 机制从零重建。项目采用逐积�
 - `session_start`、`session_shutdown` 与运行时生命周期接线；
 - pi 无关的权限内核、三位能力掩码、路径真实化、可恢复的精确/文件夹级会话授权和 `tool_call` 执行前拦截；
 - 单任务、只读、内存隔离的 Sub-Agent，以及 `delegate_task` Pi 工具适配器；
-- 平台无关的渠道消息、回复、对话端口和适配器契约，以及有界去重、运行时调度和生命周期管理。
+- 平台无关的渠道消息、回复、对话端口和适配器契约，以及有界去重、运行时调度和生命周期管理；
+- 按渠道会话隔离的持久 Pi 会话、稳定哈希目录、有界 LRU、模型设置同步、取消传播和当前轮回复提取。
 
-目前注册了 `session_start`、`session_shutdown`、`session_tree` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流或 Dashboard。Channel Core 尚未接入 Pi Conversation Bridge 和任何真实平台适配器，因此安装当前版本不会自动连接飞书等渠道。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
+目前注册了 `session_start`、`session_shutdown`、`session_tree` 和 `tool_call` 事件，以及一个自定义工具 `delegate_task`；没有注册自定义斜杠命令，也没有角色、团队、记忆、知识、工作流或 Dashboard。Pi Conversation Bridge 已实现，但扩展入口尚未组合 `ChannelManager`，也没有真实平台适配器，因此安装当前版本不会自动连接飞书等渠道。Skills 的发现、加载和发布由 pi 官方机制负责，Bumblebee 不实现 `SkillPublisher` 或另一套 Skills 系统。
 
 ## 目录约定
 
@@ -86,7 +88,9 @@ src/
 │       ├── index.ts
 │       ├── lifecycle-binding.ts
 │       ├── permission-binding.ts
+│       ├── pi-conversation-bridge.ts
 │       ├── pi-subagent-executor.ts
+│       ├── read-only-workspace-guard.ts
 │       └── subagent-binding.ts
 ├── runtime/
 │   ├── bumblebee-runtime.ts
@@ -152,6 +156,7 @@ test/
 │   └── pi/
 │       ├── lifecycle-binding.spec.ts
 │       ├── permission-binding.spec.ts
+│       ├── pi-conversation-bridge.spec.ts
 │       ├── pi-subagent-executor.spec.ts
 │       └── subagent-binding.spec.ts
 ├── runtime/
@@ -638,7 +643,7 @@ Channel Core 解决的是不同 IM 平台在消息字段、回调方式和生命
 | 契约 | 职责 |
 | --- | --- |
 | `ChannelMessage` | 统一渠道、消息、会话、发送者、文本、时间戳和有限 metadata |
-| `ConversationPort` | 接收规范化消息并返回文本响应；下一轮由 Pi Conversation Bridge 实现 |
+| `ConversationPort` | 接收规范化消息并返回文本响应；由 Pi Conversation Bridge 实现 |
 | `ChannelReply` | 统一回复目标、原消息关联、正文和有限 metadata |
 | `ChannelAdapter` | 平台 SDK 边界，只实现 `start/send/stop` |
 | `ChannelDispatcher` | 校验消息、申请去重租约、生成会话键、调用对话端口并发送回复 |
@@ -742,7 +747,67 @@ Channel Core 没有默认任务超时。构造 `ChannelDispatcher` 时可以按�
 | 生命周期 | 部分启动失败自动回滚，正常关闭逆序停止适配器并等待在途消息 |
 | 扩展运行时 | 提供统一 trace、可选超时、会话队列、信号量和退出追踪 |
 
-本轮不会创建 `ChannelManager` 实例，也没有修改扩展入口，因此当前版本没有后台连接和额外控制台输出。下一轮先实现 Pi Conversation Bridge，解决外部消息与 Agent 最终回复的可靠关联；桥接经过独立验收后，再使用飞书官方 SDK 实现第一个真实 `FeishuAdapter`。远程渠道的写操作授权、凭据加载、富媒体和持久化会话均不属于本轮范围。
+当前扩展入口仍不会创建 `ChannelManager` 实例，因此当前版本没有后台连接和额外控制台输出。Pi Conversation Bridge 已在下一节独立实现并验收；下一个渠道积木会使用飞书官方 SDK 实现首个真实 `FeishuAdapter`，再把 Manager、Bridge 和 Adapter 组合起来。远程渠道的写操作授权、凭据加载和富媒体仍不属于 Channel Core。
+
+## Pi Conversation Bridge
+
+Pi Conversation Bridge 解决“外部会话应该和哪段 Agent 历史关联”以及“如何可靠取得本轮回复”两个问题。它实现 Channel Core 的 `ConversationPort`，但不复用当前 TUI 的全局会话，也不监听全局 `agent_end` 事件猜测回复归属。每个 `channel + conversationId` 都拥有独立的 Pi `AgentSession`，群聊和私聊不会互相污染上下文。
+
+### 一轮渠道对话
+
+```mermaid
+sequenceDiagram
+  participant Dispatcher as ChannelDispatcher
+  participant Bridge as PiConversationBridge
+  participant Cache as 有界会话缓存
+  participant Pi as Pi AgentSession
+  participant Store as Pi SessionManager
+  Dispatcher->>Bridge: respond(message, signal)
+  Bridge->>Bridge: 校验消息并哈希会话标识
+  Bridge->>Cache: 查找 channel + conversationId
+  alt 首次访问或已被淘汰
+    Cache->>Cache: 必要时淘汰最近最少使用的空闲会话
+    Bridge->>Store: continueRecent(cwd, hashedDirectory)
+    Store-->>Bridge: 恢复最近会话或创建新会话
+    Bridge->>Pi: createAgentSession(只读工具)
+  else 已打开
+    Cache-->>Bridge: 复用 AgentSession
+  end
+  Bridge->>Pi: 同步当前 /model 与 thinking level
+  Bridge->>Pi: prompt(message.text)
+  Pi-->>Bridge: 当前轮新增 assistant 消息
+  Bridge-->>Dispatcher: ConversationResponse
+```
+
+Bridge 构造时不会创建模型会话。只有第一条消息到达某个渠道会话时才会惰性创建；同一会话的并发创建共享一个 Promise，创建失败会移除缓存项，后续消息可以重试。正常入口还会由 `ChannelDispatcher` 和 `BumblebeeRuntime` 保证同一会话串行；如果绕过它们直接并发调用 Bridge，重叠的第二轮会得到可重试的 `CONFLICT`，不会同时驱动同一个 Pi 会话。
+
+### 持久化与缓存
+
+默认会话目录为：
+
+```text
+<pi agent dir>/bumblebee/channel-sessions/<channel>/<sha256(channel + conversationId)>
+```
+
+原始平台会话 ID 不进入路径或日志。`SessionManager.continueRecent()` 会在进程重启或内存会话被淘汰后，自动恢复该目录中最近的 Pi 会话；这是渠道内部自动恢复，不会额外实现与 pi `/resume` 重复的斜杠命令。
+
+内存默认最多保持 16 个已打开会话。新会话达到上限时只淘汰最近最少使用且当前空闲的会话，调用 `dispose()` 释放监听器和内存，但保留磁盘历史供下次恢复。如果所有槽位都在生成回复，则返回可重试的 `UNAVAILABLE`，不会关闭活跃会话或无限增长缓存。
+
+消息正文和模型回复会按 Pi 原生会话机制写入上述目录。当前只限制内存会话数量，不会自动删除磁盘历史；需要清空渠道历史时，应先关闭 Bumblebee，再删除 `channel-sessions` 下对应目录。自动保留期限要等真实渠道的合规和恢复需求明确后再设计，避免静默删除用户会话。
+
+### 回复关联与模型同步
+
+每轮调用 `prompt()` 前会记录现有消息对象，完成后只从本轮新增消息中反向查找最后一条非空 assistant 文本。这样不会误发上一轮回复；即使 Pi 在本轮压缩上下文并缩短消息数组，也不依赖旧数组下标。当前只返回纯文本，工具过程和旧 assistant 消息不会发送到渠道。超过 Channel Core 32 Ki 字符上限的回复会在 UTF-16 代理项边界前安全截断，并附带 `truncated: true` metadata。
+
+Bridge 不保存 Bumblebee 自己的模型配置。创建会话以及每轮复用前都会读取 pi 当前模型和 thinking level；用户在 TUI 使用 `/model` 切换后，下一条渠道消息会同步到已有会话。Bridge 使用内存 `SettingsManager`，不会反向覆盖 pi 的全局设置，而模型变化仍由 Pi 会话记录。
+
+### 安全、取消与关闭
+
+渠道会话只注册 `read/grep/find/ls`，关闭外部扩展、Skills、prompt templates 和 themes，并复用 PermissionSystem 的路径真实化检查。工作区外读取、写入、Shell 和其他自定义工具都会被阻断。该限制是进程内能力收缩，不是操作系统沙箱。
+
+消息 signal 被取消时，Bridge 会调用对应会话的 `abort()`，等待中止完成后保留会话，使下一条消息仍能继续；Bridge 自身 `dispose()` 时会先拒绝新消息、取消所有活跃生成、等待在途响应退出，再幂等释放全部缓存会话。Bridge 没有固定 60 秒超时，实际截止时间由 `ChannelDispatcher` 按渠道场景配置。
+
+当前 Bridge 只是可组合积木，尚未在扩展入口实例化，也未接入平台凭据、富媒体、流式进度或主动消息。第 12 轮 `FeishuAdapter` 完成前，用户不会看到渠道连接入口。
 
 ## 环境要求
 

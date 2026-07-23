@@ -5,7 +5,6 @@ import {
   SessionManager,
   type ExtensionAPI,
   type ExtensionContext,
-  type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 
 import type {
@@ -20,20 +19,10 @@ import {
   throwIfAborted,
 } from "../../foundation/index.js";
 import {
-  PERMISSION_APPROVALS,
-  PermissionSystem,
-  type PermissionAuthority,
-} from "../../security/index.js";
+  createReadOnlyWorkspaceGuard,
+  PI_READ_ONLY_TOOL_NAMES,
+} from "./read-only-workspace-guard.js";
 
-const READ_ONLY_TOOL_NAMES = Object.freeze([
-  "read",
-  "grep",
-  "find",
-  "ls",
-] as const);
-const READ_ONLY_TOOL_SET = new Set<string>(READ_ONLY_TOOL_NAMES);
-const READ_ONLY_BOUNDARY_MESSAGE =
-  "只读子 Agent 只能使用当前工作区内的只读工具。";
 const SUBAGENT_SYSTEM_PROMPT = [
   "You are a read-only coding sub-agent with an isolated context.",
   "Investigate only the delegated task inside the current workspace.",
@@ -244,7 +233,7 @@ async function createDefaultSession(
     sessionManager: SessionManager.inMemory(options.cwd),
     sessionStartEvent: { reason: "startup", type: "session_start" },
     thinkingLevel: options.thinkingLevel,
-    tools: [...READ_ONLY_TOOL_NAMES],
+    tools: [...PI_READ_ONLY_TOOL_NAMES],
   });
 
   if (result.extensionsResult.errors.length > 0) {
@@ -259,48 +248,9 @@ async function createDefaultSession(
   return result.session;
 }
 
-/** 子会话没有 UI，工作区外读取会由 PermissionSystem 的 ask 策略转为 block。 */
-export function createReadOnlyWorkspaceGuard(): ExtensionFactory {
-  return (pi) => {
-    const permissionSystem = new PermissionSystem();
-
-    pi.on("tool_call", async (event, context) => {
-      if (!READ_ONLY_TOOL_SET.has(event.toolName)) {
-        return { block: true, reason: READ_ONLY_BOUNDARY_MESSAGE };
-      }
-
-      try {
-        const result = await permissionSystem.authorize(
-          {
-            cwd: context.cwd,
-            input: event.input,
-            toolName: event.toolName,
-          },
-          READ_ONLY_AUTHORITY,
-          context.signal,
-        );
-        return result.action === "allow"
-          ? {}
-          : {
-              block: true,
-              reason: result.reason ?? READ_ONLY_BOUNDARY_MESSAGE,
-            };
-      } catch (_cause: unknown) {
-        return { block: true, reason: READ_ONLY_BOUNDARY_MESSAGE };
-      }
-    });
-  };
-}
-
-const READ_ONLY_AUTHORITY: PermissionAuthority = Object.freeze({
-  async requestApproval() {
-    return PERMISSION_APPROVALS.UNAVAILABLE;
-  },
-});
-
 function assertReadOnlyToolSet(toolNames: readonly string[]): void {
   const actual = [...new Set(toolNames)].sort();
-  const expected = [...READ_ONLY_TOOL_NAMES].sort();
+  const expected = [...PI_READ_ONLY_TOOL_NAMES].sort();
   if (
     actual.length !== expected.length ||
     actual.some((name, index) => name !== expected[index])

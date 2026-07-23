@@ -43,8 +43,10 @@ describe("runtime architecture", () => {
       for (const specifier of getModuleSpecifiers(sourceFile, contents)) {
         if (
           specifier.startsWith("./") ||
+          specifier.startsWith("node:") ||
           specifier === "@earendil-works/pi-coding-agent" ||
           specifier === "../../agents/index.js" ||
+          specifier === "../../channels/index.js" ||
           specifier === "../../foundation/index.js" ||
           specifier === "../../runtime/index.js" ||
           specifier === "../../security/index.js"
