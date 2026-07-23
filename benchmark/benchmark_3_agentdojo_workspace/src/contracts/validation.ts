@@ -122,13 +122,14 @@ export function requireIsoDate(
   field: string,
 ): string {
   const text = requireString(value, field);
+  const timestamp = Date.parse(text);
   if (
     !text.includes("T") ||
-    !Number.isFinite(Date.parse(text))
+    !Number.isFinite(timestamp)
   ) {
     invalid(`${field} must be an ISO timestamp`);
   }
-  return text;
+  return new Date(timestamp).toISOString();
 }
 
 export function requireSha256(

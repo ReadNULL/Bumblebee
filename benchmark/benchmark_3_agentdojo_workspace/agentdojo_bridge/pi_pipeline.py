@@ -692,7 +692,11 @@ def _safe_error(error: Exception) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _elapsed_ms(started: float) -> int:

@@ -28,7 +28,11 @@ describe("Benchmark 0 architecture", () => {
       withFileTypes: true,
     });
     const benchmarkDirectories = entries
-      .filter((entry) => entry.isDirectory())
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name !== "__pycache__",
+      )
       .map((entry) => entry.name);
 
     expect(benchmarkDirectories).toContain(

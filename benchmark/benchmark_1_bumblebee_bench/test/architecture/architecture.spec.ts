@@ -22,7 +22,11 @@ describe("BumblebeeBench architecture", () => {
     const directories = (await readdir(benchmarkRoot, {
       withFileTypes: true,
     }))
-      .filter((entry) => entry.isDirectory())
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name !== "__pycache__",
+      )
       .map((entry) => entry.name);
 
     expect(directories).toContain("benchmark_1_bumblebee_bench");

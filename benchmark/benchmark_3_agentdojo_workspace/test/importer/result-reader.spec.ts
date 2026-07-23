@@ -82,4 +82,26 @@ describe("AgentDojo result importer", () => {
     expect(result.status).toBe("failed");
     expect(result.failure?.message).toContain("\n");
   });
+
+  it("normalizes Python microsecond timestamps for Benchmark 0", () => {
+    const manifest = createTestManifest();
+    const source = createRawResult(manifest);
+    source.startedAt = "2026-07-23T10:00:00.123456Z";
+    source.finishedAt = "2026-07-23T10:00:08.654321Z";
+    const traces = source.traces as Array<Record<string, unknown>>;
+    traces[0]!.startedAt = "2026-07-23T10:00:00.123456Z";
+    traces[0]!.finishedAt = "2026-07-23T10:00:00.654321Z";
+
+    const result = parseAgentDojoResult(
+      source,
+      manifest,
+      provenance,
+    );
+
+    expect(result.startedAt).toBe("2026-07-23T10:00:00.123Z");
+    expect(result.finishedAt).toBe("2026-07-23T10:00:08.654Z");
+    expect(result.traces[0]?.startedAt).toBe(
+      "2026-07-23T10:00:00.123Z",
+    );
+  });
 });

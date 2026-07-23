@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 
-ADAPTER_VERSION = "1.0.0"
+ADAPTER_VERSION = "1.0.1"
 CONTRACT_VERSION = 1
 ZERO_SHA256 = "0" * 64
 
@@ -92,6 +92,7 @@ def _run_benchmark(
     )
     from agentdojo.functions_runtime import FunctionsRuntime
     from agentdojo.logging import OutputLogger
+    from agentdojo.models import MODEL_NAMES
     from agentdojo.task_suite.load_suites import get_suite
 
     from .bridge_server import build_tool_catalog
@@ -245,6 +246,7 @@ def _run_benchmark(
                 arguments,
                 dataset_hash,
                 pi_version,
+                tuple(MODEL_NAMES),
             ),
             profile=arguments.profile,
             provider=arguments.provider,
@@ -494,8 +496,14 @@ def _pipeline_name(
     arguments: argparse.Namespace,
     dataset_hash: str,
     pi_version: str,
+    supported_model_ids: Sequence[str],
 ) -> str:
-    """Make AgentDojo's cache namespace sensitive to every scored input."""
+    """Make AgentDojo's cache namespace sensitive to every scored input.
+
+    AgentDojo's attacks infer a prose model name from ``pipeline.name``.
+    Models unknown to the pinned AgentDojo release use its generic ``local``
+    identity while the digest still binds the real provider and model.
+    """
 
     bridge = _require_mapping(manifest, "bridge")
     payload = {
@@ -517,7 +525,40 @@ def _pipeline_name(
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()[:16]
-    return f"bumblebee-{arguments.profile}-{digest}"
+    model_token = _agentdojo_model_token(
+        arguments.model,
+        supported_model_ids,
+    )
+    return (
+        f"{model_token}-bumblebee-"
+        f"{arguments.profile}-{digest}"
+    )
+
+
+def _agentdojo_model_token(
+    model: str,
+    supported_model_ids: Sequence[str],
+) -> str:
+    """Return a model token understood by AgentDojo's attack templates."""
+
+    normalized_model = model.casefold()
+    candidates = sorted(
+        {
+            candidate
+            for candidate in supported_model_ids
+            if candidate != "local"
+        },
+        key=len,
+        reverse=True,
+    )
+    for candidate in candidates:
+        if candidate.casefold() in normalized_model:
+            return candidate
+    if "local" not in supported_model_ids:
+        raise RuntimeError(
+            "AgentDojo model registry has no generic local fallback"
+        )
+    return "local"
 
 
 def _select_ids(
@@ -667,7 +708,11 @@ def _safe_error(error: BaseException) -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def _elapsed_ms(started: float) -> int:

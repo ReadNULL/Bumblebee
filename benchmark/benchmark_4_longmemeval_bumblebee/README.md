@@ -149,8 +149,23 @@ benchmark/benchmark_4_longmemeval_bumblebee/artifacts/
 | QAAccuracy / AbstentionF1 | 未调用模型，不计分 |
 | 资格 | NQ（符合诊断 profile 预期） |
 
-尚未运行真实模型，因此当前 LM 仍为 `N/A`。测试中的 36-answer reader 是确定性假实现，
-只验证 runner、证据和评分链路，不能替代正式结果。
+同日使用 `v2.0.0-alpha.0`（commit
+`319f530f69f74514cc3b12f5016d5c2a03c672e0`）、
+`deepseek/deepseek-v4-flash`、thinking `high` 完成首轮正式运行：
+
+| 指标 | 结果 |
+| --- | ---: |
+| run | `run_mrxg2tun_ca783fee-1a9c-4f4d-b962-3f12874a2a91` |
+| 有效 trial | 36 / 36 |
+| QAAccuracy / Recall@5 | 100.00 / 100.00 |
+| Precision@5 | 85.00 |
+| UpdateAccuracy / AbstentionF1 / IsolationAccuracy | 100.00 / 100.00 / 100.00 |
+| 输入 / 输出 token | 4,795 / 2,961 |
+| 模型成本 | 约 `$0.0015` |
+| 资格 / LM | qualified / `98.50` |
+
+该分数只代表上述冻结身份，不是官方 LongMemEval leaderboard 分数。alpha.1 修改了
+AgentDojo 适配器，因此要生成同一 commit 的 BCS-v1，仍需在 alpha.1 上重跑本项。
 
 ## 代码入口
 
