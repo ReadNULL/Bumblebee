@@ -171,6 +171,9 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertNotIn("uv python install 3.13", grpc)
         self.assertNotIn("python3-pip", wal)
         self.assertIn("test -z \"$missing\"", wal)
+        self.assertIn("connect-timeout = 20", wal)
+        self.assertIn("max-time = 180", wal)
+        self.assertIn("retry-all-errors", wal)
 
     def test_no_model_preflight_checks_github_and_npm(self) -> None:
         command = _preflight_network_command()

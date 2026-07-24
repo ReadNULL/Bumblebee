@@ -141,6 +141,13 @@ def _verifier_dependency_command(environment_name: str) -> str:
         "set -euo pipefail",
         "export HOME=/root",
         "export DEBIAN_FRONTEND=noninteractive",
+        (
+            "printf 'connect-timeout = 20\\n"
+            "max-time = 180\\n"
+            "retry = 2\\n"
+            "retry-all-errors\\n' "
+            "> /root/.curlrc"
+        ),
         "mkdir -p /etc/apt/apt.conf.d",
         (
             "printf 'Acquire::Retries \"5\";\\n"

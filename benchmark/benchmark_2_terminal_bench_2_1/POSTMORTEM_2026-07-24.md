@@ -134,6 +134,13 @@ registry mirror DNS 失败而无法拉取镜像，其余为取消或未调度，
 `python3/python3-pip`，4 路并发放大了 apt 下载耗时。r4 改为 apt update 后只补
 缺失的 curl、git 和 CA 证书；Python/pip 由冻结任务镜像提供。
 
+第三次预检 `tb21-verifier-preflight-20260724-r4` 中 8 个任务由原始 verifier
+正常写出 reward 0 且无异常；`large-scale-text-editing` 的 verifier 内部 uv
+安装脚本在 GitHub 下载处超过 8 分钟未返回，人工停止后记为 `CancelledError`。
+这仍属于基础设施故障，不是 Agent 能力结果。后续预检在容器级写入受限的 curl
+配置：连接超时 20 秒、单次总时长 180 秒、全错误重试 2 次；不修改 verifier
+文件、测试逻辑或依赖版本，并保留已预热 uv 作为上游安装脚本失败后的运行环境。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |
