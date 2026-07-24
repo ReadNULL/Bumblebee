@@ -1,15 +1,15 @@
 # Bumblebee Benchmark
 
 该目录只承载开发评估工程，不属于 Bumblebee 运行时，也不会进入 npm 发布包。
-以下内容汇总截至 2026-07-25 已完成的运行。下一轮只复验干净定向 r3 仍失败的
-Cython 与 WAL，两类已经 5/5 通过的任务不重复运行。
+以下内容汇总截至 2026-07-25 已完成的运行。r4 已确认 WAL 5/5，下一轮只复验
+仍不稳定的 Cython；WAL、大文本和 gRPC 不重复运行。
 
 ## 结果总览
 
 | 分项 | 已观测原始结果 | 可发布分数 | 资格 |
 | --- | --- | ---: | --- |
 | BumblebeeBench (`BB`) | 360/360 个确定性 full trial 通过 | `100.00` | qualified |
-| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45；历史 candidate 审计后 30/40；干净定向复验 16/20 | `N/A` | invalid |
+| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45；历史 candidate 审计后 30/40；干净定向 r3 16/20；r4 仅 Cython/WAL 为 8/10 | `N/A` | invalid |
 | AgentDojo Workspace (`AD`) | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `94.39` | qualified |
 | LongMemEval-Bumblebee (`LM`) | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `98.50` | qualified |
 | BCS-v1 | BB/AD/LM 已完成，TB 没有合格输入 | `N/A` | not-qualified |
@@ -33,7 +33,7 @@ BCS-v1 只有在四个来源均满足身份、完整性和硬门槛时才计算�
 | 检查项 | 结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 90 个测试文件、408 项测试全部通过 |
+| Vitest | 90 个测试文件、409 项测试全部通过 |
 | 架构约束 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖方向通过 |
 | npm 发布边界 | dry-run 共 100 个生产文件，不包含 `benchmark/` 和 `test/` |
 | Benchmark 0 | 6 个测试文件、21 项测试通过 |
@@ -104,6 +104,12 @@ P0/P1 修复后的干净定向 job 只运行 Cython、WAL、大文本和 gRPC �
 结果为 16/20：Cython 4/5、WAL 2/5、大文本 5/5、gRPC 5/5。20 个样本全部有效，
 证据泄漏和凭据命中均为 0；但它只覆盖冻结任务的 4/9，不能与完整 baseline 拼接，
 也不能生成 TB 分数。
+
+r4 只复验 r3 仍失败的 Cython 与 WAL，结果为 8/10：Cython 3/5、WAL 5/5。
+10 个样本全部有效，0 异常、0 重试、证据泄漏和凭据命中均为 0。导入后的
+OfficialReward 为 80.00、Stability 为 100.00；因只覆盖 2/9 且没有完整效率预算，
+资格仍为 invalid，`TB = N/A`。两个 Cython 失败暴露了兼容扫描仍按已知文件类型
+收窄的问题，已转化为仓库级兼容迁移的通用完成门槛。
 
 ## AgentDojo Workspace
 

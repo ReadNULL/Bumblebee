@@ -9,6 +9,12 @@ const REQUIREMENT_MARKER =
 const RECOVERY_MARKER =
   /\b(?:recover|recovery|forensic|forensics|salvage|corrupt(?:ed|ion)?|write-ahead log|wal)\b|恢复|取证|损坏|事务日志/iu;
 
+const COMPATIBILITY_MARKER =
+  /\b(?:compatib(?:le|ility)|incompatib(?:le|ility)|migrat(?:e|ion)|deprecat(?:ed|ion)|upgrade|porting)\b|兼容|迁移|弃用|升级/iu;
+
+const REPOSITORY_SCOPE_MARKER =
+  /\b(?:repository|repo|source|codebase|compile|build|extension|native|generated)\b|仓库|源码|代码库|编译|构建|扩展|原生|生成/iu;
+
 const ARTIFACT_PATTERN =
   /(?:[A-Za-z]:[\\/]|\/)?[^\s"'`<>|]+?(?:\.db(?:-wal)?|\.sqlite(?:3)?(?:-wal)?|\.wal|\.bin|\.img|\.dump)(?=$|[\s"'`,;:)\]}])/giu;
 
@@ -38,6 +44,9 @@ export function extractTaskContract(prompt: string): TaskContract {
     artifacts,
     highRiskRecovery: RECOVERY_MARKER.test(prompt),
     items: Object.freeze(items),
+    repositoryWideCompatibility:
+      COMPATIBILITY_MARKER.test(prompt) &&
+      REPOSITORY_SCOPE_MARKER.test(prompt),
   });
 }
 

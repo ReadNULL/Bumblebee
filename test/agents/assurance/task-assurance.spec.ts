@@ -16,6 +16,7 @@ describe("TaskAssurance", () => {
     ].join("\n"));
 
     expect(contract.highRiskRecovery).toBe(true);
+    expect(contract.repositoryWideCompatibility).toBe(false);
     expect(contract.artifacts).toEqual([
       "/data/app.db",
       "/data/app.db-wal",
@@ -277,6 +278,67 @@ describe("TaskAssurance", () => {
       toolCallId: "open-preserved-db",
       toolName: "bash",
     })).toEqual({});
+  });
+
+  it("requires an unrestricted post-change scan for compatibility migrations", () => {
+    const assurance = new TaskAssurance();
+    const sessionId = "session-compatibility";
+    const policy = assurance.beginTask(
+      sessionId,
+      "Compile this package from source and make the repository compatible with the upgraded API.",
+    );
+    expect(policy).toContain(
+      "Repository-wide compatibility mode is active",
+    );
+
+    completeTool(assurance, sessionId, {
+      input: { path: "src/compat.py" },
+      toolCallId: "compat-edit",
+      toolName: "edit",
+    });
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "grep -rn 'removed_api' src --include='*.py' --include='*.pyx'",
+      },
+      toolCallId: "restricted-scan",
+      toolName: "bash",
+    });
+    completeTool(assurance, sessionId, {
+      details: { usage: { costUsd: 0.001 } },
+      input: {
+        task:
+          `${ASSURANCE_CRITIC_MARKER} review every source type`,
+      },
+      toolCallId: "compat-critic",
+      toolName: "delegate_task",
+    });
+    completeTool(assurance, sessionId, {
+      input: { command: "pytest -q" },
+      toolCallId: "compat-test",
+      toolName: "bash",
+    });
+
+    const incomplete = assurance.reviewCompletion(sessionId);
+    expect(incomplete.reasons).toEqual([
+      expect.stringContaining("recursive scan"),
+    ]);
+    expect(
+      assurance.getSnapshot(sessionId)?.broadCompatibilityScanObserved,
+    ).toBe(false);
+
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "rg 'removed_api|replacement_api' . -g '!build/**'",
+      },
+      toolCallId: "broad-scan",
+      toolName: "bash",
+    });
+    expect(
+      assurance.getSnapshot(sessionId)?.broadCompatibilityScanObserved,
+    ).toBe(true);
+    expect(assurance.reviewCompletion(sessionId).reasons).toEqual([]);
   });
 });
 

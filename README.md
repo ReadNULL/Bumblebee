@@ -87,12 +87,12 @@ Bumblebee 能力，正常使用无需加载。
 | 分项 | 已观测结果 | 可发布分数与资格 |
 | --- | --- | --- |
 | BumblebeeBench | 360/360 确定性 trial 通过 | `BB = 100.00`，qualified |
-| Terminal-Bench 2.1 Lite | baseline 32/45；历史 candidate 追加审计后 30 passed、10 failed、5 invalid；干净定向复验 16/20 | 定向集只覆盖 4/9 任务；`TB = N/A`，invalid |
+| Terminal-Bench 2.1 Lite | baseline 32/45；历史 candidate 追加审计后 30 passed、10 failed、5 invalid；干净定向 r3 16/20；r4 仅复验 Cython/WAL 为 8/10 | 定向运行不满足 9-task 完整性；`TB = N/A`，invalid |
 | AgentDojo Workspace | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `AD = 94.39`，qualified |
 | LongMemEval-Bumblebee | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `LM = 98.50`，qualified |
 | BCS-v1 | 已有 BB/AD/LM，TB 没有合格输入 | `N/A`，not-qualified |
 
-下一轮只复验干净定向 r3 仍失败的 Cython 与 WAL 两类任务，大文本和 gRPC 不重复
+r4 已确认 WAL 5/5，后续只复验仍不稳定的 Cython；WAL、大文本和 gRPC 不重复
 运行。完整指标、
 成本、失败分类、资格边界和各套件入口见 [Benchmark 结果总览](./benchmark/README.md)；
 Terminal-Bench 的失败经验见[首轮真实评测复盘](./benchmark/benchmark_2_terminal_bench_2_1/POSTMORTEM_2026-07-24.md)。

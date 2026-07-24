@@ -127,6 +127,8 @@ Pi `0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
 | `tb21-candidate-isolation-preflight-20260725` | 1/1 | 无模型真实容器验证生产代码与 wrapper 可用，且 `.git`、根 README、benchmark 文档和临时源码目录均不可见 |
 | `tb21-candidate-isolation-preflight-20260725-r2` | 1/1 | 精确提交 `f4057b7` 的强化隔离预检通过；项目 Markdown 全部不可见 |
 | `tb21-targeted-bumblebee-20260725-r3` | 20/20 | 干净定向复验 16/20，全部样本有效、证据泄漏 0；只覆盖 4/9 任务，仍为 invalid、`TB = N/A` |
+| `tb21-candidate-isolation-preflight-20260725-r3` | 1/1 | 精确提交 `ec372ae` 的无模型隔离预检通过，0 异常、0 重试，耗时 1 分 16 秒 |
+| `tb21-targeted-bumblebee-20260725-r4` | 10/10 | 只复验 Cython/WAL，结果 8/10；全部样本有效、证据泄漏 0，仍因只覆盖 2/9 而 invalid |
 
 中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
 环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
@@ -327,7 +329,7 @@ r2 因证据污染和仅覆盖 4/9 任务而 invalid，`TB = N/A`。
 生产发布白名单后，仅复制 benchmark wrapper，删除根 README 与临时 checkout，再
 调用模型。`tb21-candidate-isolation-preflight-20260725` 已在真实 Docker 容器中
 以 1/1、0 异常、约 2 分钟通过，确认生产入口和 wrapper 存在，而 `.git`、根
-README、benchmark 专用资料及源码 checkout 均不存在。干净候选仍需重新运行同一
+README、benchmark 专用资料及源码 checkout 均不存在。干净 r3 已重新运行同一
 4 类失败任务；污染 r2 不与新结果拼接。
 
 ### 干净定向 r3 结果
@@ -366,6 +368,37 @@ r3 还暴露了恢复保护的动态发现缺口：用户只给目录时，原�
 模式先于文件名生效，从成功工具输出登记证据，逐项匹配复制和 SHA-256，并阻止
 同名前缀冒充与 `copy && delete` 组合绕过。下一轮只复验仍失败的 Cython 和 WAL，
 不重跑已经 5/5 的大文本与 gRPC。
+
+### 二次定向 r4 结果
+
+`tb21-targeted-bumblebee-20260725-r4` 固定 commit
+`ec372aee5e871f74b1d0bcdfe8ce0c067f1c6e60`，只运行 r3 仍失败的 Cython 与
+WAL，每任务 5 次、并发 4。运行 19 分 27 秒，原始 reward 8/10，10 个样本全部
+有效，0 异常、0 重试。
+
+| 任务 | 通过 | 成本 | 平均 Agent 时延 |
+| --- | ---: | ---: | ---: |
+| `build-cython-ext` | 3/5 | `$0.089861` | 449.2s |
+| `db-wal-recovery` | 5/5 | `$0.030692` | 148.1s |
+
+| 指标 | 结果 |
+| --- | ---: |
+| Token | input `13,713,430`、cache read `13,410,560`、output `145,007` |
+| 模型成本 | `$0.120553` |
+| Agent 时延 | p50 `306.6s`、p95 `496.7s`、p99 `528.9s`、max `537.0s` |
+| 导入诊断 | OfficialReward `80.00`、Stability `100.00` |
+| 证据审计 | 10 个 agent 日志中 benchmark 专用资料命中 0 |
+| 凭据审计 | 104 个文本证据文件中 API Key 精确值命中 0 |
+| 资源清理 | Harbor trial 容器残留 0 |
+
+r4 只覆盖冻结任务的 2/9，且没有完整效率预算，因此资格为 invalid、`TB = N/A`；
+它不能和 r3 或 baseline 拼接。WAL 从 r3 的 2/5 变为 5/5，但不同随机样本的单轮
+差值仍不能证明稳定因果收益。
+
+两个 Cython 失败轨迹都把兼容性搜索限制在已知脚本/Cython 扩展名，通用提示没有
+形成可验证的完成门槛。后续修复不编码 NumPy 或具体文件答案，而是在提示同时具有
+兼容迁移和仓库源码语义时，要求修改后至少成功完成一次不按已编辑扩展名收窄的
+递归扫描；否则最多触发一次补充轮次。下一轮只复验 Cython，不再重跑已通过任务。
 
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与

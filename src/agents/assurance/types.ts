@@ -13,6 +13,7 @@ export interface TaskContract {
   readonly artifacts: readonly string[];
   readonly highRiskRecovery: boolean;
   readonly items: readonly string[];
+  readonly repositoryWideCompatibility: boolean;
 }
 
 export interface AssuranceToolCall {
@@ -42,6 +43,7 @@ export interface AssuranceCompletionReview {
 }
 
 export interface TaskAssuranceSnapshot {
+  readonly broadCompatibilityScanObserved: boolean;
   readonly contract: TaskContract;
   readonly criticCostUsd: number;
   readonly criticRuns: number;

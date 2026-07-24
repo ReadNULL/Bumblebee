@@ -17,6 +17,7 @@ import {
 const MAX_DISCOVERY_OUTPUT_LENGTH = 64 * 1024;
 
 interface PendingToolCall {
+  readonly broadCompatibilityScan: boolean;
   readonly copiedArtifacts: readonly string[];
   readonly critic: boolean;
   readonly hashedArtifacts: readonly string[];
@@ -39,6 +40,7 @@ interface TaskState {
   readonly pending: Map<string, PendingToolCall>;
   readonly preservation: Map<string, PreservationState>;
   readonly unresolved: Map<string, PendingToolCall["verification"]>;
+  broadCompatibilityScanObserved: boolean;
   criticCostUsd: number;
   criticRuns: number;
   followUpIssued: boolean;
@@ -140,6 +142,12 @@ export class TaskAssurance {
     if (pending.mutation) {
       state.mutationObserved = true;
     }
+    if (
+      pending.broadCompatibilityScan &&
+      state.mutationObserved
+    ) {
+      state.broadCompatibilityScanObserved = true;
+    }
     for (const artifact of pending.copiedArtifacts) {
       requirePreservationState(state, artifact).copied = true;
     }
@@ -177,6 +185,15 @@ export class TaskAssurance {
     ) {
       reasons.push(
         "The workspace changed without a successful repository or contract verification.",
+      );
+    }
+    if (
+      state.mutationObserved &&
+      state.contract.repositoryWideCompatibility &&
+      !state.broadCompatibilityScanObserved
+    ) {
+      reasons.push(
+        "Repository-wide compatibility changes require a successful post-change recursive scan that is not restricted to only the file types already edited.",
       );
     }
     if (
@@ -231,6 +248,8 @@ export class TaskAssurance {
       return undefined;
     }
     return Object.freeze({
+      broadCompatibilityScanObserved:
+        state.broadCompatibilityScanObserved,
       contract: state.contract,
       criticCostUsd: state.criticCostUsd,
       criticRuns: state.criticRuns,
@@ -275,6 +294,7 @@ function createTaskState(contract: TaskContract): TaskState {
       ]),
     ),
     unresolved: new Map(),
+    broadCompatibilityScanObserved: false,
     criticCostUsd: 0,
     criticRuns: 0,
     followUpIssued: false,
@@ -306,6 +326,10 @@ function inspectToolCall(
     ? undefined
     : classifyVerification(command, contract);
   return Object.freeze({
+    broadCompatibilityScan:
+      contract.repositoryWideCompatibility &&
+      command !== undefined &&
+      isBroadCompatibilityScan(command),
     copiedArtifacts: Object.freeze(copiedArtifacts),
     critic:
       call.toolName === "delegate_task" &&
@@ -425,6 +449,33 @@ function classifyVerification(
         key: `contract:${normalizeCommand(explicitLiteral)}`,
         tier: "contract",
       };
+}
+
+function isBroadCompatibilityScan(command: string): boolean {
+  const normalized = normalizeCommand(command);
+  const recursiveSearch =
+    /\bgit\s+grep\b/u.test(normalized) ||
+    /(?:^|[;&|]\s*|\s)rg(?:\s|$)/u.test(normalized) ||
+    /\bgrep\b[^;&\r\n]*(?:\s-[a-z]*r[a-z]*\b|\s--recursive\b)/u.test(
+      normalized,
+    );
+  if (!recursiveSearch) {
+    return false;
+  }
+  if (/(?:--include|--type)(?:=|\s)/u.test(normalized)) {
+    return false;
+  }
+  for (
+    const match of normalized.matchAll(
+      /(?:^|\s)(?:-g|--glob)(?:=|\s+)(?:"([^"]+)"|'([^']+)'|(\S+))/gu,
+    )
+  ) {
+    const pattern = match[1] ?? match[2] ?? match[3] ?? "";
+    if (!pattern.startsWith("!")) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isMutation(
@@ -564,7 +615,9 @@ function requirePreservationState(
 function requiresIndependentCritic(
   contract: TaskContract,
 ): boolean {
-  return contract.highRiskRecovery || contract.items.length >= 2;
+  return contract.highRiskRecovery ||
+    contract.repositoryWideCompatibility ||
+    contract.items.length >= 2;
 }
 
 function formatAssurancePolicy(contract: TaskContract): string {
@@ -584,6 +637,12 @@ function formatAssurancePolicy(contract: TaskContract): string {
         "- Never fabricate recovered values. Report uncertainty when evidence is insufficient.",
       ]
     : [];
+  const compatibility = contract.repositoryWideCompatibility
+    ? [
+        "- Repository-wide compatibility mode is active.",
+        "- After making changes, run a successful recursive compatibility scan without limiting it to only the file extensions already edited. Include native/generated build inputs when present.",
+      ]
+    : [];
   return [
     "<bumblebee-task-assurance>",
     "Maintain a private completion checklist from the external contract below.",
@@ -591,7 +650,7 @@ function formatAssurancePolicy(contract: TaskContract): string {
     "- Repository/user-specified verification outranks ad-hoc smoke checks.",
     "- A later smoke check cannot erase an unresolved non-zero repository test.",
     "- Before claiming completion, verify paths, protocol fields, output format, and required final commands independently from the implementation.",
-    "- For repository-wide compatibility or API migrations, inspect every relevant source type, including native or generated sources, not only files already edited.",
+    ...compatibility,
     ...recovery,
     "</bumblebee-task-assurance>",
   ].join("\n");
