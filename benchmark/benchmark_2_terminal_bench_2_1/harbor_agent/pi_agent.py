@@ -1,5 +1,6 @@
 """Thin Harbor adapters for the exact Pi package used by Bumblebee."""
 
+import os
 import re
 import shlex
 from typing import override
@@ -14,6 +15,13 @@ PI_VERSION = "0.78.1"
 BUMBLEBEE_REPOSITORY = "https://github.com/ReadNULL/Bumblebee.git"
 BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
 
+# Harbor 0.20.0's built-in Pi adapter does not yet forward DeepSeek
+# credentials. Keep provider secrets in the in-memory agent environment so
+# Harbor scopes them to setup/run without writing them into the job config.
+PROVIDER_CREDENTIAL_ENV = {
+    "deepseek": ("DEEPSEEK_API_KEY",),
+}
+
 
 class PinnedPi(Pi):
     """Harbor's Pi integration with Bumblebee's Pi version pinned."""
@@ -27,6 +35,36 @@ class PinnedPi(Pi):
             default=True,
         ),
     ]
+
+    def __init__(
+        self,
+        *args,
+        model_name: str | None = None,
+        extra_env: dict[str, str] | None = None,
+        **kwargs,
+    ):
+        scoped_env = dict(extra_env or {})
+        provider = model_name.split("/", 1)[0] if model_name else None
+        required_keys = PROVIDER_CREDENTIAL_ENV.get(provider or "", ())
+
+        for key in required_keys:
+            if key not in scoped_env:
+                value = os.environ.get(key)
+                if value:
+                    scoped_env[key] = value
+
+        missing_keys = [key for key in required_keys if not scoped_env.get(key)]
+        if missing_keys:
+            raise ValueError(
+                f"{', '.join(missing_keys)} is required for provider {provider}"
+            )
+
+        super().__init__(
+            *args,
+            model_name=model_name,
+            extra_env=scoped_env,
+            **kwargs,
+        )
 
     @staticmethod
     @override
