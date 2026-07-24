@@ -99,6 +99,7 @@ describe("Benchmark 2 architecture", () => {
     expect(adapter).toContain("--extension");
     expect(JSON.parse(manifest) as unknown).toMatchObject({
       agents: {
+        candidateApprovalPolicy: "allow-once",
         piPackage: "@earendil-works/pi-coding-agent",
         piVersion: "0.78.1",
         extensionSourcePrefix:

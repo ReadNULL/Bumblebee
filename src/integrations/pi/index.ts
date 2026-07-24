@@ -25,6 +25,7 @@ export {
 export {
   bindPiPermissionSystem,
   type PermissionExecutionRuntime,
+  type PiPermissionAuthorityFactory,
   type PiPermissionBindingOptions,
   type PiPermissionRegistrar,
 } from "./permission-binding.js";

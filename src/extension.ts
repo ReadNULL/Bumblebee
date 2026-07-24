@@ -10,12 +10,20 @@ import {
   bindPiMemory,
   bindPiPermissionSystem,
   bindPiSubAgent,
+  type PiPermissionAuthorityFactory,
 } from "./integrations/pi/index.js";
 import { LightweightMemory } from "./memory/index.js";
 import { BumblebeeRuntime } from "./runtime/index.js";
 import { PermissionSystem } from "./security/index.js";
 
-export default function bumblebeeExtension(pi: ExtensionAPI): void {
+export interface BumblebeeExtensionOptions {
+  readonly permissionAuthorityFactory?: PiPermissionAuthorityFactory;
+}
+
+export function registerBumblebeeExtension(
+  pi: ExtensionAPI,
+  options: BumblebeeExtensionOptions = {},
+): void {
   const runtime = new BumblebeeRuntime();
   const permissionSystem = new PermissionSystem();
   const configuredMemoryDirectory =
@@ -28,6 +36,17 @@ export default function bumblebeeExtension(pi: ExtensionAPI): void {
 
   bindPiApplicationLifecycle(pi, runtime, { memory });
   bindPiMemory(pi, runtime, memory);
-  bindPiPermissionSystem(pi, runtime, permissionSystem);
+  bindPiPermissionSystem(pi, runtime, permissionSystem, {
+    ...(options.permissionAuthorityFactory === undefined
+      ? {}
+      : {
+          authorityFactory:
+            options.permissionAuthorityFactory,
+        }),
+  });
   bindPiSubAgent(pi, runtime);
+}
+
+export default function bumblebeeExtension(pi: ExtensionAPI): void {
+  registerBumblebeeExtension(pi);
 }

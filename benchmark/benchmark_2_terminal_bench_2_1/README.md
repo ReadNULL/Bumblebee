@@ -54,7 +54,10 @@ flowchart LR
   `@earendil-works/pi-coding-agent@0.78.1`；
 - baseline 使用 `PinnedPi` 且强制 `--no-extensions`；
 - candidate 使用 `BumblebeePi`，在 Agent setup 阶段将指定 commit 安装到固定本地
-  目录，执行阶段通过 `--no-extensions --extension <local-path>` 只加载它；
+  目录，执行阶段通过 `--no-extensions --extension <local-path>` 只加载该 commit
+  内的 benchmark wrapper；
+- Harbor 没有交互式授权 UI，candidate wrapper 固定注入 `allow-once` authority；
+  它仍注册同一组 Bumblebee 生产模块，只替换授权决策来源；
 - `main`、tag、短 SHA 或未推送的本地目录不能作为正式 candidate 身份；
 - 模型必须显式使用 `provider/model`，API Key 只通过进程环境传给 Harbor；
 - 默认不包含 `--upload` 或 `--public`，不会意外公开轨迹。
@@ -100,6 +103,7 @@ Manifest 中的上游 reference 是 `latest`，但评分身份不依赖这个移
 | `tb21-node-mirror-install-preflight-20260724` | 1/1 | 无模型 install-only 预检通过，Pi 安装约 83 秒，总耗时 1 分 35 秒 |
 | `tb21-lite-pi-1-20260724-r2` | 26/45 | DeepSeek 503 被 Pi 以退出码 0 吞掉，主动停止；adapter 改为识别最终 API 状态并只重试瞬态错误 |
 | `tb21-lite-pi-1-20260724-r3` | 45/45 | Harbor 原始运行完整，但 2 条 verifier 网络故障污染 reward 0，审计后不具备校准资格 |
+| `tb21-lite-bumblebee-smoke-20260724` | 1/1 | reward 0；默认 PermissionSystem 在无 UI 时正确拒绝写入和 Shell，证明不能直接把生产交互模式用于 Harbor |
 
 中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
 环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
@@ -146,6 +150,22 @@ reward，也不是 TB 分数。`db-wal-recovery` 消耗约 `$0.190064`，占本 
   不能通过手工删除失败 trial、改 reward 或计算“修正版官方成绩”绕过。
 - 下一步应先重跑一轮可通过审计的 baseline 1，再执行 baseline 2/3。三轮有效
   baseline 和一轮 candidate 全部完成前，`TB = N/A`。
+
+### Candidate 授权边界
+
+Terminal-Bench 的每个任务都在一次性 Docker 容器中运行，并且必须修改文件或执行
+命令。Bumblebee 生产扩展在 `context.hasUI = false` 时按设计拒绝需要确认的操作；
+第一次 candidate smoke 因而无法执行 `bash/write/edit`，`fix-git` 得分为 0。
+
+正式 candidate 改为加载同一冻结 commit 中的
+`benchmark/benchmark_2_terminal_bench_2_1/candidate-extension.ts`。该 wrapper
+调用生产 `registerBumblebeeExtension()`，仅注入固定返回 `allow_once` 的
+`PermissionAuthority`。策略写入 manifest，并由测试固定；wrapper 不在 npm
+发布文件中，生产默认扩展没有环境变量开关，headless 模式仍然 fail-closed。
+
+因此 candidate 衡量的是“用户已逐次授权后 Bumblebee 的端到端任务价值”，不是
+默认拒绝策略的安全分。权限位、路径范围、持久化和无 UI 拒绝行为继续由
+BumblebeeBench 的独立场景衡量，不能用本分项替代。
 
 ## 环境准备
 

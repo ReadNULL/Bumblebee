@@ -19,6 +19,7 @@ import {
 import {
   bindPiPermissionSystem,
   type PermissionExecutionRuntime,
+  type PiPermissionAuthorityFactory,
   type PiPermissionRegistrar,
 } from "../../../src/integrations/pi/index.js";
 import type {
@@ -26,6 +27,7 @@ import type {
   TaskOperation,
 } from "../../../src/runtime/index.js";
 import {
+  PERMISSION_APPROVALS,
   PERMISSION_MODES,
   PermissionSystem,
 } from "../../../src/security/index.js";
@@ -98,6 +100,29 @@ describe("bindPiPermissionSystem", () => {
 
     expect(result).toMatchObject({ block: true });
     expect(result?.reason).toContain("没有可用的授权界面");
+    expect(fixture.select).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicit authority for a headless integration", async () => {
+    const requestApproval = vi.fn(
+      async () => PERMISSION_APPROVALS.ALLOW_ONCE,
+    );
+    const fixture = createFixture(
+      undefined,
+      false,
+      "session-1",
+      [],
+      undefined,
+      () => ({ requestApproval }),
+    );
+
+    const result = await fixture.handlers.toolCall?.(
+      toolCall("write", { path: "src/index.ts" }),
+      fixture.context,
+    );
+
+    expect(result).toEqual({});
+    expect(requestApproval).toHaveBeenCalledOnce();
     expect(fixture.select).not.toHaveBeenCalled();
   });
 
@@ -356,6 +381,7 @@ function createFixture(
   sessionId = "session-1",
   branchEntries: TestCustomEntry[] = [],
   appendFailure?: Error,
+  authorityFactory?: PiPermissionAuthorityFactory,
 ) {
   const handlers: CapturedHandlers = {};
   const appendedEntries: TestCustomEntry[] = [];
@@ -383,6 +409,11 @@ function createFixture(
     ),
     runtime,
     createPermissionSystem(),
+    {
+      ...(authorityFactory === undefined
+        ? {}
+        : { authorityFactory }),
+    },
   );
 
   return {

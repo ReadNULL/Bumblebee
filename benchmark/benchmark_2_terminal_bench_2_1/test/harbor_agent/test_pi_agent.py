@@ -10,6 +10,9 @@ from unittest.mock import patch
 from harbor.agents.installed.base import ApiOverloadedError
 
 from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
+    BUMBLEBEE_BENCHMARK_EXTENSION,
+    BUMBLEBEE_INSTALL_DIR,
+    BumblebeePi,
     NODE_DOWNLOAD_MIRROR,
     NODE_VERSION,
     PinnedPi,
@@ -94,6 +97,27 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn(f"nvm alias default {NODE_VERSION}", command)
         self.assertNotIn("nvm install 22 &&", command)
         self.assertNotIn("https://nodejs.org/dist", command)
+
+    def test_candidate_loads_the_benchmark_authority_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as logs_dir:
+            agent = BumblebeePi(
+                logs_dir=Path(logs_dir),
+                model_name="openai/gpt-4o",
+                bumblebee_extension=(
+                    "git:github.com/ReadNULL/Bumblebee@"
+                    + "0" * 40
+                ),
+            )
+
+        flags = agent.build_cli_flags()
+        self.assertIn(
+            f'--extension "{BUMBLEBEE_BENCHMARK_EXTENSION}"',
+            flags,
+        )
+        self.assertNotIn(
+            f'--extension "{BUMBLEBEE_INSTALL_DIR}"',
+            flags,
+        )
 
 
 class PinnedPiApiErrorTest(unittest.TestCase):

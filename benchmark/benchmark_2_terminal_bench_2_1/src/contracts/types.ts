@@ -46,6 +46,7 @@ export interface TerminalBenchDatasetConfig {
 export interface TerminalBenchAgentConfig {
   readonly baseline: string;
   readonly candidate: string;
+  readonly candidateApprovalPolicy: "allow-once";
   readonly piPackage: string;
   readonly piVersion: string;
   readonly extensionSourcePrefix: string;

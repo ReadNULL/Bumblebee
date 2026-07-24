@@ -26,6 +26,10 @@ NODE_VERSION = "22.20.0"
 NODE_DOWNLOAD_MIRROR = "https://npmmirror.com/mirrors/node"
 BUMBLEBEE_REPOSITORY = "https://github.com/ReadNULL/Bumblebee.git"
 BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
+BUMBLEBEE_BENCHMARK_EXTENSION = (
+    f"{BUMBLEBEE_INSTALL_DIR}/benchmark/"
+    "benchmark_2_terminal_bench_2_1/candidate-extension.ts"
+)
 
 # Harbor 0.20.0's built-in Pi adapter does not yet forward DeepSeek
 # credentials. Keep provider secrets in the in-memory agent environment so
@@ -231,6 +235,7 @@ class BumblebeePi(PinnedPi):
                 f"git -C \"{BUMBLEBEE_INSTALL_DIR}\" checkout "
                 "--detach FETCH_HEAD; "
                 f"cd \"{BUMBLEBEE_INSTALL_DIR}\"; "
+                f"test -f \"{BUMBLEBEE_BENCHMARK_EXTENSION}\"; "
                 "npm ci --omit=dev"
             ),
         )
@@ -239,7 +244,7 @@ class BumblebeePi(PinnedPi):
     def build_cli_flags(self) -> str:
         base_flags = super().build_cli_flags()
         extension_flag = (
-            f'--extension "{BUMBLEBEE_INSTALL_DIR}"'
+            f'--extension "{BUMBLEBEE_BENCHMARK_EXTENSION}"'
         )
         return f"{base_flags} {extension_flag}".strip()
 

@@ -161,6 +161,11 @@ export function parseTerminalBenchManifest(
         "manifest.agents.candidate",
         "bumblebee-pi",
       ),
+      candidateApprovalPolicy: requireFrozenString(
+        agentsSource.candidateApprovalPolicy,
+        "manifest.agents.candidateApprovalPolicy",
+        "allow-once",
+      ),
       piPackage: requireFrozenString(
         agentsSource.piPackage,
         "manifest.agents.piPackage",
@@ -240,11 +245,11 @@ function isTaskDifficulty(
   return value === "easy" || value === "medium" || value === "hard";
 }
 
-function requireFrozenString(
+function requireFrozenString<const Expected extends string>(
   value: unknown,
   field: string,
-  expected: string,
-): string {
+  expected: Expected,
+): Expected {
   const actual = requireString(value, field);
   if (actual !== expected) {
     invalid(`${field} does not match the frozen adapter`, {
@@ -252,7 +257,7 @@ function requireFrozenString(
       expected,
     });
   }
-  return actual;
+  return actual as Expected;
 }
 
 function assertScoreComponents(scoreSpec: ScoreSpec): void {

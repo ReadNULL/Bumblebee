@@ -47,6 +47,9 @@ describe("Terminal-Bench manifest", () => {
       "terminal-bench/kv-store-grpc",
     ]);
     expect(manifest.baseline.requiredRuns).toBe(3);
+    expect(manifest.agents.candidateApprovalPolicy).toBe(
+      "allow-once",
+    );
     expect(manifest.scoreSpec.components).toEqual([
       { id: "OfficialReward", weight: 0.8 },
       { id: "CostEfficiency", weight: 0.1 },

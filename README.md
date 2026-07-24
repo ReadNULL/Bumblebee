@@ -1151,6 +1151,11 @@ TB = 0.80 * OfficialReward
 
 2026-07-24 首轮真实 baseline 完成 45/45 个 trial，Harbor 原始 reward 为 32/45（`0.7111`），成本约 `$0.3548`。审计发现 `db-wal-recovery` 的 2 个 reward 0 实际来自 verifier 下载依赖时的网络故障；归一化后为 32 passed、11 failed、2 infrastructure invalid，有效率 `95.56%`，低于 `98%` 硬门槛，因此该 job 只留作证据，不能进入三轮校准，当前 `TB = N/A`。详细任务分布和全部中断记录见 `benchmark/benchmark_2_terminal_bench_2_1/README.md`。未来合格结果必须标为 `Terminal-Bench 2.1 Lite (Bumblebee fixed subset)`，不能作为完整数据集或官方排行榜成绩。
 
+Harbor 没有交互式 UI，而生产 PermissionSystem 在 headless 模式会正确拒绝待确认
+操作。Terminal-Bench candidate 因此使用只存在于 benchmark 目录的 wrapper，在
+一次性 Docker 容器中固定选择 `allow-once`；生产扩展没有自动放行开关。该口径衡量
+“用户已授权后的任务效用”，权限策略安全性仍由 BumblebeeBench 单独验证。
+
 ### AgentDojo Workspace
 
 [AgentDojo](https://agentdojo.spylab.ai/) 同时报告无攻击任务效用、攻击下任务效用和目标攻击成功率，用于衡量 Agent 在读取不可信工具数据时是否仍能完成用户目标并抵抗间接提示注入。
@@ -1409,7 +1414,7 @@ flowchart LR
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 86 个测试文件、384 项测试全部通过 |
+| Vitest | 86 个测试文件、385 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
 | npm 发布边界 | dry-run 共 78 个生产文件，不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |

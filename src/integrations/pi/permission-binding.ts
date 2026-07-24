@@ -74,7 +74,12 @@ export interface PermissionExecutionRuntime {
 
 export interface PiPermissionBindingOptions {
   readonly approvalTimeoutMs?: number;
+  readonly authorityFactory?: PiPermissionAuthorityFactory;
 }
+
+export type PiPermissionAuthorityFactory = (
+  context: ExtensionContext,
+) => PermissionAuthority;
 
 /**
  * Pi 是唯一执行边界：所有模型工具调用在这里先授权，异常一律阻止执行。
@@ -116,10 +121,11 @@ export function bindPiPermissionSystem(
                 input: event.input,
                 toolName: event.toolName,
               },
-              new PiPermissionAuthority(
-                context,
-                approvalTimeoutMs,
-              ),
+              options.authorityFactory?.(context) ??
+                new PiPermissionAuthority(
+                  context,
+                  approvalTimeoutMs,
+                ),
               signal,
             );
 
