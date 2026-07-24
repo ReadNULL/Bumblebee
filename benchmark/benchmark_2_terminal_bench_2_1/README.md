@@ -100,6 +100,11 @@ uv pip install `
 Harbor 才能加载仓库内的自定义 Pi adapter。模型供应商凭据沿用 Harbor/Pi
 官方环境变量，不写入 manifest、命令参数或仓库文件。
 
+Benchmark adapter 固定使用 NVM `v0.40.2`、Node `22.20.0` 和
+`https://npmmirror.com/mirrors/node` 下载镜像。Pi 0.78.1 要求
+Node `>=22.19.0`；固定版本避免每个 trial 解析到不同的 Node 补丁版本，镜像则
+避免受限网络下直连 `nodejs.org` 长时间挂起。
+
 若本机无法直连 Docker Hub，可以先从可用镜像源缓存 `ubuntu:24.04`，再给打印出的
 Harbor 命令追加 `--force-build`，由每个任务自带的 Dockerfile 本地构建。2026-07-24
 已使用无模型 `nop` agent 验证本机 Docker 构建、容器启动、verifier 和自动清理链路。

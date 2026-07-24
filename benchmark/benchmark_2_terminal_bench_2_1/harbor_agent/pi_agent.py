@@ -6,12 +6,14 @@ import shlex
 from typing import override
 
 from harbor.agents.installed.base import CliFlag
-from harbor.agents.installed.node_install import nvm_node_install_snippet
 from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
 
 PI_PACKAGE = "@earendil-works/pi-coding-agent"
 PI_VERSION = "0.78.1"
+NVM_VERSION = "v0.40.2"
+NODE_VERSION = "22.20.0"
+NODE_DOWNLOAD_MIRROR = "https://npmmirror.com/mirrors/node"
 BUMBLEBEE_REPOSITORY = "https://github.com/ReadNULL/Bumblebee.git"
 BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
 
@@ -21,6 +23,25 @@ BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
 PROVIDER_CREDENTIAL_ENV = {
     "deepseek": ("DEEPSEEK_API_KEY",),
 }
+
+
+def _node_install_snippet() -> str:
+    """Build a pinned Node install command for restricted networks."""
+
+    nvm_installer = (
+        "https://raw.githubusercontent.com/nvm-sh/nvm/"
+        f"{NVM_VERSION}/install.sh"
+    )
+    return (
+        f"export NVM_NODEJS_ORG_MIRROR={shlex.quote(NODE_DOWNLOAD_MIRROR)} && "
+        "curl --fail --silent --show-error --location --retry 3 "
+        f"--connect-timeout 15 {shlex.quote(nvm_installer)} | bash && "
+        'export NVM_DIR="$HOME/.nvm" && '
+        '. "$NVM_DIR/nvm.sh" && '
+        f"nvm install {shlex.quote(NODE_VERSION)} && "
+        f"nvm alias default {shlex.quote(NODE_VERSION)} && "
+        "npm --version"
+    )
 
 
 class PinnedPi(Pi):
@@ -83,7 +104,7 @@ class PinnedPi(Pi):
             environment,
             command=(
                 "set -euo pipefail; "
-                f"{nvm_node_install_snippet()} && "
+                f"{_node_install_snippet()} && "
                 f"npm install -g {package_spec} && "
                 "pi --version"
             ),

@@ -90,6 +90,10 @@ describe("Benchmark 2 architecture", () => {
       'PI_PACKAGE = "@earendil-works/pi-coding-agent"',
     );
     expect(adapter).toContain('PI_VERSION = "0.78.1"');
+    expect(adapter).toContain('NODE_VERSION = "22.20.0"');
+    expect(adapter).toContain(
+      'NODE_DOWNLOAD_MIRROR = "https://npmmirror.com/mirrors/node"',
+    );
     expect(adapter).toContain("npm ci --omit=dev");
     expect(adapter).toContain("--no-extensions");
     expect(adapter).toContain("--extension");
