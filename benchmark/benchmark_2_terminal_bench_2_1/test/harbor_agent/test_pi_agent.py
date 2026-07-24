@@ -1,16 +1,21 @@
 """Credential forwarding tests for the local Harbor Pi adapter."""
 
+import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from harbor.agents.installed.base import ApiOverloadedError
+
 from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
     NODE_DOWNLOAD_MIRROR,
     NODE_VERSION,
     PinnedPi,
     _node_install_snippet,
+    _raise_terminal_api_error,
+    _read_terminal_api_error,
 )
 
 
@@ -89,6 +94,77 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn(f"nvm alias default {NODE_VERSION}", command)
         self.assertNotIn("nvm install 22 &&", command)
         self.assertNotIn("https://nodejs.org/dist", command)
+
+
+class PinnedPiApiErrorTest(unittest.TestCase):
+    def test_raises_retriable_error_when_pi_exhausts_503_retries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "pi.txt"
+            output_path.write_text(
+                "\n".join(
+                    [
+                        json_line(
+                            {
+                                "type": "message_end",
+                                "message": {
+                                    "role": "assistant",
+                                    "stopReason": "error",
+                                    "errorMessage": "503 Service is too busy",
+                                },
+                            }
+                        ),
+                        json_line(
+                            {
+                                "type": "auto_retry_end",
+                                "success": False,
+                                "attempt": 3,
+                                "finalError": "503 Service is too busy",
+                            }
+                        ),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ApiOverloadedError,
+                r"503 Service is too busy",
+            ):
+                _raise_terminal_api_error(output_path)
+
+    def test_ignores_an_api_error_recovered_by_pi_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "pi.txt"
+            output_path.write_text(
+                "\n".join(
+                    [
+                        json_line(
+                            {
+                                "type": "message_end",
+                                "message": {
+                                    "role": "assistant",
+                                    "stopReason": "error",
+                                    "errorMessage": "503 Service is too busy",
+                                },
+                            }
+                        ),
+                        json_line(
+                            {
+                                "type": "auto_retry_end",
+                                "success": True,
+                                "attempt": 1,
+                            }
+                        ),
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertIsNone(_read_terminal_api_error(output_path))
+
+
+def json_line(value: object) -> str:
+    return json.dumps(value)
 
 
 if __name__ == "__main__":

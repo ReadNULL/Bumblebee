@@ -1,13 +1,23 @@
 """Thin Harbor adapters for the exact Pi package used by Bumblebee."""
 
+import json
 import os
 import re
 import shlex
+from pathlib import Path
 from typing import override
 
-from harbor.agents.installed.base import CliFlag
+from harbor.agents.installed.base import (
+    ApiInternalServerError,
+    ApiOverloadedError,
+    ApiRateLimitError,
+    CliFlag,
+    NetworkConnectionError,
+    UnknownApiError,
+)
 from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
 
 PI_PACKAGE = "@earendil-works/pi-coding-agent"
 PI_VERSION = "0.78.1"
@@ -42,6 +52,64 @@ def _node_install_snippet() -> str:
         f"nvm alias default {shlex.quote(NODE_VERSION)} && "
         "npm --version"
     )
+
+
+def _read_terminal_api_error(output_path: Path) -> str | None:
+    """Return only an unrecovered terminal API error from Pi's JSONL output."""
+
+    if not output_path.exists():
+        return None
+
+    last_retry_end: tuple[bool, str] | None = None
+    last_assistant_error: str | None = None
+    with output_path.open("r", encoding="utf-8") as output:
+        for line in output:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") == "auto_retry_end":
+                last_retry_end = (
+                    event.get("success") is True,
+                    str(event.get("finalError") or ""),
+                )
+                continue
+            if event.get("type") != "message_end":
+                continue
+            message = event.get("message")
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            if message.get("stopReason") == "error":
+                last_assistant_error = str(message.get("errorMessage") or "")
+            else:
+                last_assistant_error = None
+
+    if last_retry_end is not None:
+        succeeded, message = last_retry_end
+        return None if succeeded else message or "Pi API retries exhausted"
+    return last_assistant_error
+
+
+def _raise_terminal_api_error(output_path: Path) -> None:
+    message = _read_terminal_api_error(output_path)
+    if message is None:
+        return
+
+    normalized = message.casefold()
+    detail = message[:500]
+    if "503" in normalized or "too busy" in normalized or "overload" in normalized:
+        raise ApiOverloadedError(detail)
+    if "429" in normalized or "rate limit" in normalized:
+        raise ApiRateLimitError(detail)
+    if "500" in normalized or "internal server error" in normalized:
+        raise ApiInternalServerError(detail)
+    if (
+        "connection" in normalized
+        or "timed out" in normalized
+        or "network" in normalized
+    ):
+        raise NetworkConnectionError(detail)
+    raise UnknownApiError(detail)
 
 
 class PinnedPi(Pi):
@@ -109,6 +177,16 @@ class PinnedPi(Pi):
                 "pi --version"
             ),
         )
+
+    @override
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        await super().run(instruction, environment, context)
+        _raise_terminal_api_error(self.logs_dir / self._OUTPUT_FILENAME)
 
 
 class BumblebeePi(PinnedPi):

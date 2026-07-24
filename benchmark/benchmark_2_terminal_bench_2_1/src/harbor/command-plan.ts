@@ -10,6 +10,14 @@ const AGENT_MODULE =
   "benchmark.benchmark_2_terminal_bench_2_1." +
   "harbor_agent.pi_agent";
 const AGENT_SETUP_TIMEOUT_MULTIPLIER = "3";
+const MAX_TRANSIENT_RETRIES = "2";
+const TRANSIENT_RETRY_EXCEPTIONS = [
+  "ApiOverloadedError",
+  "ApiRateLimitError",
+  "ApiInternalServerError",
+  "NetworkConnectionError",
+  "UnknownApiError",
+] as const;
 const THINKING_LEVELS = [
   "off",
   "minimal",
@@ -64,9 +72,14 @@ export function createHarborRunPlan(
     String(options.concurrency),
     "--agent-setup-timeout-multiplier",
     AGENT_SETUP_TIMEOUT_MULTIPLIER,
+    "--max-retries",
+    MAX_TRANSIENT_RETRIES,
     "--job-name",
     options.jobName,
   ];
+  for (const exception of TRANSIENT_RETRY_EXCEPTIONS) {
+    arguments_.push("--retry-include", exception);
+  }
   for (const task of manifest.dataset.selectedTasks) {
     arguments_.push("--include-task-name", task.id);
   }

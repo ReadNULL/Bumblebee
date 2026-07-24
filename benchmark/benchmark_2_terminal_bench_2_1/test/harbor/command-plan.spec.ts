@@ -32,6 +32,17 @@ describe("Harbor command plan", () => {
         "--agent-setup-timeout-multiplier",
       ),
     ).toBe("3");
+    expect(valueAfter(plan.arguments, "--max-retries")).toBe(
+      "2",
+    );
+    expect(valuesAfter(plan.arguments, "--retry-include"))
+      .toEqual([
+        "ApiOverloadedError",
+        "ApiRateLimitError",
+        "ApiInternalServerError",
+        "NetworkConnectionError",
+        "UnknownApiError",
+      ]);
     expect(plan.displayCommand).toMatch(
       /^python -m harbor\.cli\.main run /u,
     );

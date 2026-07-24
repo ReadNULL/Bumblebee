@@ -132,6 +132,11 @@ npm run benchmark:2 -- plan candidate openai/<model> docker 1 tb21-full $extensi
 放宽到 18 分钟。所以每个 job 为 45 个 trial；三轮 baseline 加一轮 candidate
 共 180 个 trial。并发数只影响吞吐，不得改变模型、thinking、任务集或预算。
 
+adapter 会解析 Pi JSONL 的最终 API 状态。Pi 内部重试耗尽后的 503、429、500、
+网络错误等会转换为 Harbor 异常，并由计划中固定的 `--max-retries 2` 重新执行
+该 trial；只允许瞬态 API/网络异常进入重试。Agent timeout、认证、配额、模型拒绝
+和 verifier 给出的真实 reward 0 均不重试，避免用重复采样粉饰能力失败。
+
 ## 2. 冻结 baseline 预算
 
 三轮 baseline 全部完成后，将三个 Harbor job 目录交给校准器：
