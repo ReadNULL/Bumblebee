@@ -15,6 +15,11 @@ invalid。两轮有效率分别为 95.56% 和 93.33%，均低于冻结的 98% �
 失败轨迹、证据边界、改进优先级和下一轮验收条件见
 [首轮真实评测复盘](./POSTMORTEM_2026-07-24.md)。
 
+首轮复盘列出的 P0/P1 通用改进已经进入代码：无模型 verifier 预检、依赖预热、
+Task Assurance、三档 feature profile、空记忆按需注入、只读 critic、lesson 草稿
+和独立 `dev/holdout` 定向集。它们必须通过下述真实预检和失败任务复验后，才能视为
+已验证改进。
+
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的
 `89 × 5 ×（3 baseline + 1 candidate）= 1780` 个 trial 降为
@@ -49,6 +54,7 @@ flowchart LR
 | `src/importer/` | 将 Harbor `JobResult/TrialResult` 归一化为 Benchmark 0 契约 |
 | `src/scoring/` | 三轮 `pi-baseline` 中位数校准及 TB 分数计算 |
 | `src/runner/` | 保存每次 trial、来源哈希、报告和无效/NQ 状态 |
+| `src/dev/` | 不含公开题目答案的 Task Assurance 开发集和独立留出集 |
 | `test/` | 不联网、不调用模型的确定性开发测试 |
 
 ## 运行边界
@@ -63,6 +69,7 @@ flowchart LR
 - Harbor 没有交互式授权 UI，candidate wrapper 固定注入 `allow-once` authority；
   它仍注册同一组 Bumblebee 生产模块，只替换授权决策来源；
 - `main`、tag、短 SHA 或未推送的本地目录不能作为正式 candidate 身份；
+- candidate 可显式选择 `pi-baseline`、`permission-only` 或 `full` profile；
 - 模型必须显式使用 `provider/model`，API Key 只通过进程环境传给 Harbor；
 - 默认不包含 `--upload` 或 `--public`，不会意外公开轨迹。
 
@@ -244,7 +251,36 @@ Node `>=22.19.0`；固定版本避免每个 trial 解析到不同的 Node 补丁
 Harbor 命令追加 `--force-build`，由每个任务自带的 Dockerfile 本地构建。2026-07-24
 已使用无模型 `nop` agent 验证本机 Docker 构建、容器启动、verifier 和自动清理链路。
 
-## 1. 生成运行命令
+## 1. 运行定向保障集
+
+```powershell
+npm run benchmark:2 -- assurance dev
+npm run benchmark:2 -- assurance holdout
+```
+
+两组各 4 个任务，覆盖未解决强测试、外部契约、恢复证据和输出格式。它们不调用模型，
+也不包含 Cython、WAL、gRPC 或 Vim 的解题答案。修改保障策略时先看 dev，定稿后再看
+holdout，避免围绕全部公开断言调参。
+
+## 2. 无模型基础设施预检
+
+```powershell
+npm run benchmark:2 -- preflight docker 4 tb21-verifier-preflight
+# 审阅打印出的 python 命令后执行，再审计 job：
+npm run benchmark:2 -- audit-preflight jobs\tb21-verifier-preflight
+```
+
+预检固定执行 9 个任务、每任务 1 次、并发 4，不传模型也不运行 Agent 推理。setup
+会检查 apt、GitHub、Node/npm registry、astral、Python/PyPI，并只预热当前任务
+上游 `test.sh` 已声明的精确 verifier 依赖；之后仍由原始 verifier 运行并写 reward。
+reward 可以是 0，因为预检不解题；验收关注 9/9 都产生 verifier 结果且没有
+adapter/dataset/infrastructure 异常。
+
+正式 Pi adapter 使用同一预热逻辑。即使 verifier 随后的重复下载瞬时失败，已有
+`uv`、Python 3.13 和包缓存仍可供原始脚本继续执行；任务文件、测试文件和 reward
+语义均不修改。
+
+## 3. 生成模型运行命令
 
 `plan` 只打印命令，不运行 Harbor；打印结果以
 `python -m harbor.cli.main run` 开头。Windows 上 npm 10.9.3 会剥掉部分
@@ -260,6 +296,10 @@ npm run benchmark:2 -- plan baseline openai/<model> docker 1 tb21-pi-3 - high
 $commit = git rev-parse HEAD
 $extension = "git:github.com/ReadNULL/Bumblebee@$commit"
 npm run benchmark:2 -- plan candidate openai/<model> docker 1 tb21-full $extension high
+
+# 只复验首轮存在能力失败的任务；逗号列表必须来自冻结 manifest
+$failed = "terminal-bench/build-cython-ext,terminal-bench/db-wal-recovery,terminal-bench/large-scale-text-editing,terminal-bench/kv-store-grpc"
+npm run benchmark:2 -- plan candidate deepseek/deepseek-v4-flash docker 4 tb21-targeted $extension high $failed 5 full
 ```
 
 检查打印出的命令后再手工执行。生成的命令固定包含 9 个任务过滤器和 `-k 5`，
@@ -275,7 +315,12 @@ adapter 会解析 Pi JSONL 的最终 API 状态。Pi 内部重试耗尽后的 50
 该 trial；只允许瞬态 API/网络异常进入重试。Agent timeout、认证、配额、模型拒绝
 和 verifier 给出的真实 reward 0 均不重试，避免用重复采样粉饰能力失败。
 
-## 2. 冻结 baseline 预算
+定向 job 只用于复验失败族并保留原始 trial 证据，不完整覆盖 9 个任务，因此不能发布
+TB-Lite 总分。导入失败 job 时还会按任务、失败类别和错误码生成 `proposed` lesson，
+写入 run artifact 与 Benchmark 0 追加式 lesson history；人工复核和独立复验前不会
+自动升级为 accepted。
+
+## 4. 冻结 baseline 预算
 
 三轮 baseline 全部完成后，将三个 Harbor job 目录交给校准器：
 
@@ -292,7 +337,7 @@ npm run benchmark:2 -- calibrate `
 汇总所有有效 trial，分别取成本和 Agent 执行时长的中位数。缺失成本、任务哈希
 冲突、任务数不足或样本不足都会拒绝生成预算，不能用手填默认值绕过。
 
-## 3. 导入 candidate
+## 5. 导入 candidate
 
 ```powershell
 npm run benchmark:2 -- import `
@@ -354,6 +399,6 @@ npm test -- benchmark/benchmark_2_terminal_bench_2_1/test
 npm run benchmark:2
 ```
 
-最后一个命令只显示帮助。当前 8 个测试文件、31 项确定性测试全部通过；首轮真实
-baseline 和 candidate 均已完成，但因上述 verifier 基础设施污染被判为无效，不能
-作为正式 Terminal-Bench Lite 成绩。
+最后一个命令只显示帮助。确定性测试、Python adapter 测试和 Task Assurance
+`dev/holdout` 均应先通过；首轮真实 baseline 和 candidate 因上述 verifier
+基础设施污染被判为无效，不能作为正式 Terminal-Bench Lite 成绩。

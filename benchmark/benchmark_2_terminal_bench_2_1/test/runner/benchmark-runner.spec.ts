@@ -49,6 +49,59 @@ describe("Terminal-Bench import runner", () => {
     expect(summary.taskResultArtifacts).toHaveLength(4);
   });
 
+  it("records proposed lesson drafts for every failure group", async () => {
+    const outputDirectory = await mkdtemp(
+      join(tmpdir(), "bumblebee-tb21-lessons-"),
+    );
+    const manifest = createTestManifest();
+    const job = createNormalizedFixtureJob(manifest, {
+      rewards: [0, 0, 1, 1],
+    });
+    const report = await runTerminalBenchImport({
+      manifest,
+      job,
+      outputDirectory,
+      clock: () => new Date("2026-07-23T12:00:00.000Z"),
+    });
+
+    const drafts = JSON.parse(
+      await readFile(
+        join(
+          outputDirectory,
+          "artifacts",
+          report.runId,
+          "evidence",
+          "lessons",
+          "drafts.json",
+        ),
+        "utf8",
+      ),
+    ) as Array<{
+      taskId: string;
+      harborTrialIds: string[];
+      lesson: { status: string };
+    }>;
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      taskId: "task-alpha",
+      lesson: { status: "proposed" },
+    });
+    expect(drafts[0]?.harborTrialIds).toHaveLength(2);
+
+    const lessonHistory = await readFile(
+      join(
+        outputDirectory,
+        "history",
+        "lessons",
+        "tb21-task-alpha-official_reward_zero.jsonl",
+      ),
+      "utf8",
+    );
+    expect(lessonHistory).toContain(
+      `"evidenceRunIds":["${report.runId}"]`,
+    );
+  });
+
   it("records namespaced Harbor task IDs with portable paths", async () => {
     const outputDirectory = await mkdtemp(
       join(tmpdir(), "bumblebee-tb21-namespaced-"),

@@ -80,6 +80,7 @@ export type PiConversationBridgeFactory = (
 
 export interface PiExtensionApplicationOptions {
   readonly bridgeFactory?: PiConversationBridgeFactory;
+  readonly channelsEnabled?: boolean;
   readonly environment?: EnvironmentSource;
   readonly feishuGatewayFactory?: FeishuGatewayFactory;
   readonly feishuLogger?: FeishuDiagnosticLogger;
@@ -92,6 +93,7 @@ export interface PiExtensionApplicationOptions {
  */
 export class PiExtensionApplication {
   private readonly bridgeFactory: PiConversationBridgeFactory;
+  private readonly channelsEnabled: boolean;
   private currentModel: ExtensionContext["model"];
   private readonly environment: EnvironmentSource;
   private readonly feishuGatewayFactory: FeishuGatewayFactory;
@@ -111,6 +113,7 @@ export class PiExtensionApplication {
     this.bridgeFactory =
       options.bridgeFactory ?? ((bridgeOptions) =>
         new PiConversationBridge(bridgeOptions));
+    this.channelsEnabled = options.channelsEnabled ?? true;
     this.environment = options.environment ?? process.env;
     this.feishuGatewayFactory =
       options.feishuGatewayFactory ??
@@ -132,6 +135,10 @@ export class PiExtensionApplication {
       if (this.memory !== undefined) {
         defer("lightweight-memory", () => this.memory?.dispose());
         await this.memory.initialize({ cwd: context.cwd, signal });
+      }
+
+      if (!this.channelsEnabled) {
+        return;
       }
 
       const feishuConfig = loadFeishuConfig(this.environment);

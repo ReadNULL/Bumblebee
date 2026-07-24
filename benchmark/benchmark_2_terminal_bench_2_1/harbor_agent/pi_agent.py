@@ -15,6 +15,7 @@ from harbor.agents.installed.base import (
     NetworkConnectionError,
     UnknownApiError,
 )
+from harbor.agents.base import BaseAgent
 from harbor.agents.installed.pi import Pi
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
@@ -30,6 +31,58 @@ BUMBLEBEE_BENCHMARK_EXTENSION = (
     f"{BUMBLEBEE_INSTALL_DIR}/benchmark/"
     "benchmark_2_terminal_bench_2_1/candidate-extension.ts"
 )
+UV_VERSION = "0.9.5"
+BUMBLEBEE_FEATURE_PROFILES = {
+    "pi-baseline",
+    "permission-only",
+    "full",
+}
+
+UV_VERIFIER_REQUIREMENTS = {
+    "cancel-async-tasks": (
+        "pytest==8.4.1",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "db-wal-recovery": (
+        "pytest==8.4.1",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "fix-git": (
+        "pytest==8.4.1",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "large-scale-text-editing": (
+        "pytest==8.4.1",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "multi-source-data-merger": (
+        "pytest==8.4.1",
+        "pandas==2.3.3",
+        "pyarrow==22.0.0",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "nginx-request-logging": (
+        "pytest==8.4.1",
+        "requests==2.32.4",
+        "pytest-json-ctrf==0.3.5",
+    ),
+}
+PIP_VERIFIER_REQUIREMENTS = {
+    "build-cython-ext": (
+        "pytest==8.4.1",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "fix-code-vulnerability": (
+        "pytest==8.4.1",
+        "pytest-json-ctrf==0.3.5",
+    ),
+    "kv-store-grpc": (
+        "pytest==8.4.2",
+        "requests==2.32.5",
+        "psutil==7.0.0",
+        "pytest-json-ctrf==0.3.5",
+    ),
+}
 
 # Harbor 0.20.0's built-in Pi adapter does not yet forward DeepSeek
 # credentials. Keep provider secrets in the in-memory agent environment so
@@ -55,6 +108,112 @@ def _node_install_snippet() -> str:
         f"nvm install {shlex.quote(NODE_VERSION)} && "
         f"nvm alias default {shlex.quote(NODE_VERSION)} && "
         "npm --version"
+    )
+
+
+def _task_requirements(
+    environment_name: str,
+    requirements: dict[str, tuple[str, ...]],
+) -> tuple[str, ...]:
+    """Resolve only verifier-declared packages for the current frozen task."""
+
+    normalized = environment_name.casefold()
+    matches = [
+        packages
+        for task_name, packages in requirements.items()
+        if task_name in normalized
+    ]
+    return matches[0] if matches else ()
+
+
+def _verifier_dependency_command(environment_name: str) -> str:
+    """Prewarm the exact verifier bootstrap without changing verifier files."""
+
+    uv_requirements = _task_requirements(
+        environment_name,
+        UV_VERIFIER_REQUIREMENTS,
+    )
+    pip_requirements = _task_requirements(
+        environment_name,
+        PIP_VERIFIER_REQUIREMENTS,
+    )
+    commands = [
+        "set -euo pipefail",
+        "export HOME=/root",
+        "export DEBIAN_FRONTEND=noninteractive",
+        "mkdir -p /etc/apt/apt.conf.d",
+        (
+            "printf 'Acquire::Retries \"5\";\\n"
+            "Acquire::http::Timeout \"30\";\\n"
+            "Acquire::https::Timeout \"30\";\\n' "
+            "> /etc/apt/apt.conf.d/80bumblebee-retries"
+        ),
+        (
+            "apt-get -o Acquire::Retries=5 update && "
+            "apt-get -o Acquire::Retries=5 "
+            "-o DPkg::Lock::Timeout=120 install -y "
+            "ca-certificates curl git python3 python3-pip"
+        ),
+    ]
+    if pip_requirements:
+        packages = " ".join(shlex.quote(value) for value in pip_requirements)
+        commands.append(
+            "python3 -m pip install --disable-pip-version-check "
+            "--retries 5 --timeout 30 --break-system-packages "
+            f"{packages}"
+        )
+    if uv_requirements:
+        packages = " ".join(
+            f"-w {shlex.quote(value)}" for value in uv_requirements
+        )
+        commands.extend(
+            [
+                "mkdir -p /root/.local/bin",
+                (
+                    f"curl --fail --silent --show-error --location "
+                    f"--retry 5 --retry-all-errors --connect-timeout 20 "
+                    f"https://astral.sh/uv/{UV_VERSION}/install.sh | sh || "
+                    "python3 -m pip install --disable-pip-version-check "
+                    "--retries 5 --timeout 30 --break-system-packages "
+                    f"uv=={UV_VERSION}"
+                ),
+                (
+                    "test -x /root/.local/bin/uv || "
+                    "ln -sf \"$(command -v uv)\" /root/.local/bin/uv"
+                ),
+                (
+                    "test -x /root/.local/bin/uvx || "
+                    "ln -sf \"$(command -v uvx)\" /root/.local/bin/uvx"
+                ),
+                (
+                    "printf 'export PATH=\"/root/.local/bin:$PATH\"\\n' "
+                    "> /root/.local/bin/env"
+                ),
+                "/root/.local/bin/uv python install 3.13",
+                (
+                    "/root/.local/bin/uvx -p 3.13 "
+                    f"{packages} python -c "
+                    + shlex.quote(
+                        "import pytest; print(pytest.__version__)"
+                    )
+                ),
+            ]
+        )
+    return "; ".join(commands)
+
+
+def _preflight_network_command() -> str:
+    """Exercise the endpoints used by candidate setup without a model call."""
+
+    repository = shlex.quote(BUMBLEBEE_REPOSITORY)
+    package_spec = shlex.quote(f"{PI_PACKAGE}@{PI_VERSION}")
+    return (
+        "set -euo pipefail; "
+        "export HOME=/root; "
+        f"{_node_install_snippet()} && "
+        f"git ls-remote --exit-code {repository} HEAD >/dev/null && "
+        f"npm view {package_spec} version --fetch-retries=5 "
+        "--fetch-timeout=30000"
     )
 
 
@@ -168,8 +327,10 @@ class PinnedPi(Pi):
     async def install(self, environment: BaseEnvironment) -> None:
         await self.exec_as_root(
             environment,
-            command="apt-get update && apt-get install -y curl git",
-            env={"DEBIAN_FRONTEND": "noninteractive"},
+            command=_verifier_dependency_command(
+                environment.environment_name
+            ),
+            timeout_sec=900,
         )
         package_spec = shlex.quote(f"{PI_PACKAGE}@{PI_VERSION}")
         await self.exec_as_agent(
@@ -202,6 +363,7 @@ class BumblebeePi(PinnedPi):
         self,
         *args,
         bumblebee_extension: str | None = None,
+        bumblebee_profile: str = "full",
         **kwargs,
     ):
         match = re.fullmatch(
@@ -214,7 +376,14 @@ class BumblebeePi(PinnedPi):
                 "git:github.com/ReadNULL/Bumblebee@<commit>"
             )
         self._bumblebee_commit = match.group(1).lower()
-        super().__init__(*args, **kwargs)
+        if bumblebee_profile not in BUMBLEBEE_FEATURE_PROFILES:
+            raise ValueError(
+                "bumblebee_profile must be pi-baseline, "
+                "permission-only, or full"
+            )
+        scoped_env = dict(kwargs.pop("extra_env", None) or {})
+        scoped_env["BUMBLEBEE_FEATURE_PROFILE"] = bumblebee_profile
+        super().__init__(*args, extra_env=scoped_env, **kwargs)
 
     @override
     async def install(self, environment: BaseEnvironment) -> None:
@@ -252,3 +421,41 @@ class BumblebeePi(PinnedPi):
     @override
     def name() -> str:
         return "bumblebee-pi"
+
+
+class VerifierPreflight(BaseAgent):
+    """No-model agent that exercises setup egress and the exact verifier."""
+
+    @staticmethod
+    @override
+    def name() -> str:
+        return "verifier-preflight"
+
+    @override
+    def version(self) -> str:
+        return "1.0.0"
+
+    @override
+    async def setup(self, environment: BaseEnvironment) -> None:
+        commands = (
+            _verifier_dependency_command(environment.environment_name),
+            _preflight_network_command(),
+        )
+        for command in commands:
+            result = await environment.exec(
+                command=command,
+                user="root",
+                timeout_sec=900,
+            )
+            if result.return_code != 0:
+                output = result.stderr or result.stdout or "no output"
+                raise NetworkConnectionError(output[-500:])
+
+    @override
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        del instruction, environment, context

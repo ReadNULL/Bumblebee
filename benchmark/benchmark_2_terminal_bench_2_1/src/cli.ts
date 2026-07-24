@@ -18,12 +18,17 @@ import {
 } from "../../../src/foundation/index.js";
 import {
   calibrateTerminalBenchBudget,
+  createHarborPreflightPlan,
   createHarborRunPlan,
   parseTerminalBenchBudgetManifest,
   parseTerminalBenchManifest,
   readHarborJob,
+  runAssuranceDevelopmentSuite,
   runTerminalBenchImport,
+  type AssuranceSuiteSplit,
   type HarborRunMode,
+  type BumblebeeBenchmarkProfile,
+  type NormalizedTerminalBenchJob,
   type TerminalBenchManifest,
 } from "./index.js";
 
@@ -47,6 +52,23 @@ type CliCommand =
       readonly jobName: string;
       readonly extensionSource?: string;
       readonly thinking?: string;
+      readonly taskIds?: readonly string[];
+      readonly repetitions?: number;
+      readonly profile?: BumblebeeBenchmarkProfile;
+    }
+  | {
+      readonly kind: "preflight";
+      readonly environment: string;
+      readonly concurrency: number;
+      readonly jobName: string;
+    }
+  | {
+      readonly kind: "audit-preflight";
+      readonly jobDirectory: string;
+    }
+  | {
+      readonly kind: "assurance";
+      readonly split: AssuranceSuiteSplit | "all";
     }
   | {
       readonly kind: "calibrate";
@@ -71,12 +93,53 @@ async function main(): Promise<void> {
     printHelp();
     return;
   }
+  if (command.kind === "assurance") {
+    const report = runAssuranceDevelopmentSuite(command.split);
+    for (const result of report.results) {
+      process.stdout.write(
+        `${result.passed ? "PASS" : "FAIL"} ${result.id}: ${result.message}\n`,
+      );
+    }
+    process.stdout.write(
+      `assurance ${command.split}: ${report.passed}/${report.total} passed\n`,
+    );
+    process.exitCode = report.failed === 0 ? 0 : 2;
+    return;
+  }
 
   const manifest = await loadManifest(projectRoot);
   switch (command.kind) {
     case "plan": {
       const plan = createHarborRunPlan(manifest, command);
       process.stdout.write(`${plan.displayCommand}\n`);
+      return;
+    }
+    case "preflight": {
+      const plan = createHarborPreflightPlan(
+        manifest,
+        command,
+      );
+      process.stdout.write(`${plan.displayCommand}\n`);
+      return;
+    }
+    case "audit-preflight": {
+      const job = await readHarborJob(
+        command.jobDirectory,
+        manifest,
+      );
+      const audit = auditPreflight(job, manifest);
+      process.stdout.write(
+        [
+          `preflight: ${audit.status}`,
+          `coverage: ${audit.coveredTasks}/${audit.expectedTasks}`,
+          `verifier results: ${audit.rewardCount}/${audit.expectedTasks}`,
+          ...(audit.failures.length === 0
+            ? []
+            : audit.failures.map((failure) => `- ${failure}`)),
+          "",
+        ].join("\n"),
+      );
+      process.exitCode = audit.status === "passed" ? 0 : 2;
       return;
     }
     case "calibrate": {
@@ -162,6 +225,9 @@ function parseArguments(
       "--job-name",
       "--extension",
       "--thinking",
+      "--tasks",
+      "--repetitions",
+      "--profile",
     ]);
     const mode = requireOption(options, "--mode");
     if (mode !== "baseline" && mode !== "candidate") {
@@ -174,6 +240,14 @@ function parseArguments(
       "--extension",
     );
     const thinking = singleOption(options, "--thinking");
+    const taskIds = parseTaskIds(
+      singleOption(options, "--tasks"),
+    );
+    const repetitions = singleOption(
+      options,
+      "--repetitions",
+    );
+    const profile = singleOption(options, "--profile");
     return {
       kind: "plan",
       mode,
@@ -191,6 +265,56 @@ function parseArguments(
         ? {}
         : { extensionSource }),
       ...(thinking === undefined ? {} : { thinking }),
+      ...(taskIds === undefined ? {} : { taskIds }),
+      ...(repetitions === undefined
+        ? {}
+        : {
+            repetitions: parsePositiveInteger(
+              repetitions,
+              "--repetitions",
+            ),
+          }),
+      ...(profile === undefined
+        ? {}
+        : { profile: parseFeatureProfile(profile) }),
+    };
+  }
+  if (command === "preflight") {
+    assertKnownOptions(options, [
+      "--environment",
+      "--concurrency",
+      "--job-name",
+    ]);
+    return {
+      kind: "preflight",
+      environment:
+        singleOption(options, "--environment") ?? "docker",
+      concurrency: parsePositiveInteger(
+        singleOption(options, "--concurrency") ?? "4",
+        "--concurrency",
+      ),
+      jobName:
+        singleOption(options, "--job-name") ??
+        "tb21-verifier-preflight",
+    };
+  }
+  if (command === "audit-preflight") {
+    assertKnownOptions(options, ["--job"]);
+    return {
+      kind: "audit-preflight",
+      jobDirectory: resolve(
+        projectRoot,
+        requireOption(options, "--job"),
+      ),
+    };
+  }
+  if (command === "assurance") {
+    assertKnownOptions(options, ["--split"]);
+    return {
+      kind: "assurance",
+      split: parseAssuranceSplit(
+        singleOption(options, "--split") ?? "all",
+      ),
     };
   }
   if (command === "calibrate") {
@@ -273,7 +397,12 @@ function parsePositionalCommand(
     }
     const extensionSource = optionalPositional(values[5]);
     const thinking = optionalPositional(values[6]);
-    if (values.length > 7) {
+    const taskIds = parseTaskIds(
+      optionalPositional(values[7]),
+    );
+    const repetitions = optionalPositional(values[8]);
+    const profile = optionalPositional(values[9]);
+    if (values.length > 10) {
       throw invalidArgument("plan received too many arguments");
     }
     return {
@@ -290,6 +419,65 @@ function parsePositionalCommand(
         ? {}
         : { extensionSource }),
       ...(thinking === undefined ? {} : { thinking }),
+      ...(taskIds === undefined ? {} : { taskIds }),
+      ...(repetitions === undefined
+        ? {}
+        : {
+            repetitions: parsePositiveInteger(
+              repetitions,
+              "repetitions",
+            ),
+          }),
+      ...(profile === undefined
+        ? {}
+        : { profile: parseFeatureProfile(profile) }),
+    };
+  }
+  if (command === "preflight") {
+    const environment = values[0];
+    const concurrency = values[1];
+    const jobName = values[2];
+    if (
+      environment === undefined ||
+      concurrency === undefined ||
+      jobName === undefined ||
+      values.length > 3
+    ) {
+      throw invalidArgument(
+        "preflight requires environment concurrency jobName",
+      );
+    }
+    return {
+      kind: "preflight",
+      environment,
+      concurrency: parsePositiveInteger(
+        concurrency,
+        "concurrency",
+      ),
+      jobName,
+    };
+  }
+  if (command === "audit-preflight") {
+    const jobDirectory = values[0];
+    if (jobDirectory === undefined || values.length > 1) {
+      throw invalidArgument(
+        "audit-preflight requires a job directory",
+      );
+    }
+    return {
+      kind: "audit-preflight",
+      jobDirectory: resolve(projectRoot, jobDirectory),
+    };
+  }
+  if (command === "assurance") {
+    if (values.length > 1) {
+      throw invalidArgument(
+        "assurance accepts at most one split",
+      );
+    }
+    return {
+      kind: "assurance",
+      split: parseAssuranceSplit(values[0] ?? "all"),
     };
   }
   if (command === "calibrate") {
@@ -413,6 +601,54 @@ function parsePositiveInteger(
   return parsed;
 }
 
+function parseTaskIds(
+  value: string | undefined,
+): readonly string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const taskIds = value.split(",").map((taskId) => taskId.trim());
+  if (
+    taskIds.length === 0 ||
+    taskIds.some((taskId) => taskId.length === 0)
+  ) {
+    throw invalidArgument(
+      "--tasks must be a comma-separated list of task IDs",
+    );
+  }
+  return Object.freeze(taskIds);
+}
+
+function parseFeatureProfile(
+  value: string,
+): BumblebeeBenchmarkProfile {
+  if (
+    value !== "pi-baseline" &&
+    value !== "permission-only" &&
+    value !== "full"
+  ) {
+    throw invalidArgument(
+      "profile must be pi-baseline, permission-only, or full",
+    );
+  }
+  return value;
+}
+
+function parseAssuranceSplit(
+  value: string,
+): AssuranceSuiteSplit | "all" {
+  if (
+    value !== "dev" &&
+    value !== "holdout" &&
+    value !== "all"
+  ) {
+    throw invalidArgument(
+      "assurance split must be dev, holdout, or all",
+    );
+  }
+  return value;
+}
+
 async function loadManifest(
   projectRoot: string,
 ): Promise<TerminalBenchManifest> {
@@ -531,6 +767,64 @@ function printReport(
   );
 }
 
+function auditPreflight(
+  job: NormalizedTerminalBenchJob,
+  manifest: TerminalBenchManifest,
+): {
+  readonly coveredTasks: number;
+  readonly expectedTasks: number;
+  readonly failures: readonly string[];
+  readonly rewardCount: number;
+  readonly status: "passed" | "failed";
+} {
+  const expected = new Set(
+    manifest.dataset.selectedTasks.map((task) => task.id),
+  );
+  const counts = new Map<string, number>();
+  const failures: string[] = [];
+  let rewardCount = 0;
+  for (const trial of job.trials) {
+    counts.set(
+      trial.taskId,
+      (counts.get(trial.taskId) ?? 0) + 1,
+    );
+    if (trial.reward !== undefined) {
+      rewardCount += 1;
+    } else {
+      failures.push(`${trial.taskId}: verifier produced no reward`);
+    }
+    if (
+      trial.failure?.category === "adapter" ||
+      trial.failure?.category === "dataset" ||
+      trial.failure?.category === "infrastructure"
+    ) {
+      failures.push(
+        `${trial.taskId}: ${trial.failure.code} (${trial.failure.message})`,
+      );
+    }
+  }
+  for (const taskId of expected) {
+    const count = counts.get(taskId) ?? 0;
+    if (count !== 1) {
+      failures.push(`${taskId}: expected 1 trial, observed ${count}`);
+    }
+  }
+  for (const taskId of counts.keys()) {
+    if (!expected.has(taskId)) {
+      failures.push(`${taskId}: outside the frozen preflight set`);
+    }
+  }
+  return Object.freeze({
+    coveredTasks: [...expected].filter(
+      (taskId) => counts.get(taskId) === 1,
+    ).length,
+    expectedTasks: expected.size,
+    failures: Object.freeze(failures),
+    rewardCount,
+    status: failures.length === 0 ? "passed" : "failed",
+  });
+}
+
 function printHelp(): void {
   process.stdout.write(
     [
@@ -538,6 +832,9 @@ function printHelp(): void {
       "",
       "Commands:",
       "  plan       Print a Harbor command without executing it",
+      "  preflight  Print a 9-task, no-model verifier preflight",
+      "  audit-preflight  Audit a completed preflight job",
+      "  assurance  Run the task-assurance dev/holdout set",
       "  calibrate  Freeze efficiency budgets from exactly 3 baseline jobs",
       "  import     Normalize and score an existing candidate Harbor job",
       "",
@@ -549,6 +846,9 @@ function printHelp(): void {
       "  --concurrency <count>                Default: 1",
       "  --thinking <level>",
       "  --job-name <name>",
+      "  --tasks <id,id,...>                  Frozen subset only",
+      "  --repetitions <count>                Default: manifest value",
+      "  --profile pi-baseline|permission-only|full",
       "",
       "Frozen selection:",
       "  9 representative tasks (10% of the 89-task source suite)",
@@ -565,7 +865,10 @@ function printHelp(): void {
       "  --parent-run-id <id>",
       "",
       "Positional form (recommended with npm on Windows):",
-      "  plan <mode> <model> <env> <concurrency> <job> [extension|-] [thinking|-]",
+      "  plan <mode> <model> <env> <concurrency> <job> [extension|-] [thinking|-] [tasks|-] [repetitions|-] [profile|-]",
+      "  preflight <env> <concurrency> <job>",
+      "  audit-preflight <job>",
+      "  assurance [dev|holdout|all]",
       "  calibrate <job1> <job2> <job3> [output]",
       "  import <job> [budget|-] [output|-] [parentRunId|-]",
       "",

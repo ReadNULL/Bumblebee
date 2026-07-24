@@ -3,8 +3,9 @@
 Pi 集成层把 Bumblebee 的领域积木映射到 pi Extension API。业务决策留在对应模块，
 这里负责事件、工具 schema、会话和模型状态的适配。
 
-当前注册 `session_start`、`session_shutdown`、`session_tree`、`model_select`、
-`before_agent_start` 和 `tool_call` 事件，以及 `delegate_task`、
+当前完整 profile 注册 `session_start`、`session_shutdown`、`session_tree`、
+`model_select`、`before_agent_start`、`tool_call`、`tool_result` 和 `agent_end`
+事件，以及 `delegate_task`、
 `bumblebee_memory` 两个工具。没有注册自定义斜杠命令；模型、会话恢复和 Skills
 继续使用 pi 官方能力。
 
@@ -15,12 +16,17 @@ Pi 集成层把 Bumblebee 的领域积木映射到 pi Extension API。业务决�
 | `application-binding.ts` | 组合运行时、记忆和可选飞书渠道 |
 | `lifecycle-binding.ts` | 映射 `session_start/session_shutdown` |
 | `permission-binding.ts` | 在 `tool_call` 阶段执行权限拦截 |
+| `assurance-binding.ts` | 注入外部契约策略、维护工具证据并触发一次有界复核 |
 | `subagent-binding.ts` | 注册 `delegate_task` |
 | `pi-subagent-executor.ts` | 创建隔离的 Pi 子会话 |
 | `read-only-workspace-guard.ts` | 限制远程和子 Agent 会话为工作区内只读 |
 | `memory-binding.ts` | 注册 `bumblebee_memory` 和主会话上下文注入 |
 | `memory-context-extension.ts` | 为渠道 Pi 会话注入只读项目记忆 |
 | `pi-conversation-bridge.ts` | 把外部渠道会话映射成持久 Pi 会话 |
+
+具体绑定由 `BUMBLEBEE_FEATURE_PROFILE` 控制：`pi-baseline` 不注册事件或工具，
+`permission-only` 只保留运行时、Task Assurance 和 PermissionSystem，`full`
+再启用记忆、Sub-Agent 和渠道。生产默认值仍为 `full`。
 
 ## Pi Conversation Bridge
 

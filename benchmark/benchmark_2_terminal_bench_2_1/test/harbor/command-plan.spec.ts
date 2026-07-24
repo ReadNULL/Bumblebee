@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createHarborRunPlan } from "../../src/index.js";
+import {
+  createHarborPreflightPlan,
+  createHarborRunPlan,
+} from "../../src/index.js";
 import {
   createTestManifest,
   getCandidateExtension,
@@ -76,7 +79,69 @@ describe("Harbor command plan", () => {
     expect(plan.arguments).toContain(
       `bumblebee_extension=${extensionSource}`,
     );
+    expect(plan.arguments).toContain("bumblebee_profile=full");
     expect(plan.arguments).toContain("thinking=high");
+  });
+
+  it("builds a frozen task subset with an explicit profile", () => {
+    const extensionSource = getCandidateExtension();
+    const plan = createHarborRunPlan(createTestManifest(), {
+      mode: "candidate",
+      model: "openai/gpt-fixture",
+      environment: "docker",
+      concurrency: 4,
+      jobName: "tb21-targeted",
+      extensionSource,
+      profile: "permission-only",
+      repetitions: 3,
+      taskIds: ["task-alpha"],
+    });
+
+    expect(valueAfter(plan.arguments, "-k")).toBe("3");
+    expect(
+      valuesAfter(plan.arguments, "--include-task-name"),
+    ).toEqual(["task-alpha"]);
+    expect(plan.arguments).toContain(
+      "bumblebee_profile=permission-only",
+    );
+  });
+
+  it("builds a no-model verifier preflight for every frozen task", () => {
+    const manifest = createTestManifest();
+    const plan = createHarborPreflightPlan(manifest, {
+      environment: "docker",
+      concurrency: 4,
+      jobName: "tb21-preflight",
+    });
+
+    expect(
+      plan.arguments.some((value) =>
+        /pi_agent:VerifierPreflight$/u.test(value)
+      ),
+    ).toBe(true);
+    expect(valueAfter(plan.arguments, "-k")).toBe("1");
+    expect(valueAfter(plan.arguments, "-n")).toBe("4");
+    expect(valuesAfter(plan.arguments, "-m")).toEqual([
+      "harbor.cli.main",
+    ]);
+    expect(
+      valuesAfter(plan.arguments, "--include-task-name"),
+    ).toEqual(
+      manifest.dataset.selectedTasks.map((task) => task.id),
+    );
+  });
+
+  it("rejects a targeted task outside the frozen manifest", () => {
+    expect(() =>
+      createHarborRunPlan(createTestManifest(), {
+        mode: "baseline",
+        model: "openai/gpt-fixture",
+        environment: "docker",
+        concurrency: 1,
+        jobName: "tb21-invalid-subset",
+        taskIds: ["not-in-manifest"],
+      })
+    ).toThrow(/outside the frozen manifest/u);
   });
 
   it("rejects a moving branch as candidate identity", () => {

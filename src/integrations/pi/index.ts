@@ -1,4 +1,9 @@
 export {
+  bindPiTaskAssurance,
+  type PiAssuranceRegistrar,
+  type PiTaskAssuranceOptions,
+} from "./assurance-binding.js";
+export {
   bindPiApplicationLifecycle,
   PiExtensionApplication,
   type FeishuGatewayFactory,

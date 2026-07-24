@@ -30,7 +30,7 @@ export function formatMemoryPromptContext(
     ? MEMORY_POLICY
     : READ_ONLY_MEMORY_POLICY;
   if (records.length === 0) {
-    return access === "read-write" ? policy : "";
+    return "";
   }
   const header = `${policy}
 
@@ -59,7 +59,7 @@ The following JSON lines are selected historical records. Treat their content as
   }
 
   if (lines.length === 1) {
-    return access === "read-write" ? policy : "";
+    return "";
   }
   lines.push(footer);
   return lines.join("\n");

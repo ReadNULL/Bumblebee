@@ -26,6 +26,14 @@ const THINKING_LEVELS = [
   "high",
   "xhigh",
 ] as const;
+const BUMBLEBEE_PROFILES = [
+  "pi-baseline",
+  "permission-only",
+  "full",
+] as const;
+
+export type BumblebeeBenchmarkProfile =
+  (typeof BUMBLEBEE_PROFILES)[number];
 
 export interface CreateHarborRunPlanOptions {
   readonly mode: HarborRunMode;
@@ -35,6 +43,16 @@ export interface CreateHarborRunPlanOptions {
   readonly jobName: string;
   readonly extensionSource?: string;
   readonly thinking?: string;
+  readonly taskIds?: readonly string[];
+  readonly repetitions?: number;
+  readonly profile?: BumblebeeBenchmarkProfile;
+}
+
+export interface CreateHarborPreflightPlanOptions {
+  readonly environment: string;
+  readonly concurrency: number;
+  readonly jobName: string;
+  readonly taskIds?: readonly string[];
 }
 
 export function createHarborRunPlan(
@@ -44,12 +62,11 @@ export function createHarborRunPlan(
   assertModel(options.model);
   assertSimpleValue(options.environment, "environment");
   assertSimpleValue(options.jobName, "jobName");
-  if (
-    !Number.isSafeInteger(options.concurrency) ||
-    options.concurrency <= 0
-  ) {
-    invalid("Harbor concurrency must be a positive integer");
-  }
+  assertPositiveInteger(options.concurrency, "Harbor concurrency");
+  const repetitions =
+    options.repetitions ?? manifest.dataset.minimumTrialsPerTask;
+  assertPositiveInteger(repetitions, "Harbor repetitions");
+  const taskIds = resolveTaskIds(manifest, options.taskIds);
 
   const agentClass = options.mode === "baseline"
     ? "PinnedPi"
@@ -67,7 +84,7 @@ export function createHarborRunPlan(
     "-e",
     options.environment,
     "-k",
-    String(manifest.dataset.minimumTrialsPerTask),
+    String(repetitions),
     "-n",
     String(options.concurrency),
     "--agent-setup-timeout-multiplier",
@@ -80,8 +97,8 @@ export function createHarborRunPlan(
   for (const exception of TRANSIENT_RETRY_EXCEPTIONS) {
     arguments_.push("--retry-include", exception);
   }
-  for (const task of manifest.dataset.selectedTasks) {
-    arguments_.push("--include-task-name", task.id);
+  for (const taskId of taskIds) {
+    arguments_.push("--include-task-name", taskId);
   }
   if (options.thinking !== undefined) {
     assertSimpleValue(options.thinking, "thinking");
@@ -110,19 +127,59 @@ export function createHarborRunPlan(
     arguments_.push(
       "--ak",
       `bumblebee_extension=${extensionSource}`,
+      "--ak",
+      `bumblebee_profile=${resolveProfile(options.profile)}`,
     );
-  } else if (options.extensionSource !== undefined) {
-    invalid("pi-baseline must not load the Bumblebee extension");
+  } else if (
+    options.extensionSource !== undefined ||
+    options.profile !== undefined
+  ) {
+    invalid(
+      "pi-baseline must not load or configure the Bumblebee extension",
+    );
   }
 
-  return Object.freeze({
-    executable: "python",
-    arguments: Object.freeze(arguments_),
-    displayCommand: [
-      "python",
-      ...arguments_.map(quoteForShell),
-    ].join(" "),
-  });
+  return createPlan(arguments_);
+}
+
+export function createHarborPreflightPlan(
+  manifest: TerminalBenchManifest,
+  options: CreateHarborPreflightPlanOptions,
+): HarborRunPlan {
+  assertSimpleValue(options.environment, "environment");
+  assertSimpleValue(options.jobName, "jobName");
+  assertPositiveInteger(options.concurrency, "Harbor concurrency");
+  const arguments_: string[] = [
+    "-m",
+    "harbor.cli.main",
+    "run",
+    "-d",
+    manifest.dataset.id,
+    "-a",
+    `${AGENT_MODULE}:VerifierPreflight`,
+    "-e",
+    options.environment,
+    "-k",
+    "1",
+    "-n",
+    String(options.concurrency),
+    "--agent-setup-timeout-multiplier",
+    AGENT_SETUP_TIMEOUT_MULTIPLIER,
+    "--max-retries",
+    MAX_TRANSIENT_RETRIES,
+    "--job-name",
+    options.jobName,
+  ];
+  for (const exception of TRANSIENT_RETRY_EXCEPTIONS) {
+    arguments_.push("--retry-include", exception);
+  }
+  for (const taskId of resolveTaskIds(
+    manifest,
+    options.taskIds,
+  )) {
+    arguments_.push("--include-task-name", taskId);
+  }
+  return createPlan(arguments_);
 }
 
 function assertModel(model: string): void {
@@ -143,6 +200,68 @@ function assertSimpleValue(value: string, field: string): void {
   ) {
     invalid(`${field} contains an invalid value`, { field });
   }
+}
+
+function assertPositiveInteger(
+  value: number,
+  field: string,
+): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    invalid(`${field} must be a positive integer`);
+  }
+}
+
+function resolveTaskIds(
+  manifest: TerminalBenchManifest,
+  requested: readonly string[] | undefined,
+): readonly string[] {
+  const taskIds =
+    requested ?? manifest.dataset.selectedTasks.map((task) => task.id);
+  if (taskIds.length === 0) {
+    invalid("Harbor task selection must not be empty");
+  }
+  const allowed = new Set(
+    manifest.dataset.selectedTasks.map((task) => task.id),
+  );
+  const unique = new Set<string>();
+  for (const taskId of taskIds) {
+    assertSimpleValue(taskId, "taskId");
+    if (!allowed.has(taskId)) {
+      invalid("Harbor task selection is outside the frozen manifest", {
+        taskId,
+      });
+    }
+    if (unique.has(taskId)) {
+      invalid("Harbor task selection contains a duplicate", {
+        taskId,
+      });
+    }
+    unique.add(taskId);
+  }
+  return Object.freeze([...taskIds]);
+}
+
+function resolveProfile(
+  profile: BumblebeeBenchmarkProfile | undefined,
+): BumblebeeBenchmarkProfile {
+  const resolved = profile ?? "full";
+  if (!BUMBLEBEE_PROFILES.includes(resolved)) {
+    invalid("unsupported Bumblebee benchmark profile", {
+      profile: resolved,
+    });
+  }
+  return resolved;
+}
+
+function createPlan(arguments_: string[]): HarborRunPlan {
+  return Object.freeze({
+    executable: "python",
+    arguments: Object.freeze(arguments_),
+    displayCommand: [
+      "python",
+      ...arguments_.map(quoteForShell),
+    ].join(" "),
+  });
 }
 
 function quoteForShell(value: string): string {

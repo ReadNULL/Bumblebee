@@ -29,6 +29,7 @@ pi -e ./src/extension.ts
 flowchart LR
   Pi["pi Extension API"] --> Runtime["统一运行时"]
   Runtime --> Permission["PermissionSystem"]
+  Runtime --> Assurance["Task Assurance"]
   Runtime --> SubAgent["只读 Sub-Agent"]
   Runtime --> Channel["Channel Core + 飞书"]
   Runtime --> Memory["Lightweight Memory"]
@@ -41,6 +42,7 @@ flowchart LR
 
 - 运行时统一管理 trace、会话串行、全局并发、取消和资源释放；
 - PermissionSystem 在模型工具执行前完成路径、权限位和会话授权检查；
+- Task Assurance 维护外部契约、验证失败和恢复证据账本，证据不足时最多补充一轮；
 - `delegate_task` 将独立代码调查放入工作区内只读的隔离 Pi 子会话；
 - Channel Core 统一平台消息、去重、会话映射和生命周期，当前接入飞书官方 SDK；
 - `bumblebee_memory` 显式保存全局或项目长期记忆，并按本轮问题有界检索；
@@ -49,6 +51,10 @@ flowchart LR
 扩展注册 `delegate_task` 和 `bumblebee_memory` 两个自定义工具，没有注册自定义斜杠
 命令。当前也没有角色、团队、知识图谱、工作流、插件市场或 Dashboard；这些旧版
 概念没有明确用户价值，因此未进入 V2。
+
+默认使用 `full` profile。开发和 benchmark 消融还可设置
+`BUMBLEBEE_FEATURE_PROFILE=permission-only` 或 `pi-baseline`；后者不注册任何
+Bumblebee 能力，正常使用无需加载。
 
 ## 积木文档
 
@@ -61,7 +67,9 @@ flowchart LR
 | Foundation | 并发控制 | [Concurrency](./src/foundation/concurrency/README.md) |
 | Foundation | 生命周期与回滚 | [Lifecycle](./src/foundation/lifecycle/README.md) |
 | Runtime | 扩展运行时 | [Runtime](./src/runtime/README.md) |
+| Config | 功能 Profile 与消融边界 | [Feature Profiles](./src/config/README.md) |
 | Security | 权限系统 | [PermissionSystem](./src/security/permissions/README.md) |
+| Agent | 契约、验证与恢复证据保障 | [Task Assurance](./src/agents/assurance/README.md) |
 | Agent | 只读 Sub-Agent | [Sub-Agent](./src/agents/subagent/README.md) |
 | Channel | 平台无关渠道内核 | [Channel Core](./src/channels/core/README.md) |
 | Integration | Pi 事件、工具与渠道会话桥接 | [Pi Integration](./src/integrations/pi/README.md) |

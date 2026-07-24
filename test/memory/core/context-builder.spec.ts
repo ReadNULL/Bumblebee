@@ -30,8 +30,8 @@ describe("formatMemoryPromptContext", () => {
     expect(context.endsWith("</memory-context>")).toBe(true);
   });
 
-  it("returns a stable policy when no memory is relevant", () => {
-    expect(formatMemoryPromptContext([], 4_096)).toBe(MEMORY_POLICY);
+  it("does not inject memory policy when no memory is relevant", () => {
+    expect(formatMemoryPromptContext([], 4_096)).toBe("");
   });
 
   it("uses a project read-only policy for remote channel context", () => {

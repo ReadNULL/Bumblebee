@@ -12,6 +12,10 @@ import {
   type TerminalBenchReport,
 } from "../contracts/index.js";
 import { aggregateTerminalBench } from "../scoring/index.js";
+import {
+  createTerminalBenchLessonDrafts,
+  recordTerminalBenchLessonDrafts,
+} from "./lesson-drafts.js";
 
 export interface RunTerminalBenchImportOptions {
   readonly manifest: TerminalBenchManifest;
@@ -115,6 +119,24 @@ export async function runTerminalBenchImport(
     kind: "report",
     mediaType: "application/json",
     value: report,
+  });
+  const lessonDrafts = createTerminalBenchLessonDrafts(
+    options.job,
+    run.manifest.runId,
+  );
+  await run.recordJsonArtifact({
+    relativePath: "lessons/drafts.json",
+    kind: "summary",
+    mediaType: "application/json",
+    value: lessonDrafts,
+  });
+  await recordTerminalBenchLessonDrafts({
+    job: options.job,
+    outputDirectory: options.outputDirectory,
+    runId: run.manifest.runId,
+    ...(options.clock === undefined
+      ? {}
+      : { clock: options.clock }),
   });
 
   const invalidRun =

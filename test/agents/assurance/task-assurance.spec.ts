@@ -1,0 +1,231 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  ASSURANCE_CRITIC_MARKER,
+  ASSURANCE_FOLLOW_UP_MARKER,
+  TaskAssurance,
+  extractTaskContract,
+} from "../../../src/agents/index.js";
+
+describe("TaskAssurance", () => {
+  it("extracts literal contracts and recovery artifacts", () => {
+    const contract = extractTaskContract([
+      "Recover `/data/app.db` and `/data/app.db-wal`.",
+      "SetValRequest must contain fields `key` and `value`.",
+      "The final command must be `:wq`.",
+    ].join("\n"));
+
+    expect(contract.highRiskRecovery).toBe(true);
+    expect(contract.artifacts).toEqual([
+      "/data/app.db",
+      "/data/app.db-wal",
+    ]);
+    expect(contract.items).toEqual(expect.arrayContaining([
+      expect.stringContaining("SetValRequest"),
+      "Literal contract: value",
+      "Literal contract: :wq",
+    ]));
+  });
+
+  it("does not let a smoke check erase an unresolved repository failure", () => {
+    const assurance = new TaskAssurance();
+    const sessionId = "session-1";
+    assurance.beginTask(
+      sessionId,
+      "Update the extension. It must retain the public API and pass tests.",
+    );
+    completeTool(assurance, sessionId, {
+      input: { path: "src/example.ts" },
+      toolCallId: "write-1",
+      toolName: "write",
+    });
+    completeTool(assurance, sessionId, {
+      input: { command: "pytest -q" },
+      isError: true,
+      toolCallId: "test-1",
+      toolName: "bash",
+    });
+    completeTool(assurance, sessionId, {
+      input: { command: "python -c \"print('smoke ok')\"" },
+      toolCallId: "smoke-1",
+      toolName: "bash",
+    });
+
+    const review = assurance.reviewCompletion(sessionId);
+    expect(review.shouldFollowUp).toBe(true);
+    expect(review.followUpMessage).toContain("pytest");
+    expect(
+      assurance.getSnapshot(sessionId)?.unresolvedVerificationKeys,
+    ).toEqual(["pytest:pytest -q"]);
+    expect(
+      assurance.reviewCompletion(sessionId).shouldFollowUp,
+    ).toBe(false);
+  });
+
+  it("requires the failed verification scope to pass again", () => {
+    const assurance = new TaskAssurance();
+    const sessionId = "session-scope";
+    assurance.beginTask(sessionId, "Update the implementation.");
+    completeTool(assurance, sessionId, {
+      input: { path: "src/example.py" },
+      toolCallId: "edit-scope",
+      toolName: "edit",
+    });
+    completeTool(assurance, sessionId, {
+      input: { command: "pytest tests -q" },
+      isError: true,
+      toolCallId: "full-test",
+      toolName: "bash",
+    });
+    completeTool(assurance, sessionId, {
+      input: { command: "pytest tests/test_smoke.py -q" },
+      toolCallId: "narrow-test",
+      toolName: "bash",
+    });
+
+    expect(
+      assurance.getSnapshot(sessionId)?.unresolvedVerificationKeys,
+    ).toEqual(["pytest:pytest tests -q"]);
+
+    completeTool(assurance, sessionId, {
+      input: { command: "pytest   tests   -q" },
+      toolCallId: "full-rerun",
+      toolName: "bash",
+    });
+    expect(
+      assurance.getSnapshot(sessionId)?.unresolvedVerificationKeys,
+    ).toEqual([]);
+  });
+
+  it("preserves state across the bounded follow-up and records critic cost", () => {
+    const assurance = new TaskAssurance();
+    const sessionId = "session-2";
+    assurance.beginTask(
+      sessionId,
+      "The result must keep field `value` and pass pytest.",
+    );
+    completeTool(assurance, sessionId, {
+      input: { path: "schema.proto" },
+      toolCallId: "edit-1",
+      toolName: "edit",
+    });
+    expect(assurance.reviewCompletion(sessionId).shouldFollowUp)
+      .toBe(true);
+
+    assurance.beginTask(
+      sessionId,
+      `${ASSURANCE_FOLLOW_UP_MARKER}\nReview again.`,
+    );
+    completeTool(assurance, sessionId, {
+      details: {
+        status: "completed",
+        usage: { costUsd: 0.0125 },
+      },
+      input: {
+        task: `${ASSURANCE_CRITIC_MARKER} compare the schema`,
+      },
+      toolCallId: "critic-1",
+      toolName: "delegate_task",
+    });
+    completeTool(assurance, sessionId, {
+      input: { command: "pytest -q" },
+      toolCallId: "test-2",
+      toolName: "bash",
+    });
+
+    const snapshot = assurance.getSnapshot(sessionId);
+    expect(snapshot).toMatchObject({
+      criticCostUsd: 0.0125,
+      criticRuns: 1,
+      mutationObserved: true,
+      successfulVerificationCount: 1,
+    });
+    expect(assurance.reviewCompletion(sessionId).reasons).toEqual([]);
+  });
+
+  it("blocks recovery access until copy and hash evidence succeed", () => {
+    const assurance = new TaskAssurance();
+    const sessionId = "session-3";
+    assurance.beginTask(
+      sessionId,
+      "Recover `/data/app.db` and `/data/app.db-wal` without changing the originals.",
+    );
+
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /data/app.db '.tables'" },
+      toolCallId: "open-1",
+      toolName: "bash",
+    })).toMatchObject({ block: true });
+
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "cp /data/app.db /tmp/app.db.copy && " +
+          "cp /data/app.db-wal /tmp/app.db-wal.copy",
+      },
+      toolCallId: "copy-1",
+      toolName: "bash",
+    });
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /data/app.db '.tables'" },
+      toolCallId: "open-2",
+      toolName: "bash",
+    })).toMatchObject({ block: true });
+
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "shasum /data/app.db /data/app.db-wal " +
+          "/tmp/app.db.copy /tmp/app.db-wal.copy",
+      },
+      toolCallId: "wrong-hash-1",
+      toolName: "bash",
+    });
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /data/app.db '.tables'" },
+      toolCallId: "open-wrong-hash",
+      toolName: "bash",
+    })).toMatchObject({ block: true });
+
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "sha256sum /data/app.db /data/app.db-wal " +
+          "/tmp/app.db.copy /tmp/app.db-wal.copy",
+      },
+      toolCallId: "hash-1",
+      toolName: "bash",
+    });
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /data/app.db '.tables'" },
+      toolCallId: "open-3",
+      toolName: "bash",
+    })).toEqual({});
+  });
+});
+
+function completeTool(
+  assurance: TaskAssurance,
+  sessionId: string,
+  input: {
+    readonly details?: unknown;
+    readonly input: Readonly<Record<string, unknown>>;
+    readonly isError?: boolean;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  },
+): void {
+  const decision = assurance.beforeTool(sessionId, {
+    input: input.input,
+    toolCallId: input.toolCallId,
+    toolName: input.toolName,
+  });
+  expect(decision.block).not.toBe(true);
+  assurance.afterTool(sessionId, {
+    ...(input.details === undefined
+      ? {}
+      : { details: input.details }),
+    isError: input.isError ?? false,
+    toolCallId: input.toolCallId,
+  });
+}

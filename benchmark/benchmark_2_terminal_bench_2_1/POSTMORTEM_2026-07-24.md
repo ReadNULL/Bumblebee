@@ -117,6 +117,10 @@ smoke test 得到成功结果，并把后者误当成完整验收。问题不只
 
 ## 6. 改进清单
 
+截至 2026-07-24，P0/P1 的代码改进均已完成，状态仍分为“实现完成”和“真实复验
+通过”两层。确定性 `dev/holdout` 已通过；9-task 无模型预检与首轮失败任务的真实
+candidate 复验结果将在本文件末尾追加，不能用本地测试替代。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |
@@ -140,13 +144,15 @@ smoke test 得到成功结果，并把后者误当成完整验收。问题不只
 | `TB-LESSON-01` | 评测工程 | 从 trial/verifier 证据生成失败矩阵和 lesson 草稿 | 保存 source job、trial、假设、预期指标、修复 commit 和复验 run；结论仍需人工确认 |
 | `TB-DEV-01` | 测试工程 | 建立不复制隐藏答案的定向开发集 | 覆盖未解决测试、契约保持、证据保护和产物格式四类通用问题 |
 
-当前 `LessonStore` 已能保存追加式 lesson 记录，但 Benchmark 2 尚未自动生成 lesson；
-当前扩展也总是绑定权限、记忆和子 Agent。相关代码边界：
+实现后的主要代码边界：
 
 - `benchmark/benchmark_0_evaluation_core/src/recording/lesson-store.ts: LessonStore`
 - `src/extension.ts: registerBumblebeeExtension`
 - `src/memory/core/context-builder.ts: formatMemoryPromptContext`
+- `src/agents/assurance/task-assurance.ts: TaskAssurance`
 - `src/integrations/pi/subagent-binding.ts: bindPiSubAgent`
+- `benchmark/benchmark_2_terminal_bench_2_1/src/runner/lesson-drafts.ts: recordTerminalBenchLessonDrafts`
+- `benchmark/benchmark_2_terminal_bench_2_1/src/dev/assurance-suite.ts: runAssuranceDevelopmentSuite`
 - `benchmark/benchmark_2_terminal_bench_2_1/candidate-extension.ts: bumblebeeCandidateExtension`
 
 ### P2：形成稳定能力后再做

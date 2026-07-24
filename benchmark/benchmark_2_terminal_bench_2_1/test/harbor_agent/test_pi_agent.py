@@ -16,9 +16,12 @@ from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
     NODE_DOWNLOAD_MIRROR,
     NODE_VERSION,
     PinnedPi,
+    UV_VERSION,
     _node_install_snippet,
+    _preflight_network_command,
     _raise_terminal_api_error,
     _read_terminal_api_error,
+    _verifier_dependency_command,
 )
 
 
@@ -118,6 +121,61 @@ class PinnedPiInstallTest(unittest.TestCase):
             f'--extension "{BUMBLEBEE_INSTALL_DIR}"',
             flags,
         )
+
+    def test_candidate_scopes_the_selected_feature_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as logs_dir:
+            agent = BumblebeePi(
+                logs_dir=Path(logs_dir),
+                model_name="openai/gpt-4o",
+                bumblebee_extension=(
+                    "git:github.com/ReadNULL/Bumblebee@"
+                    + "0" * 40
+                ),
+                bumblebee_profile="permission-only",
+            )
+
+        self.assertEqual(
+            agent.extra_env["BUMBLEBEE_FEATURE_PROFILE"],
+            "permission-only",
+        )
+
+    def test_rejects_an_unknown_feature_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as logs_dir:
+            with self.assertRaisesRegex(
+                ValueError,
+                r"bumblebee_profile must be",
+            ):
+                BumblebeePi(
+                    logs_dir=Path(logs_dir),
+                    model_name="openai/gpt-4o",
+                    bumblebee_extension=(
+                        "git:github.com/ReadNULL/Bumblebee@"
+                        + "0" * 40
+                    ),
+                    bumblebee_profile="unknown",
+                )
+
+    def test_prewarms_only_the_current_verifier_dependencies(self) -> None:
+        wal = _verifier_dependency_command("db-wal-recovery")
+        merger = _verifier_dependency_command(
+            "multi-source-data-merger"
+        )
+        grpc = _verifier_dependency_command("kv-store-grpc")
+
+        self.assertIn(f"uv/{UV_VERSION}/install.sh", wal)
+        self.assertIn("uv python install 3.13", wal)
+        self.assertNotIn("pandas==2.3.3", wal)
+        self.assertIn("pandas==2.3.3", merger)
+        self.assertIn("pyarrow==22.0.0", merger)
+        self.assertIn("pytest==8.4.2", grpc)
+        self.assertNotIn("uv python install 3.13", grpc)
+
+    def test_no_model_preflight_checks_github_and_npm(self) -> None:
+        command = _preflight_network_command()
+
+        self.assertIn("git ls-remote --exit-code", command)
+        self.assertIn("npm view", command)
+        self.assertNotIn("pi --version", command)
 
 
 class PinnedPiApiErrorTest(unittest.TestCase):
