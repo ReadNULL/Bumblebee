@@ -48,16 +48,23 @@ export async function readHarborJob(
 
   const config = parseJson(configBytes, "Harbor config.json");
   const rootResult = parseJson(resultBytes, "Harbor result.json");
-  const result = await addFallbackTrialResults(
+  const rawResult = await addFallbackTrialResults(
     directory,
     rootResult,
   );
   const provenance: HarborJobProvenance = {
     configSha256: sha256(configBytes),
     resultSha256: sha256(resultBytes),
-    trialResultsSha256: hashTrialResults(result),
+    trialResultsSha256: hashTrialResults(rawResult),
     sourceDirectoryName: basename(directory),
   };
+  const verifierInfrastructureTrials =
+    await findVerifierInfrastructureTrials(directory);
+  const result = addVerifierInfrastructureDiagnostics(
+    rawResult,
+    verifierInfrastructureTrials,
+    manifest.rewardKey,
+  );
 
   return normalizeHarborJob(
     config,
@@ -106,6 +113,117 @@ async function addFallbackTrialResults(
     ...value,
     trial_results: trialResults,
   };
+}
+
+async function findVerifierInfrastructureTrials(
+  directory: string,
+): Promise<ReadonlySet<string>> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const trialNames = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    let output: string;
+    try {
+      output = await readFile(
+        join(
+          directory,
+          entry.name,
+          "verifier",
+          "test-stdout.txt",
+        ),
+        "utf8",
+      );
+    } catch (cause: unknown) {
+      if (isMissingFileError(cause)) {
+        continue;
+      }
+      throw cause;
+    }
+    if (isVerifierBootstrapNetworkFailure(output)) {
+      trialNames.add(entry.name);
+    }
+  }
+  return trialNames;
+}
+
+function isVerifierBootstrapNetworkFailure(
+  output: string,
+): boolean {
+  // Keep these signatures narrow: they come from the upstream test harness,
+  // not from repository tests executed by the agent.
+  return (
+    output.includes(
+      "Failed to download distribution due to network timeout",
+    ) ||
+    /curl: \(\d+\).*astral\.sh/u.test(output) ||
+    /\/tests\/test\.sh: line \d+: uvx: command not found/u.test(
+      output,
+    )
+  );
+}
+
+function addVerifierInfrastructureDiagnostics(
+  value: unknown,
+  trialNames: ReadonlySet<string>,
+  rewardKey: string,
+): unknown {
+  if (
+    trialNames.size === 0 ||
+    !isRecord(value) ||
+    !Array.isArray(value.trial_results)
+  ) {
+    return value;
+  }
+  return {
+    ...value,
+    trial_results: value.trial_results.map((trial) =>
+      addVerifierInfrastructureDiagnostic(
+        trial,
+        trialNames,
+        rewardKey,
+      )
+    ),
+  };
+}
+
+function addVerifierInfrastructureDiagnostic(
+  value: unknown,
+  trialNames: ReadonlySet<string>,
+  rewardKey: string,
+): unknown {
+  if (
+    !isRecord(value) ||
+    typeof value.trial_name !== "string" ||
+    !trialNames.has(value.trial_name) ||
+    (
+      value.exception_info !== undefined &&
+      value.exception_info !== null
+    ) ||
+    !hasZeroReward(value, rewardKey)
+  ) {
+    return value;
+  }
+  return {
+    ...value,
+    exception_info: {
+      exception_type: "VerifierInfrastructureError",
+      exception_message:
+        "Verifier dependency bootstrap failed due to a network error",
+    },
+  };
+}
+
+function hasZeroReward(
+  trial: Readonly<Record<string, unknown>>,
+  rewardKey: string,
+): boolean {
+  if (!isRecord(trial.verifier_result)) {
+    return false;
+  }
+  const rewards = trial.verifier_result.rewards;
+  return isRecord(rewards) && rewards[rewardKey] === 0;
 }
 
 function parseJson(bytes: Buffer, label: string): unknown {

@@ -58,6 +58,10 @@ const ADAPTER_EXCEPTIONS = [
   "TrajectoryParse",
 ] as const;
 
+const VERIFIER_INFRASTRUCTURE_EXCEPTIONS = [
+  "VerifierInfrastructureError",
+] as const;
+
 export function normalizeHarborJob(
   configValue: unknown,
   resultValue: unknown,
@@ -469,6 +473,14 @@ function classifyException(
       trial.agent_setup === null
       ? "infrastructure"
       : "adapter";
+  }
+  if (
+    matchesAny(
+      exceptionTypes,
+      VERIFIER_INFRASTRUCTURE_EXCEPTIONS,
+    )
+  ) {
+    return "infrastructure";
   }
   if (matchesAny(exceptionTypes, DATASET_EXCEPTIONS)) {
     return "dataset";

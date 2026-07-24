@@ -6,9 +6,10 @@
 终端任务中的端到端价值。它不复制或修改上游任务、容器和 verifier，也不进入
 Bumblebee 的 npm 发布包。
 
-当前状态是“评估工程已实现、真实模型评估尚未开始”。目录内的确定性测试使用
-小型 Harbor 同形 fixture，只验证适配器、数据契约、校准、评分和证据落盘，
-不调用模型，因此不能作为 Terminal-Bench 成绩。
+评估工程已经实现。2026-07-24 完成了第一轮 45-trial 真实 `pi-baseline`
+原始运行，但审计发现 2 个 trial 是 verifier 启动时下载依赖失败，并非模型失败；
+有效率为 95.56%，低于冻结的 98% 门槛，因此该 job 只保留为证据，不能进入
+baseline 校准。当前仍没有可发布的 TB 分数。
 
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的
@@ -80,6 +81,71 @@ Manifest 中的上游 reference 是 `latest`，但评分身份不依赖这个移
 | `multi-source-data-merger` | medium | 多格式 ETL、字段映射与冲突处理 |
 | `large-scale-text-editing` | medium | 大文件变换与受限工具使用 |
 | `kv-store-grpc` | medium | gRPC 服务、代码生成与进程管理 |
+
+## 首轮真实运行（2026-07-24）
+
+运行身份固定为 commit
+`b37dd285be7f2d510b2f6d838d86c9eb2e1fffdf`、Harbor `0.20.0`、Pi
+`0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
+并发。所有 job 目录均保留在被 Git 忽略的 `.runtime/jobs/` 中。
+
+### 执行记录
+
+| Job | 完成情况 | 结论与处理 |
+| --- | ---: | --- |
+| `tb21-lite-smoke-baseline-20260724-1250` | 0/1 | 自定义 adapter 无法导入，且 Windows GBK 无法渲染错误输出；改为 `python -m harbor.cli.main` |
+| `tb21-lite-smoke-baseline-20260724-1253` | 1/1 | `fix-git` reward 1，真实模型、Docker、Pi 和 verifier 链路打通，成本约 `$0.001566` |
+| `tb21-lite-pi-1-20260724` | 2/45 | Pi 冷安装超过 Harbor 默认 setup 时限，主动停止；增加 3 倍 setup timeout |
+| `tb21-lite-pi-1-20260724-r1` | 0/45 | `nodejs.org` 下载 Node 长时间停滞，主动停止；固定 Node `22.20.0` 和国内镜像 |
+| `tb21-node-mirror-install-preflight-20260724` | 1/1 | 无模型 install-only 预检通过，Pi 安装约 83 秒，总耗时 1 分 35 秒 |
+| `tb21-lite-pi-1-20260724-r2` | 26/45 | DeepSeek 503 被 Pi 以退出码 0 吞掉，主动停止；adapter 改为识别最终 API 状态并只重试瞬态错误 |
+| `tb21-lite-pi-1-20260724-r3` | 45/45 | Harbor 原始运行完整，但 2 条 verifier 网络故障污染 reward 0，审计后不具备校准资格 |
+
+中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
+环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
+
+### r3 原始结果
+
+| 指标 | 结果 |
+| --- | ---: |
+| Harbor 原始 reward | 32/45，均值 `0.7111` |
+| 审计后状态 | 32 passed、11 failed、2 infrastructure invalid |
+| 有效率 | 43/45，`95.56%`，低于 `98%` 硬门槛 |
+| 异常 | 1 个 `AgentTimeoutError`，无 API 瞬态错误重试 |
+| 总运行时间 | 2 小时 4 分 46 秒 |
+| Agent 时延 | p50 `46.4s`、p95 `562.0s`、p99 `1200.0s` |
+| Token | input `37,098,210`、cache read `36,214,784`、output `463,287` |
+| 模型成本 | `$0.354801` |
+| 凭据审计 | 458 个证据文件中 API Key 精确值命中 0 次 |
+| 资源清理 | Harbor trial 容器残留 0 个 |
+
+| 任务 | 原始通过 | 审计结论 |
+| --- | ---: | --- |
+| `fix-git` | 5/5 | 稳定通过 |
+| `build-cython-ext` | 1/5 | 依赖安装、NumPy 兼容和仓库回归验证不稳定 |
+| `cancel-async-tasks` | 4/5 | 失败样本只清理了一个并发任务 |
+| `fix-code-vulnerability` | 4/5 | 失败样本遗漏非法 header 的拒绝逻辑 |
+| `nginx-request-logging` | 5/5 | 稳定通过 |
+| `db-wal-recovery` | 0/5 | 3 次未正确应用 WAL，另 2 次是 verifier 下载依赖失败 |
+| `multi-source-data-merger` | 5/5 | 稳定通过 |
+| `large-scale-text-editing` | 4/5 | 1 次执行达到 1200 秒正式超时 |
+| `kv-store-grpc` | 4/5 | 失败样本生成了错误的 protobuf 字段 |
+
+`32/43 = 74.42%` 只能作为排除已确认基础设施污染后的诊断值，不能替代官方
+reward，也不是 TB 分数。`db-wal-recovery` 消耗约 `$0.190064`，占本 job
+总成本约 53.6%，但没有产生模型通过结果；这是后续分析成本和能力边界时的重点。
+
+### 本轮经验
+
+- 仅检查 Harbor 根 `result.json` 不足以区分模型失败和 verifier 启动失败；上游
+  `test.sh` 即使下载依赖失败也可能写入 reward 0。
+- job reader 现在只对已观察到的 verifier `uv` 下载超时、`astral.sh` 连接失败和
+  `uvx` 缺失签名附加 `VerifierInfrastructureError`。原始 JSON 和证据哈希不改写，
+  普通 reward 0 仍按模型失败处理。
+- r3 的 2 个 infrastructure invalid 使有效率低于 98%，校准器必须拒绝该 job；
+  不能通过手工删除失败 trial、改 reward 或计算“修正版官方成绩”绕过。
+- 下一步应先重跑一轮可通过审计的 baseline 1，再执行 baseline 2/3。三轮有效
+  baseline 和一轮 candidate 全部完成前，`TB = N/A`。
 
 ## 环境准备
 
@@ -216,4 +282,6 @@ npm test -- benchmark/benchmark_2_terminal_bench_2_1/test
 npm run benchmark:2
 ```
 
-最后一个命令只显示帮助。当前仅完成无模型环境预检，没有执行真实模型评估。
+最后一个命令只显示帮助。当前 8 个测试文件、29 项确定性测试全部通过；首轮真实
+baseline 原始运行已经完成，但因上述 verifier 基础设施污染被判为不可校准，不能
+作为正式 Terminal-Bench Lite 成绩。
