@@ -123,8 +123,9 @@ npm run benchmark:2 -- plan candidate openai/<model> docker 1 tb21-full $extensi
 ```
 
 检查打印出的命令后再手工执行。生成的命令固定包含 9 个任务过滤器和 `-k 5`，
-所以每个 job 为 45 个 trial；三轮 baseline 加一轮 candidate 共 180 个 trial。
-并发数只影响吞吐，不得改变模型、thinking、任务集或预算。
+同时用 `--agent-setup-timeout-multiplier 3` 将容器内 Pi 冷安装时限从默认 6 分钟
+放宽到 18 分钟。所以每个 job 为 45 个 trial；三轮 baseline 加一轮 candidate
+共 180 个 trial。并发数只影响吞吐，不得改变模型、thinking、任务集或预算。
 
 ## 2. 冻结 baseline 预算
 

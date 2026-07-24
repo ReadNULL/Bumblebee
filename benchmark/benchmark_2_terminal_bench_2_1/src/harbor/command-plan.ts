@@ -9,6 +9,7 @@ import { extractPinnedGitCommit } from "../importer/index.js";
 const AGENT_MODULE =
   "benchmark.benchmark_2_terminal_bench_2_1." +
   "harbor_agent.pi_agent";
+const AGENT_SETUP_TIMEOUT_MULTIPLIER = "3";
 const THINKING_LEVELS = [
   "off",
   "minimal",
@@ -61,6 +62,8 @@ export function createHarborRunPlan(
     String(manifest.dataset.minimumTrialsPerTask),
     "-n",
     String(options.concurrency),
+    "--agent-setup-timeout-multiplier",
+    AGENT_SETUP_TIMEOUT_MULTIPLIER,
     "--job-name",
     options.jobName,
   ];

@@ -26,6 +26,12 @@ describe("Harbor command plan", () => {
       "-m",
       "harbor.cli.main",
     ]);
+    expect(
+      valueAfter(
+        plan.arguments,
+        "--agent-setup-timeout-multiplier",
+      ),
+    ).toBe("3");
     expect(plan.displayCommand).toMatch(
       /^python -m harbor\.cli\.main run /u,
     );
@@ -101,4 +107,12 @@ function valuesAfter(
       ? [values[index + 1] as string]
       : []
   );
+}
+
+function valueAfter(
+  values: readonly string[],
+  option: string,
+): string | undefined {
+  const index = values.indexOf(option);
+  return index < 0 ? undefined : values[index + 1];
 }
