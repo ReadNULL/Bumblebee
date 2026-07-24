@@ -17,8 +17,9 @@ invalid。两轮有效率分别为 95.56% 和 93.33%，均低于冻结的 98% �
 
 首轮复盘列出的 P0/P1 通用改进已经进入代码：无模型 verifier 预检、依赖预热、
 Task Assurance、三档 feature profile、空记忆按需注入、只读 critic、lesson 草稿
-和独立 `dev/holdout` 定向集。它们必须通过下述真实预检和失败任务复验后，才能视为
-已验证改进。
+和独立 `dev/holdout` 定向集。9-task 无模型预检
+`tb21-verifier-preflight-20260725-r7` 已通过独立审计；失败任务的定向真实模型
+复验结果见本页后续记录。
 
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的
@@ -242,6 +243,14 @@ uv pip install `
 Harbor 才能加载仓库内的自定义 Pi adapter。模型供应商凭据沿用 Harbor/Pi
 官方环境变量，不写入 manifest、命令参数或仓库文件。
 
+Windows PowerShell 运行 Harbor 前应固定 Python 控制台编码，避免完整结果已经
+落盘后，Rich 汇总表因系统 GBK 无法显示 Unicode 字符而返回非零退出码：
+
+```powershell
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
+```
+
 Benchmark adapter 固定使用 NVM `v0.40.2`、Node `22.20.0` 和
 `https://npmmirror.com/mirrors/node` 下载镜像。Pi 0.78.1 要求
 Node `>=22.19.0`；固定版本避免每个 trial 解析到不同的 Node 补丁版本，镜像则
@@ -276,6 +285,11 @@ Python/PyPI，并只预热当前任务
 上游 `test.sh` 已声明的精确 verifier 依赖；之后仍由原始 verifier 运行并写 reward。
 reward 可以是 0，因为预检不解题；验收关注 9/9 都产生 verifier 结果且没有
 adapter/dataset/infrastructure 异常。
+
+2026-07-25 的 r7 在 15 分 59 秒内完成 9/9，模型成本为 0；独立
+`audit-preflight` 输出 `passed`、coverage 9/9、verifier results 9/9。Harbor
+汇总展示随后触发的 Windows GBK 编码错误不改变已落盘结果，审计器会读取原始
+result 和各 trial 目录后再给出结论。
 
 正式 Pi adapter 使用同一预热逻辑。即使 verifier 随后的重复下载瞬时失败，已有
 `uv`、Python 3.13 和包缓存仍可供原始脚本继续执行；任务文件、测试文件和 reward

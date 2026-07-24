@@ -153,6 +153,17 @@ registry mirror DNS 失败而无法拉取镜像，其余为取消或未调度，
 重新计时，不能约束完整重试窗口。该轮同样在模型调用前停止。r7 增加
 `retry-max-time = 180`，并为 uv 设置连接/读取/重试限制及 600 秒命令级上限。
 
+第六次预检 `tb21-verifier-preflight-20260725-r7` 在 15 分 59 秒内完成 9/9，
+0 个 trial 异常、1 次 Harbor 重试、模型成本为 0。独立 `audit-preflight`
+确认 coverage 9/9、verifier results 9/9，状态为 `passed`。Harbor 在所有结果
+落盘后打印 Rich 汇总表时触发 Windows GBK 编码错误，因此进程退出码为 1；该展示
+错误不影响原始结果，但正式运行前仍固定 `PYTHONUTF8=1` 和
+`PYTHONIOENCODING=utf-8`。
+
+r7 还暴露并修复了审计器契约问题：无模型 agent 的 `model_info` 合法为 null。
+现在只有 `audit-preflight` 显式允许 model-less identity，并归一化为
+`provider/name = none`；baseline、candidate、校准和正式导入仍严格要求模型信息。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |

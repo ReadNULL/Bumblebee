@@ -18,11 +18,15 @@ import type {
   NormalizedTerminalBenchJob,
   TerminalBenchManifest,
 } from "../contracts/index.js";
-import { normalizeHarborJob } from "./normalizer.js";
+import {
+  normalizeHarborJob,
+  type HarborJobNormalizationOptions,
+} from "./normalizer.js";
 
 export async function readHarborJob(
   jobDirectory: string,
   manifest: TerminalBenchManifest,
+  options: HarborJobNormalizationOptions = {},
 ): Promise<NormalizedTerminalBenchJob> {
   const directory = resolve(jobDirectory);
   const configPath = join(directory, "config.json");
@@ -71,6 +75,7 @@ export async function readHarborJob(
     result,
     provenance,
     manifest,
+    options,
   );
 }
 

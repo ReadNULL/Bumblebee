@@ -126,6 +126,7 @@ async function main(): Promise<void> {
       const job = await readHarborJob(
         command.jobDirectory,
         manifest,
+        { allowModelLessTrials: true },
       );
       const audit = auditPreflight(job, manifest);
       process.stdout.write(

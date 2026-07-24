@@ -214,6 +214,39 @@ describe("Harbor job reader", () => {
       interruptedResult.updated_at,
     );
   });
+
+  it("accepts model-less identities only for explicit preflight reads", async () => {
+    const manifest = createTestManifest();
+    const directory = await mkdtemp(
+      join(tmpdir(), "bumblebee-harbor-preflight-"),
+    );
+    const raw = createRawFixtureJob(manifest);
+    const result = {
+      ...raw.result,
+      trial_results: raw.result.trial_results.map((trial) => ({
+        ...trial,
+        agent_info: {
+          ...trial.agent_info,
+          model_info: null,
+        },
+      })),
+    };
+    await writeJson(join(directory, "config.json"), raw.config);
+    await writeJson(join(directory, "result.json"), result);
+
+    await expect(
+      readHarborJob(directory, manifest),
+    ).rejects.toThrow("agent_info.model_info must be an object");
+
+    const job = await readHarborJob(directory, manifest, {
+      allowModelLessTrials: true,
+    });
+
+    expect(job.trials[0]?.identity).toMatchObject({
+      modelProvider: "none",
+      modelName: "none",
+    });
+  });
 });
 
 async function writeJson(path: string, value: unknown): Promise<void> {

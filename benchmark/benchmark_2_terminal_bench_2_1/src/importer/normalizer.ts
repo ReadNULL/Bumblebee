@@ -33,6 +33,10 @@ interface ParsedJobConfig {
   readonly environmentType: string;
 }
 
+export interface HarborJobNormalizationOptions {
+  readonly allowModelLessTrials?: boolean;
+}
+
 const INFRASTRUCTURE_EXCEPTIONS = [
   "ApiConnectionClosedError",
   "ApiInternalServerError",
@@ -67,6 +71,7 @@ export function normalizeHarborJob(
   resultValue: unknown,
   provenance: HarborJobProvenance,
   manifest: TerminalBenchManifest,
+  options: HarborJobNormalizationOptions = {},
 ): NormalizedTerminalBenchJob {
   const config = parseJobConfig(configValue, manifest);
   const result = requireRecord(resultValue, "Harbor result");
@@ -91,6 +96,7 @@ export function normalizeHarborJob(
       jobId,
       config,
       manifest,
+      options,
     ),
   );
   const trials = assignTrialNumbers(drafts);
@@ -211,6 +217,7 @@ function normalizeTrial(
   jobId: string,
   jobConfig: ParsedJobConfig,
   manifest: TerminalBenchManifest,
+  options: HarborJobNormalizationOptions,
 ): DraftTrial {
   const field = `Harbor result.trial_results[${index}]`;
   const source = requireRecord(value, field);
@@ -238,6 +245,7 @@ function normalizeTrial(
     source.agent_info,
     thinkingLevel,
     field,
+    options.allowModelLessTrials === true,
   );
   const extensionSource = readExtensionSource(agentConfig, field);
   const extensionCommit = extensionSource === undefined
@@ -312,8 +320,34 @@ function parseIdentity(
   value: unknown,
   thinkingLevel: string | undefined,
   field: string,
+  allowModelLess: boolean,
 ): HarborIdentity {
   const source = requireRecord(value, `${field}.agent_info`);
+  const agentName = requireString(
+    source.name,
+    `${field}.agent_info.name`,
+  );
+  const agentVersion = requireString(
+    source.version,
+    `${field}.agent_info.version`,
+  );
+  if (
+    allowModelLess &&
+    (
+      source.model_info === undefined ||
+      source.model_info === null
+    )
+  ) {
+    return Object.freeze({
+      agentName,
+      agentVersion,
+      modelProvider: "none",
+      modelName: "none",
+      ...(thinkingLevel === undefined
+        ? {}
+        : { thinkingLevel }),
+    });
+  }
   const model = requireRecord(
     source.model_info,
     `${field}.agent_info.model_info`,
@@ -339,14 +373,8 @@ function parseIdentity(
         : rawModelName;
 
   return Object.freeze({
-    agentName: requireString(
-      source.name,
-      `${field}.agent_info.name`,
-    ),
-    agentVersion: requireString(
-      source.version,
-      `${field}.agent_info.version`,
-    ),
+    agentName,
+    agentVersion,
     modelProvider:
       configuredProvider ?? inferredProvider ?? "unknown",
     modelName,
