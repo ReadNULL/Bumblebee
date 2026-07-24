@@ -6,10 +6,11 @@
 终端任务中的端到端价值。它不复制或修改上游任务、容器和 verifier，也不进入
 Bumblebee 的 npm 发布包。
 
-评估工程已经实现。2026-07-24 完成了第一轮 45-trial 真实 `pi-baseline`
-原始运行，但审计发现 2 个 trial 是 verifier 启动时下载依赖失败，并非模型失败；
-有效率为 95.56%，低于冻结的 98% 门槛，因此该 job 只保留为证据，不能进入
-baseline 校准。当前仍没有可发布的 TB 分数。
+评估工程已经实现。2026-07-24 完成了第一轮 45-trial 真实 `pi-baseline` 和一轮
+45-trial Bumblebee candidate。baseline 审计后为 32 passed、11 failed、2
+infrastructure invalid；candidate 为 30 passed、12 failed、3 infrastructure
+invalid。两轮有效率分别为 95.56% 和 93.33%，均低于冻结的 98% 门槛，因此只
+保留为探索性证据，当前仍没有可发布的 TB 分数。
 
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的
@@ -87,9 +88,10 @@ Manifest 中的上游 reference 是 `latest`，但评分身份不依赖这个移
 
 ## 首轮真实运行（2026-07-24）
 
-运行身份固定为 commit
-`b37dd285be7f2d510b2f6d838d86c9eb2e1fffdf`、Harbor `0.20.0`、Pi
-`0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
+baseline 运行身份固定为 commit
+`b37dd285be7f2d510b2f6d838d86c9eb2e1fffdf`，candidate 固定为
+`c8aebb8279dfec819102cc12b4c349b89e483c75`。两者均使用 Harbor `0.20.0`、
+Pi `0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
 并发。所有 job 目录均保留在被 Git 忽略的 `.runtime/jobs/` 中。
 
 ### 执行记录
@@ -104,6 +106,8 @@ Manifest 中的上游 reference 是 `latest`，但评分身份不依赖这个移
 | `tb21-lite-pi-1-20260724-r2` | 26/45 | DeepSeek 503 被 Pi 以退出码 0 吞掉，主动停止；adapter 改为识别最终 API 状态并只重试瞬态错误 |
 | `tb21-lite-pi-1-20260724-r3` | 45/45 | Harbor 原始运行完整，但 2 条 verifier 网络故障污染 reward 0，审计后不具备校准资格 |
 | `tb21-lite-bumblebee-smoke-20260724` | 1/1 | reward 0；默认 PermissionSystem 在无 UI 时正确拒绝写入和 Shell，证明不能直接把生产交互模式用于 Harbor |
+| `tb21-lite-bumblebee-smoke-20260724-r1` | 1/1 | benchmark-only `allow-once` wrapper 已能执行 `bash/write/edit`；Harbor 在收集产物时异常，但容器内 verifier 直接复核 2/2 通过 |
+| `tb21-lite-bumblebee-1-20260724-r1` | 45/45 | candidate 完整运行；3 条 verifier 依赖下载超时使有效率仅 93.33%，结果为 invalid，`TB = N/A` |
 
 中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
 环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
@@ -148,8 +152,50 @@ reward，也不是 TB 分数。`db-wal-recovery` 消耗约 `$0.190064`，占本 
   普通 reward 0 仍按模型失败处理。
 - r3 的 2 个 infrastructure invalid 使有效率低于 98%，校准器必须拒绝该 job；
   不能通过手工删除失败 trial、改 reward 或计算“修正版官方成绩”绕过。
-- 下一步应先重跑一轮可通过审计的 baseline 1，再执行 baseline 2/3。三轮有效
-  baseline 和一轮 candidate 全部完成前，`TB = N/A`。
+- 下一步应先解决 verifier 每个容器重复下载 `uv`、Python 和数据依赖导致的超时，
+  再重跑一轮可通过审计的 baseline 1。三轮有效 baseline 和一轮有效 candidate
+  全部完成前，`TB = N/A`。
+
+### Candidate r1 原始结果
+
+| 指标 | 结果 |
+| --- | ---: |
+| Harbor 原始 reward | 30/45，均值 `0.6667` |
+| 审计后状态 | 30 passed、12 failed、3 infrastructure invalid |
+| 有效率 | 42/45，`93.33%`，低于 `98%` 硬门槛 |
+| 诊断通过率 | 30/42，`71.43%`，不能替代官方 reward |
+| 异常 | 3 个 `VerifierTimeoutError`、1 个计入能力失败的 `AgentTimeoutError` |
+| 重试 | 1 次 candidate 安装网络错误，Harbor 自动重试后成功 |
+| 总运行时间 | 3 小时 21 分 30 秒 |
+| Agent 时延 | p50 `83.2s`、p95 `558.4s`、p99 `900.0s` |
+| Token | input `39,015,445`、cache read `38,133,632`、output `514,859` |
+| 模型成本 | `$0.374389` |
+| 凭据审计 | 457 个证据文件中 2 个可用 API Key 精确值命中 0 次 |
+| 资源清理 | Harbor trial 容器残留 0 个 |
+
+| 任务 | 原始通过 | 审计结论 |
+| --- | ---: | --- |
+| `fix-git` | 5/5 | 稳定通过 |
+| `build-cython-ext` | 0/5 | 4 次普通失败，1 次 Agent 超时；仍是最明显的能力短板 |
+| `cancel-async-tasks` | 5/5 | 稳定通过 |
+| `fix-code-vulnerability` | 5/5 | 稳定通过 |
+| `nginx-request-logging` | 5/5 | 稳定通过 |
+| `db-wal-recovery` | 0/5 | 4 次未正确恢复 WAL，1 次 verifier 下载 Python 超时 |
+| `multi-source-data-merger` | 3/5 | 3 个有效样本全部通过，另 2 次 verifier 下载数据依赖超时 |
+| `large-scale-text-editing` | 4/5 | 1 次输出未满足 verifier |
+| `kv-store-grpc` | 3/5 | 2 次服务实现未满足 verifier |
+
+同一模型的探索性 baseline 诊断通过率为 32/43（`74.42%`），candidate 为
+30/42（`71.43%`），相差 -2.99 个百分点；candidate 原始通过数少 2，成本高
+5.52%，p50 Agent 时延高 79.31%。candidate 在异步取消和漏洞修复上各多通过
+1 次，但在原生扩展构建、gRPC 和基础设施有效率上回退。由于两轮都未通过有效率
+门槛，且 candidate 只有一轮，以上只能定位改进方向，不能证明 Bumblebee 相对
+baseline 的稳定收益或回归。
+
+本次真实导入还暴露了两个 Windows 兼容问题：Harbor 的 namespaced task ID
+不能直接作为 Benchmark 0 文件路径，微秒和本地时间戳也不满足核心 UTC 契约。
+Importer 现在只对证据路径使用短哈希 ID、在 metadata 保留原始任务名，并在 Harbor
+边界把时间统一为规范 UTC；45 个 task result 已全部写入并可枚举。
 
 ### Candidate 授权边界
 
@@ -216,7 +262,10 @@ npm run benchmark:2 -- plan candidate openai/<model> docker 1 tb21-full $extensi
 检查打印出的命令后再手工执行。生成的命令固定包含 9 个任务过滤器和 `-k 5`，
 同时用 `--agent-setup-timeout-multiplier 3` 将容器内 Pi 冷安装时限从默认 6 分钟
 放宽到 18 分钟。所以每个 job 为 45 个 trial；三轮 baseline 加一轮 candidate
-共 180 个 trial。并发数只影响吞吐，不得改变模型、thinking、任务集或预算。
+共 180 个 trial。Harbor 在 job 启动后不能热调并发；本轮并发 2 的主要瓶颈是
+容器内 `npm ci`、`uv` 和 verifier 依赖下载。下一轮先用并发 4 跑每任务 1 次的
+9-trial 预检，只有基础设施有效率达标后，才把四个正式 job 的并发 profile 一并
+冻结为 4。
 
 adapter 会解析 Pi JSONL 的最终 API 状态。Pi 内部重试耗尽后的 503、429、500、
 网络错误等会转换为 Harbor 异常，并由计划中固定的 `--max-retries 2` 重新执行
@@ -302,6 +351,6 @@ npm test -- benchmark/benchmark_2_terminal_bench_2_1/test
 npm run benchmark:2
 ```
 
-最后一个命令只显示帮助。当前 8 个测试文件、29 项确定性测试全部通过；首轮真实
-baseline 原始运行已经完成，但因上述 verifier 基础设施污染被判为不可校准，不能
+最后一个命令只显示帮助。当前 8 个测试文件、31 项确定性测试全部通过；首轮真实
+baseline 和 candidate 均已完成，但因上述 verifier 基础设施污染被判为无效，不能
 作为正式 Terminal-Bench Lite 成绩。

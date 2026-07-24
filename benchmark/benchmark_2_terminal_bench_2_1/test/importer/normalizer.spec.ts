@@ -93,4 +93,35 @@ describe("Harbor job normalizer", () => {
     expect(job.concurrency).toBe(4);
     expect(job.environmentType).toBe("docker");
   });
+
+  it("canonicalizes Harbor local and microsecond timestamps to UTC", () => {
+    const manifest = createTestManifest();
+    const raw = createRawFixtureJob(manifest);
+    const localStartedAt = "2026-07-23T09:59:00.123456";
+    const localFinishedAt = "2026-07-23T10:02:00.654321";
+    const trialStartedAt = "2026-07-23T10:00:00.123456Z";
+    raw.result.started_at = localStartedAt;
+    raw.result.finished_at = localFinishedAt;
+    raw.result.trial_results[0]!.started_at = trialStartedAt;
+
+    const job = normalizeHarborJob(
+      raw.config,
+      raw.result,
+      {
+        configSha256: "a".repeat(64),
+        resultSha256: "b".repeat(64),
+        trialResultsSha256: "c".repeat(64),
+        sourceDirectoryName: "fixture",
+      },
+      manifest,
+    );
+
+    expect(job.startedAt).toBe(new Date(localStartedAt).toISOString());
+    expect(job.finishedAt).toBe(
+      new Date(localFinishedAt).toISOString(),
+    );
+    expect(job.trials[0]?.startedAt).toBe(
+      new Date(trialStartedAt).toISOString(),
+    );
+  });
 });

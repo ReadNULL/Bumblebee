@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   EvaluationRunStore,
   type StartEvaluationRunInput,
@@ -48,8 +50,9 @@ export async function runTerminalBenchImport(
   });
 
   for (const trial of options.job.trials) {
+    const recordedTaskId = toPortableTaskId(trial.taskId);
     await run.recordTask({
-      taskId: trial.taskId,
+      taskId: recordedTaskId,
       trial: trial.trial,
       status: trial.status,
       startedAt: trial.startedAt,
@@ -73,6 +76,7 @@ export async function runTerminalBenchImport(
         : { failure: trial.failure }),
       artifacts: [provenance],
       metadata: {
+        sourceTaskId: trial.taskId,
         harborTrialId: trial.harborTrialId,
         harborTrialName: trial.trialName,
         taskChecksum: trial.taskChecksum,
@@ -221,4 +225,21 @@ function minimumTrialsPerTask(
   return counts.size === 0
     ? 0
     : Math.min(...counts.values());
+}
+
+const PORTABLE_TASK_ID_PATTERN =
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function toPortableTaskId(sourceTaskId: string): string {
+  if (PORTABLE_TASK_ID_PATTERN.test(sourceTaskId)) {
+    return sourceTaskId;
+  }
+
+  // The original upstream ID remains in metadata; this ID is path-only.
+  const digest = createHash("sha256")
+    .update(sourceTaskId, "utf8")
+    .digest("hex")
+    .slice(0, 20);
+
+  return `external-${digest}`;
 }

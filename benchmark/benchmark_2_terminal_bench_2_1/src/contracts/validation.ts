@@ -86,10 +86,11 @@ export function requireIsoDate(
   field: string,
 ): string {
   const text = requireString(value, field);
-  if (!Number.isFinite(Date.parse(text))) {
+  const timestamp = new Date(text);
+  if (!Number.isFinite(timestamp.getTime())) {
     invalid(`${field} must be an ISO date`, { field });
   }
-  return text;
+  return timestamp.toISOString();
 }
 
 export function invalid(

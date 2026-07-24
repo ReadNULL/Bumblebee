@@ -48,4 +48,56 @@ describe("Terminal-Bench import runner", () => {
     expect(summary.taskCounts.total).toBe(4);
     expect(summary.taskResultArtifacts).toHaveLength(4);
   });
+
+  it("records namespaced Harbor task IDs with portable paths", async () => {
+    const outputDirectory = await mkdtemp(
+      join(tmpdir(), "bumblebee-tb21-namespaced-"),
+    );
+    const taskIds = [
+      "terminal-bench/task-alpha",
+      "terminal-bench/task-beta",
+    ] as const;
+    const manifest = createTestManifest(taskIds);
+    const job = createNormalizedFixtureJob(manifest, { taskIds });
+    const report = await runTerminalBenchImport({
+      manifest,
+      job,
+      outputDirectory,
+      clock: () => new Date("2026-07-23T12:00:00.000Z"),
+    });
+    const summary = JSON.parse(
+      await readFile(
+        join(
+          outputDirectory,
+          "artifacts",
+          report.runId,
+          "summary.json",
+        ),
+        "utf8",
+      ),
+    ) as {
+      taskResultArtifacts: Array<{ relativePath: string }>;
+    };
+
+    expect(summary.taskResultArtifacts).toHaveLength(4);
+    for (const artifact of summary.taskResultArtifacts) {
+      const taskResult = JSON.parse(
+        await readFile(
+          join(
+            outputDirectory,
+            "artifacts",
+            artifact.relativePath,
+          ),
+          "utf8",
+        ),
+      ) as {
+        taskId: string;
+        metadata: { sourceTaskId: string };
+      };
+      expect(taskResult.taskId).toMatch(/^external-[a-f0-9]{20}$/);
+      expect(taskResult.metadata.sourceTaskId).toMatch(
+        /^terminal-bench\//,
+      );
+    }
+  });
 });

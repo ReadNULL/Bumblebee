@@ -38,7 +38,12 @@ export interface FixtureJobOptions {
   readonly taskIds?: readonly string[];
 }
 
-export function createTestManifest(): TerminalBenchManifest {
+export function createTestManifest(
+  taskIds: readonly [string, string] = [
+    "task-alpha",
+    "task-beta",
+  ],
+): TerminalBenchManifest {
   const source = JSON.parse(
     readFileSync(manifestPath, "utf8"),
   ) as {
@@ -70,13 +75,13 @@ export function createTestManifest(): TerminalBenchManifest {
   source.dataset.minimumTrialsPerTask = 2;
   source.dataset.selectedTasks = [
     {
-      id: "task-alpha",
+      id: taskIds[0],
       category: "fixture",
       difficulty: "easy",
       capability: "fixture alpha",
     },
     {
-      id: "task-beta",
+      id: taskIds[1],
       category: "fixture",
       difficulty: "medium",
       capability: "fixture beta",
