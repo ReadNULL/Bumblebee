@@ -87,14 +87,15 @@ Bumblebee 能力，正常使用无需加载。
 | 分项 | 已观测结果 | 可发布分数与资格 |
 | --- | --- | --- |
 | BumblebeeBench | 360/360 确定性 trial 通过 | `BB = 100.00`，qualified |
-| Terminal-Bench 2.1 Lite | baseline 32/45；历史 candidate 追加审计后 30 passed、10 failed、5 invalid；干净定向 r3 16/20；r4 仅复验 Cython/WAL 为 8/10 | 定向运行不满足 9-task 完整性；`TB = N/A`，invalid |
+| Terminal-Bench 2.1 Lite | baseline 32/45；历史 candidate 追加审计后 30 passed、10 failed、5 invalid；干净定向 r3 16/20；r4 Cython/WAL 8/10；r5 Cython 1 个有效通过、4 个基础设施无效 | 定向运行不满足 9-task 完整性；`TB = N/A`，invalid |
 | AgentDojo Workspace | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `AD = 94.39`，qualified |
 | LongMemEval-Bumblebee | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `LM = 98.50`，qualified |
 | BCS-v1 | 已有 BB/AD/LM，TB 没有合格输入 | `N/A`，not-qualified |
 
-r4 已确认 WAL 5/5，后续只复验仍不稳定的 Cython；WAL、大文本和 gRPC 不重复
-运行。完整指标、
-成本、失败分类、资格边界和各套件入口见 [Benchmark 结果总览](./benchmark/README.md)；
+r4 已确认 WAL 5/5。r5 只复验 Cython，但 3 个 trial 因模型余额不足、1 个因
+PyPI 索引未返回冻结依赖而无效，唯一有效 trial 通过；该轮不能判断兼容扫描修复
+是否有效。补充余额并通过环境预检后仍只复验 Cython，WAL、大文本和 gRPC 不重复
+运行。完整指标、成本、失败分类、资格边界和各套件入口见 [Benchmark 结果总览](./benchmark/README.md)；
 Terminal-Bench 的失败经验见[首轮真实评测复盘](./benchmark/benchmark_2_terminal_bench_2_1/POSTMORTEM_2026-07-24.md)。
 
 `N/A` 只表示结果不能作为正式分数发布，不表示删除或隐藏本轮数据。未通过门槛、

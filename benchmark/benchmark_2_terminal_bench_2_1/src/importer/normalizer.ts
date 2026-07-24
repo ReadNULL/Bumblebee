@@ -67,6 +67,12 @@ const VERIFIER_INFRASTRUCTURE_EXCEPTIONS = [
   "VerifierInfrastructureError",
 ] as const;
 
+const NON_RETRYABLE_INFRASTRUCTURE_EXCEPTIONS = [
+  "ApiUsageLimitError",
+  "AgentAuthenticationError",
+  "ModelNotFoundError",
+] as const;
+
 export function normalizeHarborJob(
   configValue: unknown,
   resultValue: unknown,
@@ -257,7 +263,11 @@ function normalizeTrial(
     manifest.rewardKey,
     field,
   );
-  const exceptionTypes = readExceptionTypes(source);
+  const exceptionTypes = canonicalizeExceptionTypes(
+    readExceptionTypes(source),
+    readExceptionMessages(source),
+    source,
+  );
   const stable =
     exceptionTypes.length === 0 && reward !== undefined;
   const failureCategory = classifyException(
@@ -447,8 +457,21 @@ function readReward(
 function readExceptionTypes(
   trial: Readonly<Record<string, unknown>>,
 ): readonly string[] {
-  const types: string[] = [];
-  addExceptionType(types, trial.exception_info);
+  return readExceptionValues(trial, "exception_type");
+}
+
+function readExceptionMessages(
+  trial: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  return readExceptionValues(trial, "exception_message");
+}
+
+function readExceptionValues(
+  trial: Readonly<Record<string, unknown>>,
+  field: "exception_type" | "exception_message",
+): readonly string[] {
+  const values: string[] = [];
+  addExceptionValue(values, trial.exception_info, field);
   if (Array.isArray(trial.step_results)) {
     for (const stepValue of trial.step_results) {
       if (
@@ -456,20 +479,22 @@ function readExceptionTypes(
         stepValue !== null &&
         !Array.isArray(stepValue)
       ) {
-        addExceptionType(
-          types,
+        addExceptionValue(
+          values,
           (stepValue as Readonly<Record<string, unknown>>)
             .exception_info,
+          field,
         );
       }
     }
   }
-  return Object.freeze([...new Set(types)]);
+  return Object.freeze([...new Set(values)]);
 }
 
-function addExceptionType(
+function addExceptionValue(
   target: string[],
   value: unknown,
+  field: "exception_type" | "exception_message",
 ): void {
   if (
     typeof value !== "object" ||
@@ -478,31 +503,81 @@ function addExceptionType(
   ) {
     return;
   }
-  const exceptionType = (
+  const exceptionValue = (
     value as Readonly<Record<string, unknown>>
-  ).exception_type;
+  )[field];
   if (
-    typeof exceptionType === "string" &&
-    exceptionType.trim().length > 0
+    typeof exceptionValue === "string" &&
+    exceptionValue.trim().length > 0
   ) {
-    target.push(exceptionType.trim());
+    target.push(exceptionValue.trim());
   }
+}
+
+function canonicalizeExceptionTypes(
+  exceptionTypes: readonly string[],
+  exceptionMessages: readonly string[],
+  trial: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  // Harbor may preserve a generic outer type; narrow diagnostics recover
+  // the actionable category without changing the raw job evidence.
+  const canonicalTypes: string[] = [];
+  if (
+    exceptionTypes.some((type) => type.includes("UnknownApiError")) &&
+    exceptionMessages.some(isUsageLimitMessage)
+  ) {
+    canonicalTypes.push("ApiUsageLimitError");
+  }
+  if (
+    isAgentSetupFailure(trial) &&
+    exceptionTypes.some((type) =>
+      type.includes("NonZeroAgentExitCodeError")
+    ) &&
+    exceptionMessages.some(isUnavailablePackageIndexMessage)
+  ) {
+    canonicalTypes.push("NetworkConnectionError");
+  }
+  return Object.freeze([
+    ...new Set([...canonicalTypes, ...exceptionTypes]),
+  ]);
+}
+
+function isAgentSetupFailure(
+  trial: Readonly<Record<string, unknown>>,
+): boolean {
+  return (
+    trial.agent_setup !== undefined &&
+    trial.agent_setup !== null &&
+    (
+      trial.agent_execution === undefined ||
+      trial.agent_execution === null
+    )
+  );
+}
+
+function isUsageLimitMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    /\b402\b/u.test(normalized) ||
+    normalized.includes("insufficient balance") ||
+    normalized.includes("usage limit") ||
+    normalized.includes("quota exceeded")
+  );
+}
+
+function isUnavailablePackageIndexMessage(message: string): boolean {
+  const noAvailableVersion =
+    /could not find a version that satisfies the requirement .+ \(from versions: none\)/iu;
+  return (
+    noAvailableVersion.test(message) ||
+    /no matching distribution found for/iu.test(message)
+  );
 }
 
 function classifyException(
   exceptionTypes: readonly string[],
   trial: Readonly<Record<string, unknown>>,
 ): FailureCategory {
-  if (
-    exceptionTypes.length > 0 &&
-    (trial.agent_execution === undefined ||
-      trial.agent_execution === null)
-  ) {
-    return trial.agent_setup === undefined ||
-      trial.agent_setup === null
-      ? "infrastructure"
-      : "adapter";
-  }
   if (
     matchesAny(
       exceptionTypes,
@@ -519,6 +594,16 @@ function classifyException(
   }
   if (matchesAny(exceptionTypes, INFRASTRUCTURE_EXCEPTIONS)) {
     return "infrastructure";
+  }
+  if (
+    exceptionTypes.length > 0 &&
+    (trial.agent_execution === undefined ||
+      trial.agent_execution === null)
+  ) {
+    return trial.agent_setup === undefined ||
+      trial.agent_setup === null
+      ? "infrastructure"
+      : "adapter";
   }
   if (
     exceptionTypes.some((type) =>
@@ -584,7 +669,13 @@ function createFailure(
         `Harbor reported ${exceptionTypes.join(", ")} during the trial`,
       retryable:
         category === "adapter" ||
-        category === "infrastructure",
+        (
+          category === "infrastructure" &&
+          !matchesAny(
+            exceptionTypes,
+            NON_RETRYABLE_INFRASTRUCTURE_EXCEPTIONS,
+          )
+        ),
     };
   }
   if (reward === undefined) {

@@ -1,15 +1,16 @@
 # Bumblebee Benchmark
 
 该目录只承载开发评估工程，不属于 Bumblebee 运行时，也不会进入 npm 发布包。
-以下内容汇总截至 2026-07-25 已完成的运行。r4 已确认 WAL 5/5，下一轮只复验
-仍不稳定的 Cython；WAL、大文本和 gRPC 不重复运行。
+以下内容汇总截至 2026-07-25 已完成的运行。r4 已确认 WAL 5/5；r5 只复验
+Cython，但 4/5 是外部基础设施无效样本，因此尚不能评价最新兼容扫描门槛。
+后续仍只复验 Cython，WAL、大文本和 gRPC 不重复运行。
 
 ## 结果总览
 
 | 分项 | 已观测原始结果 | 可发布分数 | 资格 |
 | --- | --- | ---: | --- |
 | BumblebeeBench (`BB`) | 360/360 个确定性 full trial 通过 | `100.00` | qualified |
-| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45；历史 candidate 审计后 30/40；干净定向 r3 16/20；r4 仅 Cython/WAL 为 8/10 | `N/A` | invalid |
+| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45；历史 candidate 审计后 30/40；干净定向 r3 16/20；r4 Cython/WAL 8/10；r5 Cython 为 1 passed、4 infrastructure invalid | `N/A` | invalid |
 | AgentDojo Workspace (`AD`) | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `94.39` | qualified |
 | LongMemEval-Bumblebee (`LM`) | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `98.50` | qualified |
 | BCS-v1 | BB/AD/LM 已完成，TB 没有合格输入 | `N/A` | not-qualified |
@@ -33,17 +34,17 @@ BCS-v1 只有在四个来源均满足身份、完整性和硬门槛时才计算�
 | 检查项 | 结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 90 个测试文件、409 项测试全部通过 |
+| Vitest | 90 个测试文件、412 项测试全部通过 |
 | 架构约束 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖方向通过 |
 | npm 发布边界 | dry-run 共 100 个生产文件，不包含 `benchmark/` 和 `test/` |
 | Benchmark 0 | 6 个测试文件、21 项测试通过 |
 | Benchmark 1 | 5 个测试文件、16 项测试通过 |
-| Benchmark 2 | 9 个 TypeScript 测试文件、39 项测试和 14 项 Python 测试通过 |
+| Benchmark 2 | 9 个 TypeScript 测试文件、42 项测试和 16 项 Python 测试通过 |
 | Benchmark 3 | 7 个 TypeScript 文件、28 项测试和 6 项 Python 测试通过 |
 | Benchmark 4 | 7 个测试文件、24 项测试通过 |
 | Benchmark 5 | 6 个测试文件、15 项测试通过 |
 
-这些数字是历史验证记录，不是本次文档整理重新运行的结果。
+以上数字来自本次修改后的完整回归，不是沿用旧记录。
 
 ## BumblebeeBench
 
@@ -110,6 +111,14 @@ r4 只复验 r3 仍失败的 Cython 与 WAL，结果为 8/10：Cython 3/5、WAL 
 OfficialReward 为 80.00、Stability 为 100.00；因只覆盖 2/9 且没有完整效率预算，
 资格仍为 invalid，`TB = N/A`。两个 Cython 失败暴露了兼容扫描仍按已知文件类型
 收窄的问题，已转化为仓库级兼容迁移的通用完成门槛。
+
+r5 固定包含该门槛的 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，
+且只运行 Cython 5 次。唯一有效 trial 通过；其余 3 次为 DeepSeek
+`402 Insufficient Balance`，1 次为 PyPI 索引对冻结的 `pytest==8.4.1`
+返回空版本列表。导入后为 1 passed、4 infrastructure invalid，有效率 20%，
+整轮 invalid，不能把有效子样本的 OfficialReward 100.00 解释为能力分数。
+运行时现将余额耗尽映射为不可自动重试的 `ApiUsageLimitError`，依赖索引空响应
+映射为 `NetworkConnectionError`；原始异常、8 次历史重试和 job 证据均保留。
 
 ## AgentDojo Workspace
 

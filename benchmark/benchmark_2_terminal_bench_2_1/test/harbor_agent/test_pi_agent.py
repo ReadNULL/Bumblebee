@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from harbor.agents.installed.base import (
     ApiOverloadedError,
+    ApiUsageLimitError,
     NetworkConnectionError,
 )
 
@@ -109,6 +110,15 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn(f"nvm alias default {NODE_VERSION}", command)
         self.assertNotIn("nvm install 22 &&", command)
         self.assertNotIn("https://nodejs.org/dist", command)
+
+    def test_classifies_empty_package_index_as_network_failure(self) -> None:
+        self.assertTrue(
+            any(
+                pattern.exception is NetworkConnectionError
+                and "from versions: none" in pattern.pattern
+                for pattern in PinnedPi.ERROR_PATTERNS
+            )
+        )
 
     def test_candidate_loads_the_benchmark_authority_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as logs_dir:
@@ -276,6 +286,29 @@ class PinnedPiInstallTest(unittest.TestCase):
 
 
 class PinnedPiApiErrorTest(unittest.TestCase):
+    def test_classifies_insufficient_balance_as_usage_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "pi.txt"
+            output_path.write_text(
+                json_line(
+                    {
+                        "type": "message_end",
+                        "message": {
+                            "role": "assistant",
+                            "stopReason": "error",
+                            "errorMessage": "402 Insufficient Balance",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                ApiUsageLimitError,
+                r"402 Insufficient Balance",
+            ):
+                _raise_terminal_api_error(output_path)
+
     def test_raises_retriable_error_when_pi_exhausts_503_retries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "pi.txt"

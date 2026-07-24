@@ -34,6 +34,8 @@ export interface FixtureJobOptions {
   readonly agentDurationMs?: number;
   readonly rewards?: readonly number[];
   readonly exceptionType?: string;
+  readonly exceptionMessage?: string;
+  readonly exceptionDuringSetup?: boolean;
   readonly omitExtension?: boolean;
   readonly taskIds?: readonly string[];
 }
@@ -251,17 +253,27 @@ function createRawResult(
           : {
               exception_info: {
                 exception_type: options.exceptionType,
-                exception_message: "fixture error",
+                exception_message:
+                  options.exceptionMessage ?? "fixture error",
                 exception_traceback: "fixture traceback",
                 occurred_at: finished.toISOString(),
               },
             }),
         started_at: started.toISOString(),
         finished_at: finished.toISOString(),
-        agent_execution: {
-          started_at: agentStarted.toISOString(),
-          finished_at: agentFinished.toISOString(),
-        },
+        ...(options.exceptionDuringSetup === true && index === 0
+          ? {
+              agent_setup: {
+                started_at: started.toISOString(),
+                finished_at: agentFinished.toISOString(),
+              },
+            }
+          : {
+              agent_execution: {
+                started_at: agentStarted.toISOString(),
+                finished_at: agentFinished.toISOString(),
+              },
+            }),
       };
     })
   );

@@ -20,7 +20,8 @@ candidate 为 30 passed、10 failed、5 invalid，有效率 88.89%。两轮均�
 Task Assurance、三档 feature profile、空记忆按需注入、只读 critic、lesson 草稿
 和独立 `dev/holdout` 定向集。9-task 无模型预检
 `tb21-verifier-preflight-20260725-r7` 已通过独立审计；失败任务的定向真实模型
-复验结果见本页后续记录。
+复验结果见本页后续记录。r5 已按“成功任务不重跑”的原则只运行 Cython，但 5 个
+trial 中 4 个被余额和包索引故障污染，因此最新兼容扫描门槛仍待有效复验。
 
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的
@@ -129,6 +130,8 @@ Pi `0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
 | `tb21-targeted-bumblebee-20260725-r3` | 20/20 | 干净定向复验 16/20，全部样本有效、证据泄漏 0；只覆盖 4/9 任务，仍为 invalid、`TB = N/A` |
 | `tb21-candidate-isolation-preflight-20260725-r3` | 1/1 | 精确提交 `ec372ae` 的无模型隔离预检通过，0 异常、0 重试，耗时 1 分 16 秒 |
 | `tb21-targeted-bumblebee-20260725-r4` | 10/10 | 只复验 Cython/WAL，结果 8/10；全部样本有效、证据泄漏 0，仍因只覆盖 2/9 而 invalid |
+| `tb21-candidate-isolation-preflight-20260725-r4` | 1/1 | 精确提交 `df88196` 的无模型隔离预检通过，0 异常、0 重试，耗时 1 分 10 秒 |
+| `tb21-targeted-bumblebee-20260725-r5` | 5/5 | 只复验 Cython；1 个有效通过，3 个余额不足、1 个包索引故障，整轮基础设施 invalid |
 
 中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
 环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
@@ -398,7 +401,38 @@ r4 只覆盖冻结任务的 2/9，且没有完整效率预算，因此资格为 
 两个 Cython 失败轨迹都把兼容性搜索限制在已知脚本/Cython 扩展名，通用提示没有
 形成可验证的完成门槛。后续修复不编码 NumPy 或具体文件答案，而是在提示同时具有
 兼容迁移和仓库源码语义时，要求修改后至少成功完成一次不按已编辑扩展名收窄的
-递归扫描；否则最多触发一次补充轮次。下一轮只复验 Cython，不再重跑已通过任务。
+递归扫描；否则最多触发一次补充轮次。
+
+### Cython 定向 r5 无效运行
+
+`tb21-targeted-bumblebee-20260725-r5` 固定 commit
+`df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，并在 1/1、0 异常、0 重试的
+候选隔离预检后，只运行 Cython 5 次；WAL、大文本和 gRPC 均未重跑。Harbor
+在 11 分 8 秒内完成 5/5，但其中只有 1 个有效 trial，且该 trial reward 为 1。
+
+| 指标 | 结果 |
+| --- | ---: |
+| 审计后状态 | 1 passed、4 infrastructure invalid |
+| 外部故障 | 3 个 `402 Insufficient Balance`、1 个 PyPI 空版本列表 |
+| 有效率 | 1/5，`20.00%` |
+| Harbor 重试 | 8 次；余额故障被误判为瞬态错误，包索引故障执行有界重试 |
+| 有效 trial 成本 | `$0.019428` |
+| 有效 trial Agent 时延 | `449.1s` |
+| Token | input `2,695,711`、cache read `2,651,776`、output `20,902` |
+| 证据审计 | 4 个 agent 日志中 benchmark 专用资料命中 0 |
+| 凭据审计 | 53 个文本证据文件中环境凭据精确值命中 0 |
+| 资源清理 | Harbor trial 容器残留 0 |
+| 导入 runId | `run_mrzfh7d1_954bf594-a246-4d39-99e8-12d8b7237744` |
+
+导入器保留了全部原始异常和 reward，同时把历史 `UnknownApiError/402` 规范化为
+不可自动重试的 `ApiUsageLimitError`，把冻结依赖返回
+`(from versions: none)` 规范化为 `NetworkConnectionError`。运行时 adapter
+也采用同一语义，因此余额耗尽不会再消耗 Harbor 的瞬态重试预算，包索引临时故障
+最多按既定上限重试。该轮资格为 invalid，显示的 OfficialReward 100.00 只来自
+唯一有效子样本，不能解释为 Cython 通过率或 Bumblebee 能力提升。
+
+最新 P1 兼容扫描门槛尚未得到 5 个有效样本验证。恢复模型额度并通过 Cython
+环境预检后，仍只复验 Cython，不重跑 r4 已经 5/5 的 WAL 或其他成功任务。
 
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与

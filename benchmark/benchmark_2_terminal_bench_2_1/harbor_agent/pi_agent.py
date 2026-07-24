@@ -11,6 +11,7 @@ from harbor.agents.installed.base import (
     ApiInternalServerError,
     ApiOverloadedError,
     ApiRateLimitError,
+    ApiUsageLimitError,
     CliFlag,
     ErrorPattern,
     NetworkConnectionError,
@@ -361,6 +362,13 @@ def _raise_terminal_api_error(output_path: Path) -> None:
 
     normalized = message.casefold()
     detail = message[:500]
+    if (
+        re.search(r"\b402\b", normalized) is not None
+        or "insufficient balance" in normalized
+        or "usage limit" in normalized
+        or "quota exceeded" in normalized
+    ):
+        raise ApiUsageLimitError(detail)
     if "503" in normalized or "too busy" in normalized or "overload" in normalized:
         raise ApiOverloadedError(detail)
     if "429" in normalized or "rate limit" in normalized:
@@ -384,6 +392,12 @@ class PinnedPi(Pi):
         ErrorPattern(
             r"operation timed out|Request failed after \d+ retries|"
             r"error sending request for url",
+            NetworkConnectionError,
+        ),
+        ErrorPattern(
+            r"Could not find a version that satisfies the requirement "
+            r".+ \(from versions: none\)|"
+            r"No matching distribution found for",
             NetworkConnectionError,
         ),
     ]

@@ -217,7 +217,20 @@ r4 的两个 Cython 失败都将兼容扫描限制在已知脚本/Cython 文件�
 兼容迁移与仓库源码语义，不包含 NumPy、Cython 或隐藏 verifier 的题目答案。r5
 只复验 Cython，WAL 和其他已成功任务不再运行。
 
-### P0：下一轮正式评测前必须完成
+r5 使用 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，并在对应候选
+隔离预检 1/1 通过后，只运行 Cython 5 次。唯一有效 trial reward 为 1；另外
+3 次因 DeepSeek `402 Insufficient Balance`、1 次因 PyPI 对冻结依赖返回空版本
+列表而无效。审计后为 1 passed、4 infrastructure invalid，有效率 20%，不能用
+有效子样本的 OfficialReward 100.00 判断兼容扫描修复效果。Harbor 对 4 个外部
+故障共进行了 8 次重试，其中余额错误不应进入自动重试；原始日志、异常和成本均
+保留。
+
+该问题触发评测基础设施修复：运行时将余额耗尽转换为不可自动重试的
+`ApiUsageLimitError`，包索引空响应转换为有界重试的
+`NetworkConnectionError`；离线导入器对历史异常使用相同规范化规则，不改写
+Harbor 原始结果。最新 P1 仍需在恢复额度后只重跑 Cython，成功任务继续不跑。
+
+### P0：已完成并通过确定性验证
 
 | ID | 类型 | 改进 | 验收条件 |
 | --- | --- | --- | --- |
@@ -230,7 +243,7 @@ r4 的两个 Cython 失败都将兼容扫描限制在已知脚本/Cython 文件�
 `AG-VER-01` 不能只实现为“最后一个工具调用失败就重试”。WAL、gRPC 和文本编辑失败
 轨迹中的最后一次自测都可能成功，真正缺失的是对用户契约和未解决强证据的管理。
 
-### P1：完成 P0 定向验证后实施
+### P1：已完成，真实复验受外部额度阻塞
 
 | ID | 类型 | 改进 | 验收条件 |
 | --- | --- | --- | --- |
@@ -240,6 +253,10 @@ r4 的两个 Cython 失败都将兼容扫描限制在已知脚本/Cython 文件�
 | `AG-COMPAT-01` | Agent | 为仓库级兼容迁移增加修改后全源递归扫描门槛 | 按已编辑扩展名收窄的扫描不能结束任务；不编码具体依赖或文件答案 |
 | `TB-LESSON-01` | 评测工程 | 从 trial/verifier 证据生成失败矩阵和 lesson 草稿 | 保存 source job、trial、假设、预期指标、修复 commit 和复验 run；结论仍需人工确认 |
 | `TB-DEV-01` | 测试工程 | 建立不复制隐藏答案的定向开发集 | 覆盖未解决测试、契约保持、证据保护和产物格式四类通用问题 |
+
+以上 P0/P1 均已进入代码并通过类型检查、自动化测试、Task Assurance 开发集与独立
+留出集。`AG-COMPAT-01` 的真实模型验收尚未完成，原因是 r5 的外部额度和包索引
+故障，而不是把 4 个无效样本计作能力失败。
 
 实现后的主要代码边界：
 
@@ -273,24 +290,26 @@ r4 的两个 Cython 失败都将兼容扫描限制在已知脚本/Cython 文件�
 
 ```mermaid
 flowchart LR
-  Evidence["冻结原始证据"] --> Classify["区分能力失败与基础设施无效"]
-  Classify --> Lesson["形成可证伪的 lesson"]
-  Lesson --> Change["最小通用改动"]
-  Change --> Dev["定向开发集"]
-  Dev --> Holdout{"独立留出集通过？"}
-  Holdout -- 否 --> Classify
-  Holdout -- 是 --> Ablation["feature profile 消融"]
-  Ablation --> Preflight["9×1、并发 4 预检"]
-  Preflight --> RealRun["重新运行真实 baseline/candidate"]
+  Evidence["保留 r5 原始证据"] --> Classify["4 个基础设施无效"]
+  Classify --> Fix["修正错误映射与重试语义"]
+  Fix --> Regression["类型、单测、dev/holdout"]
+  Regression --> Balance["恢复模型额度"]
+  Balance --> Preflight["Cython 无模型预检"]
+  Preflight --> Rerun["只重跑 Cython 5 次"]
+  Rerun --> Decision{"5 个样本均有效？"}
+  Decision -- 否 --> Classify
+  Decision -- 是 --> Assess["评估兼容扫描门槛"]
 ```
 
 具体顺序：
 
-1. 先完成 verifier 网络预检，在不调用模型的情况下验证并发 4 环境。
-2. 为四类能力问题建立小型确定性开发集，再设计通用修复。
-3. 使用独立留出场景确认修复不是对本轮任务答案的硬编码。
-4. 增加 feature profile，区分权限系统和完整扩展的实际成本。
-5. 只有预检和定向验收均通过后，才重新运行 45-trial 真实评测。
+1. 先恢复 DeepSeek 额度；额度错误不进入自动重试。
+2. 用同一冻结任务执行一次 Cython 无模型环境预检，确认 PyPI 索引可返回固定依赖。
+3. 预检通过后只运行 Cython 5 次，不重跑 WAL、大文本、gRPC 或其他成功任务。
+4. 只有 5 个 trial 均有效时，才评价 `AG-COMPAT-01`；否则继续按基础设施或能力
+   失败分别归因。
+5. Cython 定向验收完成后，再单独决定是否投入三轮 baseline 与完整 candidate
+   所需的正式计分成本。
 
 本轮原始 job 和导入结果继续保留为历史证据。后续修复必须关联 commit 和复验 run，
 成功与失败都追加记录，不覆盖本文件中的首轮结论。

@@ -53,6 +53,64 @@ describe("Harbor job normalizer", () => {
     });
   });
 
+  it("canonicalizes quota failures without retrying them", () => {
+    const manifest = createTestManifest();
+    const job = createNormalizedFixtureJob(manifest, {
+      exceptionType: "UnknownApiError",
+      exceptionMessage: "402 Insufficient Balance",
+    });
+
+    expect(job.trials[0]).toMatchObject({
+      status: "invalid",
+      stable: false,
+      failure: {
+        category: "infrastructure",
+        code: "HARBOR_APIUSAGELIMITERROR",
+        retryable: false,
+      },
+    });
+  });
+
+  it("treats an unavailable package index as infrastructure", () => {
+    const manifest = createTestManifest();
+    const job = createNormalizedFixtureJob(manifest, {
+      exceptionType: "NonZeroAgentExitCodeError",
+      exceptionMessage:
+        "Could not find a version that satisfies the requirement " +
+        "pytest==8.4.1 (from versions: none)",
+      exceptionDuringSetup: true,
+    });
+
+    expect(job.trials[0]).toMatchObject({
+      status: "invalid",
+      stable: false,
+      failure: {
+        category: "infrastructure",
+        code: "HARBOR_NETWORKCONNECTIONERROR",
+        retryable: true,
+      },
+    });
+  });
+
+  it("does not excuse package errors from agent execution", () => {
+    const manifest = createTestManifest();
+    const job = createNormalizedFixtureJob(manifest, {
+      exceptionType: "NonZeroAgentExitCodeError",
+      exceptionMessage:
+        "No matching distribution found for imaginary-package",
+      rewards: [0, 1, 1, 1],
+    });
+
+    expect(job.trials[0]).toMatchObject({
+      status: "failed",
+      stable: false,
+      failure: {
+        category: "bumblebee",
+        code: "HARBOR_NONZEROAGENTEXITCODEERROR",
+      },
+    });
+  });
+
   it("keeps an agent failure scoreable when verifier evidence exists", () => {
     const manifest = createTestManifest();
     const job = createNormalizedFixtureJob(manifest, {
