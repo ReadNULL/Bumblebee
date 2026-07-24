@@ -86,6 +86,7 @@ export function bindPiTaskAssurance(
         ? {}
         : { details: event.details }),
       isError: event.isError,
+      output: event.content,
       toolCallId: event.toolCallId,
     });
   });

@@ -125,11 +125,13 @@ Pi `0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
 | `tb21-python-mirror-preflight-20260725` | 1/1 | 无模型复验通过，Python 下载镜像和错误分类修复生效 |
 | `tb21-targeted-bumblebee-20260725-r2` | 20/20 | 原始 reward 14/20，但 3 个 WAL trial 读取 benchmark 专用资料；整轮判为污染、invalid，不作为改进结论 |
 | `tb21-candidate-isolation-preflight-20260725` | 1/1 | 无模型真实容器验证生产代码与 wrapper 可用，且 `.git`、根 README、benchmark 文档和临时源码目录均不可见 |
+| `tb21-candidate-isolation-preflight-20260725-r2` | 1/1 | 精确提交 `f4057b7` 的强化隔离预检通过；项目 Markdown 全部不可见 |
+| `tb21-targeted-bumblebee-20260725-r3` | 20/20 | 干净定向复验 16/20，全部样本有效、证据泄漏 0；只覆盖 4/9 任务，仍为 invalid、`TB = N/A` |
 
 中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
 环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
 
-### r3 原始结果
+### Baseline r3 原始结果
 
 | 指标 | 结果 |
 | --- | ---: |
@@ -327,6 +329,43 @@ r2 因证据污染和仅覆盖 4/9 任务而 invalid，`TB = N/A`。
 以 1/1、0 异常、约 2 分钟通过，确认生产入口和 wrapper 存在，而 `.git`、根
 README、benchmark 专用资料及源码 checkout 均不存在。干净候选仍需重新运行同一
 4 类失败任务；污染 r2 不与新结果拼接。
+
+### 干净定向 r3 结果
+
+`tb21-targeted-bumblebee-20260725-r3` 固定 commit
+`f4057b7d8abc818aa8759d0d3289be399f3d7c10`，沿用 Harbor `0.20.0`、Pi
+`0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、full profile、Docker、
+并发 4 和每任务 5 次。运行 40 分 3 秒，原始 reward 16/20，20 个样本全部有效；
+导入后 OfficialReward 80.00、Stability 95.00。
+
+| 任务 | 通过 | 成本 | 平均 Agent 时延 |
+| --- | ---: | ---: | ---: |
+| `build-cython-ext` | 4/5 | `$0.086862` | 438.4s |
+| `db-wal-recovery` | 2/5 | `$0.132015` | 496.0s |
+| `large-scale-text-editing` | 5/5 | `$0.046622` | 304.1s |
+| `kv-store-grpc` | 5/5 | `$0.008854` | 72.8s |
+
+| 指标 | 结果 |
+| --- | ---: |
+| Token | input `28,118,597`、cache read `27,535,872`、output `413,107` |
+| 模型成本 | `$0.274352` |
+| Agent 时延 | p50 `312.3s`、p95 `666.4s`、p99 `853.3s` |
+| 异常与重试 | 1 个 WAL `AgentTimeoutError`，0 次重试 |
+| 只读 critic | 21 次完成、0 失败，成本 `$0.119431`；发现一次重复调用并增加会话级幂等门 |
+| 证据审计 | 20 个 agent 日志中 benchmark 专用资料命中 0 |
+| 凭据审计 | 185 个文本证据文件中 API Key 精确值命中 0 |
+| 资源清理 | Harbor trial 容器残留 0 |
+
+与首轮 candidate 在这四类任务上的原始 7/20 相比，r3 为 16/20；该差值说明通用
+改进值得继续验证，但单轮、不同协议结果不能证明稳定因果收益。Cython 的失败样本
+仍遗漏一个未覆盖的原生源码兼容点；两个普通 WAL 失败没有正确应用日志更新，另一个
+在生成产物前达到 Agent 时限。
+
+r3 还暴露了恢复保护的动态发现缺口：用户只给目录时，原实现没有从首次只读列表
+结果登记数据库与 WAL，导致一个样本在备份前由应用读取器打开原件。修复后，恢复
+模式先于文件名生效，从成功工具输出登记证据，逐项匹配复制和 SHA-256，并阻止
+同名前缀冒充与 `copy && delete` 组合绕过。下一轮只复验仍失败的 Cython 和 WAL，
+不重跑已经 5/5 的大文本与 gRPC。
 
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与

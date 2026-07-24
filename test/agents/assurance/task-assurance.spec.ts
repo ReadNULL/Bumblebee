@@ -140,6 +140,13 @@ describe("TaskAssurance", () => {
       mutationObserved: true,
       successfulVerificationCount: 1,
     });
+    expect(assurance.beforeTool(sessionId, {
+      input: {
+        task: `${ASSURANCE_CRITIC_MARKER} review the schema again`,
+      },
+      toolCallId: "critic-duplicate",
+      toolName: "delegate_task",
+    })).toMatchObject({ block: true });
     expect(assurance.reviewCompletion(sessionId).reasons).toEqual([]);
   });
 
@@ -202,6 +209,75 @@ describe("TaskAssurance", () => {
       toolName: "bash",
     })).toEqual({});
   });
+
+  it("discovers recovery evidence before application readers open it", () => {
+    const assurance = new TaskAssurance();
+    const sessionId = "session-discovery";
+    const policy = assurance.beginTask(
+      sessionId,
+      "Recover the corrupted database and WAL files in /app.",
+    );
+    expect(policy).toContain("First enumerate source evidence");
+
+    completeTool(assurance, sessionId, {
+      input: { command: "ls -la /app" },
+      output: [
+        "-rw-r--r-- 1 root root 8192 main.db",
+        "-rw-r--r-- 1 root root 16512 main.db-wal",
+      ].join("\n"),
+      toolCallId: "list-evidence",
+      toolName: "bash",
+    });
+
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /app/main.db '.tables'" },
+      toolCallId: "open-discovered",
+      toolName: "bash",
+    })).toMatchObject({ block: true });
+
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "cp /app/main.db-wal /tmp/main.db-wal.copy && " +
+          "sha256sum /app/main.db-wal /tmp/main.db-wal.copy",
+      },
+      toolCallId: "preserve-wal-only",
+      toolName: "bash",
+    });
+    expect(assurance.beforeTool(sessionId, {
+      input: {
+        command:
+          "cp /app/main.db /tmp/main.db.copy && rm /app/main.db",
+      },
+      toolCallId: "copy-then-delete",
+      toolName: "bash",
+    })).toMatchObject({ block: true });
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /app/domain.db '.tables'" },
+      toolCallId: "open-unrelated-db",
+      toolName: "bash",
+    })).toEqual({});
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /app/main.db '.tables'" },
+      toolCallId: "open-db-with-prefix-collision",
+      toolName: "bash",
+    })).toMatchObject({ block: true });
+
+    completeTool(assurance, sessionId, {
+      input: {
+        command:
+          "cp /app/main.db /tmp/main.db.copy && " +
+          "sha256sum /app/main.db /tmp/main.db.copy",
+      },
+      toolCallId: "preserve-db",
+      toolName: "bash",
+    });
+    expect(assurance.beforeTool(sessionId, {
+      input: { command: "sqlite3 /app/main.db '.tables'" },
+      toolCallId: "open-preserved-db",
+      toolName: "bash",
+    })).toEqual({});
+  });
 });
 
 function completeTool(
@@ -211,6 +287,7 @@ function completeTool(
     readonly details?: unknown;
     readonly input: Readonly<Record<string, unknown>>;
     readonly isError?: boolean;
+    readonly output?: unknown;
     readonly toolCallId: string;
     readonly toolName: string;
   },
@@ -226,6 +303,7 @@ function completeTool(
       ? {}
       : { details: input.details }),
     isError: input.isError ?? false,
+    ...(input.output === undefined ? {} : { output: input.output }),
     toolCallId: input.toolCallId,
   });
 }

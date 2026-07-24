@@ -68,6 +68,45 @@ describe("bindPiTaskAssurance", () => {
       { deliverAs: "followUp", triggerTurn: true },
     );
   });
+
+  it("feeds read-only tool output into recovery evidence discovery", async () => {
+    const fixture = createRegistrar();
+    bindPiTaskAssurance(fixture.pi);
+    const context = createContext();
+
+    await fixture.beforeAgentStart?.({
+      prompt: "Recover the corrupted database and WAL files in /app.",
+      systemPrompt: "base",
+      systemPromptOptions: {},
+      type: "before_agent_start",
+    } as BeforeAgentStartEvent, context);
+    await fixture.toolCall?.({
+      input: { command: "ls -la /app" },
+      toolCallId: "list-1",
+      toolName: "bash",
+      type: "tool_call",
+    } as ToolCallEvent, context);
+    await fixture.toolResult?.({
+      content: [{
+        text: "-rw-r--r-- 8192 main.db\n-rw-r--r-- 16512 main.db-wal",
+        type: "text",
+      }],
+      details: undefined,
+      input: { command: "ls -la /app" },
+      isError: false,
+      toolCallId: "list-1",
+      toolName: "bash",
+      type: "tool_result",
+    } as ToolResultEvent, context);
+
+    const decision = await fixture.toolCall?.({
+      input: { command: "sqlite3 /app/main.db '.tables'" },
+      toolCallId: "open-1",
+      toolName: "bash",
+      type: "tool_call",
+    } as ToolCallEvent, context);
+    expect(decision).toMatchObject({ block: true });
+  });
 });
 
 interface RegistrarFixture {

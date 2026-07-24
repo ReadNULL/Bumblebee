@@ -24,6 +24,7 @@ export interface AssuranceToolCall {
 export interface AssuranceToolResult {
   readonly details?: unknown;
   readonly isError: boolean;
+  readonly output?: unknown;
   readonly toolCallId: string;
 }
 

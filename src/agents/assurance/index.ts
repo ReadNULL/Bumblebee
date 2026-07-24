@@ -1,4 +1,5 @@
 export {
+  extractRecoveryArtifacts,
   extractTaskContract,
 } from "./contract-extractor.js";
 export {

@@ -9,7 +9,12 @@ import {
   type TaskContract,
   type VerificationTier,
 } from "./types.js";
-import { extractTaskContract } from "./contract-extractor.js";
+import {
+  extractRecoveryArtifacts,
+  extractTaskContract,
+} from "./contract-extractor.js";
+
+const MAX_DISCOVERY_OUTPUT_LENGTH = 64 * 1024;
 
 interface PendingToolCall {
   readonly copiedArtifacts: readonly string[];
@@ -29,6 +34,7 @@ interface PreservationState {
 }
 
 interface TaskState {
+  readonly artifacts: Set<string>;
   readonly contract: TaskContract;
   readonly pending: Map<string, PendingToolCall>;
   readonly preservation: Map<string, PreservationState>;
@@ -73,7 +79,24 @@ export class TaskAssurance {
     call: AssuranceToolCall,
   ): AssuranceToolDecision {
     const state = this.requireState(sessionId);
-    const pending = inspectToolCall(call, state.contract);
+    const pending = inspectToolCall(
+      call,
+      state.contract,
+      [...state.artifacts],
+    );
+    if (
+      pending.critic &&
+      (
+        state.criticRuns > 0 ||
+        [...state.pending.values()].some((value) => value.critic)
+      )
+    ) {
+      return Object.freeze({
+        block: true,
+        reason:
+          "Bumblebee already completed the bounded independent critic for this task.",
+      });
+    }
     const unpreserved = findUnpreservedArtifacts(
       call,
       pending,
@@ -113,6 +136,7 @@ export class TaskAssurance {
       return;
     }
 
+    discoverRecoveryArtifacts(state, pending, result.output);
     if (pending.mutation) {
       state.mutationObserved = true;
     }
@@ -241,6 +265,7 @@ export class TaskAssurance {
 
 function createTaskState(contract: TaskContract): TaskState {
   return {
+    artifacts: new Set(contract.artifacts),
     contract,
     pending: new Map(),
     preservation: new Map(
@@ -261,19 +286,20 @@ function createTaskState(contract: TaskContract): TaskState {
 function inspectToolCall(
   call: AssuranceToolCall,
   contract: TaskContract,
+  artifacts: readonly string[],
 ): PendingToolCall {
   const command = readString(call.input.command);
   const task = readString(call.input.task);
   const copiedArtifacts =
     command === undefined ? [] : matchingArtifacts(
       command,
-      contract.artifacts,
+      artifacts,
       isCopyCommand(command),
     );
   const hashedArtifacts =
     command === undefined ? [] : matchingArtifacts(
       command,
-      contract.artifacts,
+      artifacts,
       isHashCommand(command),
     );
   const verification = command === undefined
@@ -305,7 +331,7 @@ function findUnpreservedArtifacts(
   ).join(" ");
   const mentioned = matchingArtifacts(
     source,
-    state.contract.artifacts,
+    [...state.artifacts],
     true,
   );
   if (
@@ -336,7 +362,7 @@ function isPurePreservationCall(
     return false;
   }
   return command !== undefined &&
-    !/\b(?:sqlite3?|repair|recover|truncate|delete|vacuum)\b/iu.test(
+    !/\b(?:sqlite3?|python|node|perl|ruby|rm|mv|move-item|remove-item|repair|recover|sed|dd|truncate|delete|vacuum)\b/iu.test(
       command,
     );
 }
@@ -449,8 +475,77 @@ function matchingArtifacts(
   }
   const normalized = normalizePathLike(source);
   return artifacts.filter((artifact) =>
-    normalized.includes(normalizePathLike(artifact))
+    containsArtifact(normalized, normalizePathLike(artifact))
   );
+}
+
+function containsArtifact(source: string, artifact: string): boolean {
+  let offset = source.indexOf(artifact);
+  while (offset >= 0) {
+    const previous = source[offset - 1];
+    const next = source[offset + artifact.length];
+    if (
+      (previous === undefined ||
+        !/[a-z0-9._-]/u.test(previous)) &&
+      (next === undefined ||
+        !/[a-z0-9._-]/u.test(next))
+    ) {
+      return true;
+    }
+    offset = source.indexOf(artifact, offset + 1);
+  }
+  return false;
+}
+
+function discoverRecoveryArtifacts(
+  state: TaskState,
+  pending: PendingToolCall,
+  output: unknown,
+): void {
+  if (
+    !state.contract.highRiskRecovery ||
+    state.mutationObserved ||
+    pending.mutation ||
+    pending.copiedArtifacts.length > 0 ||
+    pending.hashedArtifacts.length > 0
+  ) {
+    return;
+  }
+  const text = collectOutputText(output);
+  for (const artifact of extractRecoveryArtifacts(text)) {
+    state.artifacts.add(artifact);
+    requirePreservationState(state, artifact);
+  }
+}
+
+function collectOutputText(value: unknown): string {
+  const parts: string[] = [];
+  let length = 0;
+  const visit = (current: unknown, depth: number): void => {
+    if (length >= MAX_DISCOVERY_OUTPUT_LENGTH || depth > 6) {
+      return;
+    }
+    if (typeof current === "string") {
+      const remaining = MAX_DISCOVERY_OUTPUT_LENGTH - length;
+      const next = current.slice(0, remaining);
+      parts.push(next);
+      length += next.length;
+      return;
+    }
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        visit(item, depth + 1);
+      }
+      return;
+    }
+    if (isRecord(current)) {
+      for (const item of Object.values(current)) {
+        visit(item, depth + 1);
+      }
+    }
+  };
+  visit(value, 0);
+  return parts.join("\n");
 }
 
 function requirePreservationState(
@@ -477,9 +572,15 @@ function formatAssurancePolicy(contract: TaskContract): string {
     ? ["- Re-read the current user request and preserve every explicit contract."]
     : contract.items.map((item) => `- ${item}`);
   const recovery = contract.highRiskRecovery
-    ? [
+    ? contract.artifacts.length > 0
+      ? [
         "- Recovery/forensics mode is active.",
         `- Before opening or mutating original evidence, create a byte-for-byte copy and record SHA-256 for: ${contract.artifacts.join(", ")}.`,
+        "- Never fabricate recovered values. Report uncertainty when evidence is insufficient.",
+      ]
+      : [
+        "- Recovery/forensics mode is active.",
+        "- First enumerate source evidence with read-only listing/metadata tools. Once database, WAL, image, dump, or binary paths are known, copy every original byte-for-byte and record SHA-256 before opening it with application readers.",
         "- Never fabricate recovered values. Report uncertainty when evidence is insufficient.",
       ]
     : [];
@@ -490,6 +591,7 @@ function formatAssurancePolicy(contract: TaskContract): string {
     "- Repository/user-specified verification outranks ad-hoc smoke checks.",
     "- A later smoke check cannot erase an unresolved non-zero repository test.",
     "- Before claiming completion, verify paths, protocol fields, output format, and required final commands independently from the implementation.",
+    "- For repository-wide compatibility or API migrations, inspect every relevant source type, including native or generated sources, not only files already edited.",
     ...recovery,
     "</bumblebee-task-assurance>",
   ].join("\n");
@@ -512,6 +614,7 @@ function formatFollowUp(
           "Perform one independent read-only pass against the original external contract.",
         ]),
     "Re-run unresolved repository or user-specified checks. A narrower smoke test does not supersede a failing stronger check.",
+    "Review all relevant source types and native/generated paths, not only files already edited or one successful call path.",
     "If a check cannot pass or recovery evidence is insufficient, report that limitation explicitly instead of claiming complete success.",
   ].join("\n");
 }

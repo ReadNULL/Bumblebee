@@ -32,20 +32,26 @@ export function extractTaskContract(prompt: string): TaskContract {
     }
   }
 
+  const artifacts = extractRecoveryArtifacts(prompt);
+
+  return Object.freeze({
+    artifacts,
+    highRiskRecovery: RECOVERY_MARKER.test(prompt),
+    items: Object.freeze(items),
+  });
+}
+
+export function extractRecoveryArtifacts(
+  value: string,
+): readonly string[] {
   const artifacts: string[] = [];
-  for (const match of prompt.matchAll(ARTIFACT_PATTERN)) {
+  for (const match of value.matchAll(ARTIFACT_PATTERN)) {
     const artifact = trimArtifact(match[0]);
     if (artifact.length > 0) {
       addUnique(artifacts, artifact);
     }
   }
-
-  return Object.freeze({
-    artifacts: Object.freeze(artifacts),
-    highRiskRecovery:
-      RECOVERY_MARKER.test(prompt) && artifacts.length > 0,
-    items: Object.freeze(items),
-  });
+  return Object.freeze(artifacts);
 }
 
 function normalizeItem(value: string): string {
