@@ -94,9 +94,11 @@ uv pip install `
   -r benchmark\benchmark_2_terminal_bench_2_1\requirements.txt
 ```
 
-激活虚拟环境或直接确保该环境中的 `harbor` 位于 `PATH`，然后检查
-`harbor --version` 和 `docker version`。模型供应商凭据沿用 Harbor/Pi 官方环境
-变量，不写入 manifest、命令参数或仓库文件。
+激活虚拟环境，然后从 Bumblebee 仓库根目录检查
+`python -m harbor.cli.main --version` 和 `docker version`。必须使用
+`python -m harbor.cli.main`，这样仓库根目录会进入 Python 模块搜索路径，
+Harbor 才能加载仓库内的自定义 Pi adapter。模型供应商凭据沿用 Harbor/Pi
+官方环境变量，不写入 manifest、命令参数或仓库文件。
 
 若本机无法直连 Docker Hub，可以先从可用镜像源缓存 `ubuntu:24.04`，再给打印出的
 Harbor 命令追加 `--force-build`，由每个任务自带的 Dockerfile 本地构建。2026-07-24
@@ -104,7 +106,8 @@ Harbor 命令追加 `--force-build`，由每个任务自带的 Dockerfile 本地
 
 ## 1. 生成运行命令
 
-`plan` 只打印命令，不运行 Harbor。Windows 上 npm 10.9.3 会剥掉部分
+`plan` 只打印命令，不运行 Harbor；打印结果以
+`python -m harbor.cli.main run` 开头。Windows 上 npm 10.9.3 会剥掉部分
 `--name` 参数，因此 README 使用稳定的 positional 形式。
 
 ```powershell

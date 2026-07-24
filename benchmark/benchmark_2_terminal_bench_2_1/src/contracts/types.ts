@@ -174,7 +174,7 @@ export interface TerminalBenchReport {
 export type HarborRunMode = "baseline" | "candidate";
 
 export interface HarborRunPlan {
-  readonly executable: "harbor";
+  readonly executable: "python";
   readonly arguments: readonly string[];
   readonly displayCommand: string;
 }

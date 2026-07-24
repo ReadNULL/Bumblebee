@@ -21,6 +21,14 @@ describe("Harbor command plan", () => {
         expect.stringMatching(/pi_agent:PinnedPi$/u),
       ]),
     );
+    expect(plan.executable).toBe("python");
+    expect(plan.arguments.slice(0, 2)).toEqual([
+      "-m",
+      "harbor.cli.main",
+    ]);
+    expect(plan.displayCommand).toMatch(
+      /^python -m harbor\.cli\.main run /u,
+    );
     expect(plan.arguments).toContain("2");
     const selectedTasks = createTestManifest().dataset.selectedTasks;
     expect(

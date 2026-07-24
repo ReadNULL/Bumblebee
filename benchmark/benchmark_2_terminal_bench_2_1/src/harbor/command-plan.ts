@@ -46,6 +46,8 @@ export function createHarborRunPlan(
     ? "PinnedPi"
     : "BumblebeePi";
   const arguments_: string[] = [
+    "-m",
+    "harbor.cli.main",
     "run",
     "-d",
     manifest.dataset.id,
@@ -98,10 +100,10 @@ export function createHarborRunPlan(
   }
 
   return Object.freeze({
-    executable: "harbor",
+    executable: "python",
     arguments: Object.freeze(arguments_),
     displayCommand: [
-      "harbor",
+      "python",
       ...arguments_.map(quoteForShell),
     ].join(" "),
   });
