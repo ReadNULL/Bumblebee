@@ -12,6 +12,9 @@ infrastructure invalid；candidate 为 30 passed、12 failed、3 infrastructure
 invalid。两轮有效率分别为 95.56% 和 93.33%，均低于冻结的 98% 门槛，因此只
 保留为探索性证据，当前仍没有可发布的 TB 分数。
 
+失败轨迹、证据边界、改进优先级和下一轮验收条件见
+[首轮真实评测复盘](./POSTMORTEM_2026-07-24.md)。
+
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的
 `89 × 5 ×（3 baseline + 1 candidate）= 1780` 个 trial 降为

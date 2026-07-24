@@ -1149,7 +1149,7 @@ TB = 0.80 * OfficialReward
 
 `OfficialReward` 使用上游 verifier 原始结果。成本和时间预算先通过三轮固定版本的 `pi-baseline` 建立并冻结；失败任务的效率分为 0。`Stability` 统计没有 Agent 崩溃、协议错误和基础设施错误的任务比例。Benchmark 2 已实现 Harbor 0.20.0 薄适配器、逐任务中位数校准、结果归一化和硬门槛。
 
-2026-07-24 首轮真实 baseline 和 Bumblebee candidate 均完成 45/45 个 trial。baseline 原始 reward 为 32/45，审计后为 32 passed、11 failed、2 infrastructure invalid；candidate 原始 reward 为 30/45，审计后为 30 passed、12 failed、3 infrastructure invalid。两轮有效率分别为 `95.56%` 和 `93.33%`，均低于 `98%` 硬门槛，因此只能作为探索性证据，当前 `TB = N/A`。candidate 诊断通过率为 30/42（`71.43%`）、成本约 `$0.3744`，暴露出原生扩展构建、WAL 恢复和 gRPC 的能力短板，以及 verifier 重复下载依赖的评测基础设施问题。详细任务分布和全部中断记录见 `benchmark/benchmark_2_terminal_bench_2_1/README.md`。未来合格结果必须标为 `Terminal-Bench 2.1 Lite (Bumblebee fixed subset)`，不能作为完整数据集或官方排行榜成绩。
+2026-07-24 首轮真实 baseline 和 Bumblebee candidate 均完成 45/45 个 trial。baseline 原始 reward 为 32/45，审计后为 32 passed、11 failed、2 infrastructure invalid；candidate 原始 reward 为 30/45，审计后为 30 passed、12 failed、3 infrastructure invalid。两轮有效率分别为 `95.56%` 和 `93.33%`，均低于 `98%` 硬门槛，因此只能作为探索性证据，当前 `TB = N/A`。candidate 诊断通过率为 30/42（`71.43%`）、成本约 `$0.3744`，暴露出需求契约遗漏、显式验证失败后仍结束任务、恢复前未保护原始证据和产物格式漏检，以及 verifier 重复下载依赖的评测基础设施问题。详细任务分布见 [Benchmark 2 说明](./benchmark/benchmark_2_terminal_bench_2_1/README.md)，失败证据、改进优先级和下一轮验收条件见 [首轮真实评测复盘](./benchmark/benchmark_2_terminal_bench_2_1/POSTMORTEM_2026-07-24.md)。未来合格结果必须标为 `Terminal-Bench 2.1 Lite (Bumblebee fixed subset)`，不能作为完整数据集或官方排行榜成绩。
 
 Harbor 没有交互式 UI，而生产 PermissionSystem 在 headless 模式会正确拒绝待确认
 操作。Terminal-Bench candidate 因此使用只存在于 benchmark 目录的 wrapper，在
