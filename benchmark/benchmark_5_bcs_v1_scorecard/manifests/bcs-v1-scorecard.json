@@ -1,7 +1,7 @@
 {
   "contractVersion": 1,
   "id": "bcs-v1-scorecard",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Auditable BCS-v1 aggregation over the four frozen Bumblebee benchmark suites.",
   "scoreSpecFile": "benchmark/benchmark_0_evaluation_core/manifests/bcs-v1.json",
   "components": [
@@ -20,9 +20,9 @@
     },
     {
       "id": "TB",
-      "suiteId": "terminal-bench-2-1-v1",
+      "suiteId": "terminal-bench-2-1-lite-v1",
       "suiteVersion": "1.0.0",
-      "scoreSpec": "terminal-bench-2-1-v1",
+      "scoreSpec": "terminal-bench-2-1-lite-v1",
       "suiteSplit": "release",
       "requiredMetadata": {},
       "scoreSource": {

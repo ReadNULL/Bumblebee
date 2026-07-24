@@ -78,7 +78,7 @@ describe("Benchmark 2 architecture", () => {
           join(
             currentRoot,
             "manifests",
-            "terminal-bench-2-1-v1.json",
+            "terminal-bench-2-1-lite-v1.json",
           ),
           "utf8",
         ),

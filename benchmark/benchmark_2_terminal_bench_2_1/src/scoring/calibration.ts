@@ -1,5 +1,6 @@
 import {
   TERMINAL_BENCH_CONTRACT_VERSION,
+  compareTerminalBenchTaskSelection,
   invalid,
   requireArray,
   requireIsoDate,
@@ -125,6 +126,11 @@ export function parseTerminalBenchBudgetManifest(
   ) {
     invalid("budget must contain every task exactly once");
   }
+  assertFrozenTaskSelection(
+    manifest,
+    taskBudgets.map((budget) => budget.taskId),
+    "budget",
+  );
   if (
     taskBudgets.some(
       (budget) =>
@@ -169,10 +175,16 @@ function assertEligibleBaselineJob(
     });
   }
   const taskIds = new Set(job.trials.map((trial) => trial.taskId));
-  if (taskIds.size !== manifest.dataset.expectedTaskCount) {
-    invalid("baseline job does not cover the full task set", {
+  const selection = compareTerminalBenchTaskSelection(
+    manifest,
+    taskIds,
+  );
+  if (!selection.exact) {
+    invalid("baseline job does not cover the frozen Lite task set", {
       jobId: job.jobId,
       taskCount: taskIds.size,
+      missingTaskIds: selection.missingTaskIds,
+      unexpectedTaskIds: selection.unexpectedTaskIds,
     });
   }
   const trialCounts = new Map<string, number>();
@@ -262,9 +274,11 @@ function buildTaskBudgets(
     samples.set(trial.taskId, sample);
   }
 
-  if (samples.size !== manifest.dataset.expectedTaskCount) {
-    invalid("baseline samples do not cover the full task set");
-  }
+  assertFrozenTaskSelection(
+    manifest,
+    samples.keys(),
+    "baseline samples",
+  );
 
   return [...samples].sort(([left], [right]) =>
     left.localeCompare(right)
@@ -290,6 +304,23 @@ function buildTaskBudgets(
       durationSampleCount: sample.durations.length,
     });
   });
+}
+
+function assertFrozenTaskSelection(
+  manifest: TerminalBenchManifest,
+  taskIds: Iterable<string>,
+  field: string,
+): void {
+  const selection = compareTerminalBenchTaskSelection(
+    manifest,
+    taskIds,
+  );
+  if (!selection.exact) {
+    invalid(`${field} does not match the frozen Lite task set`, {
+      missingTaskIds: selection.missingTaskIds,
+      unexpectedTaskIds: selection.unexpectedTaskIds,
+    });
+  }
 }
 
 function parseBudgetIdentity(value: unknown): HarborIdentity {

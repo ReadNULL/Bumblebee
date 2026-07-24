@@ -21,7 +21,7 @@ const benchmarkRoot = resolve(
 );
 const manifestPath = resolve(
   benchmarkRoot,
-  "manifests/terminal-bench-2-1-v1.json",
+  "manifests/terminal-bench-2-1-lite-v1.json",
 );
 const candidateExtension =
   "git:github.com/ReadNULL/Bumblebee@" +
@@ -35,6 +35,7 @@ export interface FixtureJobOptions {
   readonly rewards?: readonly number[];
   readonly exceptionType?: string;
   readonly omitExtension?: boolean;
+  readonly taskIds?: readonly string[];
 }
 
 export function createTestManifest(): TerminalBenchManifest {
@@ -42,8 +43,16 @@ export function createTestManifest(): TerminalBenchManifest {
     readFileSync(manifestPath, "utf8"),
   ) as {
     dataset: {
+      sourceTaskCount: number;
+      samplingFraction: number;
       expectedTaskCount: number;
       minimumTrialsPerTask: number;
+      selectedTasks: Array<{
+        id: string;
+        category: string;
+        difficulty: string;
+        capability: string;
+      }>;
     };
     baseline: {
       minimumSamplesPerTask: number;
@@ -55,8 +64,24 @@ export function createTestManifest(): TerminalBenchManifest {
       }>;
     };
   };
+  source.dataset.sourceTaskCount = 20;
+  source.dataset.samplingFraction = 0.1;
   source.dataset.expectedTaskCount = 2;
   source.dataset.minimumTrialsPerTask = 2;
+  source.dataset.selectedTasks = [
+    {
+      id: "task-alpha",
+      category: "fixture",
+      difficulty: "easy",
+      capability: "fixture alpha",
+    },
+    {
+      id: "task-beta",
+      category: "fixture",
+      difficulty: "medium",
+      capability: "fixture beta",
+    },
+  ];
   source.baseline.minimumSamplesPerTask = 3;
   const repetitionGate = source.scoreSpec.hardGates.find(
     (gate) => gate.id === "trial_repetitions",
@@ -146,7 +171,7 @@ function createRawResult(
   },
 ) {
   const jobId = options.jobId ?? "job-candidate-1";
-  const taskIds = ["task-alpha", "task-beta"];
+  const taskIds = options.taskIds ?? ["task-alpha", "task-beta"];
   const rewards = options.rewards ?? [1, 1, 1, 1];
   const trials = taskIds.flatMap((taskId, taskIndex) =>
     [0, 1].map((trialIndex) => {

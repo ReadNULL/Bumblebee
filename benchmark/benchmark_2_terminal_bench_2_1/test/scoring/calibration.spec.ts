@@ -70,6 +70,22 @@ describe("Terminal-Bench baseline calibration", () => {
     ).toThrow(/frozen agent and model/u);
   });
 
+  it("rejects baseline jobs using another same-sized sample", () => {
+    const manifest = createTestManifest();
+    const jobs = [1, 2, 3].map((index) =>
+      createNormalizedFixtureJob(manifest, {
+        jobId: `baseline-${index}`,
+        agentName: "pi-baseline",
+        omitExtension: true,
+        taskIds: ["task-alpha", "task-gamma"],
+      })
+    );
+
+    expect(() =>
+      calibrateTerminalBenchBudget(manifest, jobs)
+    ).toThrow(/frozen Lite task set/u);
+  });
+
   it("rejects a budget with fabricated sample coverage", () => {
     const manifest = createTestManifest();
     const jobs = [1, 2, 3].map((index) =>

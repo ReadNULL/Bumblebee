@@ -62,6 +62,9 @@ export function createHarborRunPlan(
     "--job-name",
     options.jobName,
   ];
+  for (const task of manifest.dataset.selectedTasks) {
+    arguments_.push("--include-task-name", task.id);
+  }
   if (options.thinking !== undefined) {
     assertSimpleValue(options.thinking, "thinking");
     if (

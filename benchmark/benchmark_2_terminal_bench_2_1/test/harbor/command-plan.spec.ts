@@ -22,6 +22,10 @@ describe("Harbor command plan", () => {
       ]),
     );
     expect(plan.arguments).toContain("2");
+    const selectedTasks = createTestManifest().dataset.selectedTasks;
+    expect(
+      valuesAfter(plan.arguments, "--include-task-name"),
+    ).toEqual(selectedTasks.map((task) => task.id));
     expect(plan.displayCommand).not.toContain(
       "bumblebee_extension",
     );
@@ -79,3 +83,14 @@ describe("Harbor command plan", () => {
     ).toThrow(/commit-pinned/u);
   });
 });
+
+function valuesAfter(
+  values: readonly string[],
+  option: string,
+): string[] {
+  return values.flatMap((value, index) =>
+    value === option && values[index + 1] !== undefined
+      ? [values[index + 1] as string]
+      : []
+  );
+}

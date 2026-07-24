@@ -19,7 +19,7 @@ benchmark/benchmark_<序号>_<测试集或能力名称>/
 | ---: | --- | --- | --- |
 | 0 | `benchmark_0_evaluation_core` | 统一评估契约、追加式运行记录、制品完整性、硬门槛与 lesson | 已实现 |
 | 1 | `benchmark_1_bumblebee_bench` | Runtime、取消、权限、Sub-Agent、Channel、Memory 的确定性工程基准 | 已实现 |
-| 2 | `benchmark_2_terminal_bench_2_1` | Harbor/Terminal-Bench 2.1 适配、三轮基线校准、结果归一化与评分 | 已实现，待真实评估 |
+| 2 | `benchmark_2_terminal_bench_2_1` | Harbor/Terminal-Bench 2.1 Lite 固定 9/89 子集、三轮基线校准、结果归一化与评分 | 已实现，无模型 Docker 预检通过，待真实评估 |
 | 3 | `benchmark_3_agentdojo_workspace` | AgentDojo Workspace、pi RPC 工具桥、提示注入指标、结果导入与评分 | 已完成首轮完整真实评估，AD 94.39 |
 | 4 | `benchmark_4_longmemeval_bumblebee` | 显式长期记忆事件、真实 Memory 重放、pi 读者、更新/拒答/隔离评分 | 已实现，待真实模型评估 |
 | 5 | `benchmark_5_bcs_v1_scorecard` | 四套件 artifact 校验、身份一致性、BCS-v1 门槛、加权总分与报告 | 已实现，待正式来源运行 |

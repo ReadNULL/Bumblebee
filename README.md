@@ -1082,7 +1082,7 @@ BCS-v1 = 0.35 * BB + 0.30 * TB + 0.20 * AD + 0.15 * LM
 | 分项 | 权重 | 评估目标 |
 | --- | ---: | --- |
 | `BB` | 35% | 自建 BumblebeeBench，衡量项目独有的工程能力 |
-| `TB` | 30% | Terminal-Bench 2.1，衡量真实终端任务价值 |
+| `TB` | 30% | Terminal-Bench 2.1 Lite 固定子集，衡量真实终端任务价值 |
 | `AD` | 20% | AgentDojo Workspace，衡量正常任务可用性与提示注入安全 |
 | `LM` | 15% | LongMemEval-Bumblebee，衡量长期记忆检索、更新和隔离 |
 
@@ -1130,9 +1130,15 @@ DomainScore = 0.80 * Correctness + 0.20 * SLOCompliance
 
 正确性由确定性断言计算。性能分只在固定的硬件、Node.js 版本和并发 profile 内比较；延迟型指标使用 `min(1, target / measured)`，吞吐型指标使用 `min(1, measured / target)`，避免单个极端值无限放大得分。
 
-### Terminal-Bench 2.1
+### Terminal-Bench 2.1 Lite
 
 [Terminal-Bench 2.1](https://github.com/harbor-framework/terminal-bench-2-1) 用真实终端环境中的可执行验证器衡量端到端任务结果。Bumblebee 通过 [Harbor 自定义 Agent](https://www.harborframework.com/docs/agents) 接入，不修改上游任务和 verifier。
+
+为把首次完整评估从 1780 个 trial 控制到可执行规模，TB 分项在 89 个上游任务中
+冻结 9 个分层代表任务，覆盖 Git、构建调试、异步并发、安全修复、系统运维、数据库
+恢复、ETL、大文件处理和 gRPC 服务。每题仍运行 5 次，三轮 baseline 与一轮
+candidate 共 `9 × 5 × 4 = 180` 个 trial。命令与导入器都会校验精确任务集合，
+不会把另一次随机抽取伪装成同一分数。
 
 ```text
 TB = 0.80 * OfficialReward
@@ -1141,7 +1147,7 @@ TB = 0.80 * OfficialReward
    + 0.05 * Stability
 ```
 
-`OfficialReward` 使用上游 verifier 原始结果。成本和时间预算先通过三轮固定版本的 `pi-baseline` 建立并冻结；失败任务的效率分为 0。`Stability` 统计没有 Agent 崩溃、协议错误和基础设施错误的任务比例。Benchmark 2 已实现 Harbor 0.20.0 薄适配器、逐任务中位数校准、结果归一化和硬门槛；尚未运行真实模型，因此当前没有 TB 分数。
+`OfficialReward` 使用上游 verifier 原始结果。成本和时间预算先通过三轮固定版本的 `pi-baseline` 建立并冻结；失败任务的效率分为 0。`Stability` 统计没有 Agent 崩溃、协议错误和基础设施错误的任务比例。Benchmark 2 已实现 Harbor 0.20.0 薄适配器、逐任务中位数校准、结果归一化和硬门槛；尚未运行真实模型，因此当前没有 TB 分数。该结果必须标为 `Terminal-Bench 2.1 Lite (Bumblebee fixed subset)`，不能作为完整数据集或官方排行榜成绩。
 
 ### AgentDojo Workspace
 
@@ -1300,7 +1306,7 @@ Benchmark 2 已提供 Terminal-Bench 2.1 的评估工程入口：
 npm run benchmark:2
 ```
 
-该命令默认只显示帮助，不调用模型。`plan` 生成 baseline/candidate Harbor 命令，`calibrate` 从恰好三轮固定版本的 Pi job 冻结逐任务成本和时延预算，`import` 将已有 candidate job 归一化并复用 Benchmark 0 保存全部成功、失败、取消和无效结果。未提供预算时仍保存原始分项，但明确返回 `NQ`。环境准备、Windows positional 参数、运行顺序和失败分类见 `benchmark/benchmark_2_terminal_bench_2_1/README.md`。
+该命令默认只显示帮助，不调用模型。`plan` 生成带 9 个精确任务过滤器的 baseline/candidate Harbor 命令，`calibrate` 从恰好三轮固定版本的 Pi job 冻结逐任务成本和时延预算，`import` 校验固定子集后将 candidate job 归一化，并复用 Benchmark 0 保存全部成功、失败、取消和无效结果。未提供预算时仍保存原始分项，但明确返回 `NQ`。环境准备、Windows positional 参数、运行顺序和失败分类见 `benchmark/benchmark_2_terminal_bench_2_1/README.md`。
 
 Benchmark 3 已提供 AgentDojo Workspace 的评估工程入口：
 
@@ -1401,14 +1407,14 @@ flowchart LR
 | 检查项 | 当前结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 86 个测试文件、380 项测试全部通过 |
+| Vitest | 86 个测试文件、383 项测试全部通过 |
 | 架构测试 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖约束通过 |
 | npm 发布边界 | dry-run 共 78 个生产文件，不包含 `benchmark/` 和 `test/`，有自动化架构测试保护 |
 | Benchmark 0 | 已实现，6 个测试文件、21 项测试全部通过 |
 | Benchmark 1 | 已实现，5 个测试文件、16 项测试全部通过；smoke 已验证 typecheck、全量 Vitest 与远程写阻断预检 |
 | BumblebeeBench | 2026-07-23 full 基线：360/360 trial 通过，9 个硬门槛合格，BB = 100.00；详细结果见 `benchmark/benchmark_1_bumblebee_bench/README.md` |
-| Benchmark 2 | 已实现，8 个测试文件、25 项确定性测试全部通过 |
-| Terminal-Bench 2.1 | Harbor 适配、三轮校准和评分链路已实现；尚未运行真实模型，TB = `N/A` |
+| Benchmark 2 | 已实现，8 个测试文件、28 项确定性测试全部通过 |
+| Terminal-Bench 2.1 Lite | 固定 9/89 代表任务，Harbor 适配、三轮校准和评分链路已实现；无模型 Docker 预检通过，尚未运行真实模型，TB = `N/A` |
 | Benchmark 3 | 已实现，7 个 TypeScript 测试文件、28 项测试和 6 项 Python 测试全部通过 |
 | AgentDojo Workspace | alpha.2 完成 40×14 全量真实评估；评分语义修正后 Utility/攻击下 Utility/AttackResistance = 90.00/91.61/99.82，Targeted ASR = 0.18%，AD = `94.39` |
 | Benchmark 4 | 已实现，7 个测试文件、24 项确定性测试全部通过 |

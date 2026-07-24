@@ -19,12 +19,28 @@ export const TERMINAL_BENCH_COMPONENTS = [
 export type TerminalBenchComponent =
   (typeof TERMINAL_BENCH_COMPONENTS)[number];
 
+export type TerminalBenchTaskDifficulty =
+  | "easy"
+  | "medium"
+  | "hard";
+
+export interface TerminalBenchSelectedTask {
+  readonly id: string;
+  readonly category: string;
+  readonly difficulty: TerminalBenchTaskDifficulty;
+  readonly capability: string;
+}
+
 export interface TerminalBenchDatasetConfig {
   readonly id: string;
   readonly reference: string;
   readonly pinning: "resolved-task-checksums";
+  readonly sourceTaskCount: number;
+  readonly samplingFraction: number;
+  readonly selectionMethod: "frozen-stratified-subset";
   readonly expectedTaskCount: number;
   readonly minimumTrialsPerTask: number;
+  readonly selectedTasks: readonly TerminalBenchSelectedTask[];
 }
 
 export interface TerminalBenchAgentConfig {

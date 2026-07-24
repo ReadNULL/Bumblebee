@@ -1,13 +1,20 @@
-# Benchmark 2: Terminal-Bench 2.1
+# Benchmark 2: Terminal-Bench 2.1 Lite
 
 该积木通过 Harbor 接入官方
 [Terminal-Bench 2.1](https://github.com/harbor-framework/terminal-bench-2-1)，
-衡量 Bumblebee 在真实、可执行验证的终端任务中的端到端价值。它不复制或修改
-上游任务、容器和 verifier，也不进入 Bumblebee 的 npm 发布包。
+并从 89 个上游任务中冻结 9 个分层代表任务，衡量 Bumblebee 在真实、可执行验证的
+终端任务中的端到端价值。它不复制或修改上游任务、容器和 verifier，也不进入
+Bumblebee 的 npm 发布包。
 
-当前状态是“评估工程已实现、真实模型评估尚未开始”。目录内的 25 项测试使用
+当前状态是“评估工程已实现、真实模型评估尚未开始”。目录内的确定性测试使用
 小型 Harbor 同形 fixture，只验证适配器、数据契约、校准、评分和证据落盘，
 不调用模型，因此不能作为 Terminal-Bench 成绩。
+
+这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
+不具备官方排行榜提交资格。这样将原计划的
+`89 × 5 ×（3 baseline + 1 candidate）= 1780` 个 trial 降为
+`9 × 5 × 4 = 180` 个 trial，同时保留相同模型、重复次数、官方 verifier 和三轮
+baseline 校准。
 
 ## 模块边界
 
@@ -32,7 +39,7 @@ flowchart LR
 | 目录 | 职责 |
 | --- | --- |
 | `harbor_agent/` | 复用 Harbor 的 Pi 集成，只替换 Pi 安装版本并增加 Bumblebee extension 参数 |
-| `manifests/` | 冻结数据集身份、89 个任务、每任务至少 5 次、Pi 版本、评分权重和硬门槛 |
+| `manifests/` | 冻结数据集身份、9 个代表任务、每任务至少 5 次、Pi 版本、评分权重和硬门槛 |
 | `src/harbor/` | 生成可审阅的 Harbor 命令，不自动执行付费评估 |
 | `src/importer/` | 将 Harbor `JobResult/TrialResult` 归一化为 Benchmark 0 契约 |
 | `src/scoring/` | 三轮 `pi-baseline` 中位数校准及 TB 分数计算 |
@@ -56,6 +63,24 @@ Manifest 中的上游 reference 是 `latest`，但评分身份不依赖这个移
 使用相同哈希，candidate 的哈希必须和预算文件一致。上游内容一旦变化，旧预算
 覆盖率会变为 0，本轮只能得到 `NQ`，必须重新校准。
 
+## 固定代表任务
+
+任务不是运行时随机抽取，而是在看到 TB 模型成绩前按能力类别、难度和工程通用性
+一次性冻结。命令生成器会为每个任务添加精确的 `--include-task-name`，导入器还会
+校验实际任务 ID 集合；仅仅“数量也是 9 个”不能通过。
+
+| 任务 | 难度 | 主要覆盖点 |
+| --- | --- | --- |
+| `fix-git` | easy | Git 状态诊断与提交恢复 |
+| `build-cython-ext` | medium | 依赖修复、NumPy 兼容与原生扩展构建 |
+| `cancel-async-tasks` | hard | 异步并发、取消与资源清理 |
+| `fix-code-vulnerability` | hard | 漏洞定位、输入校验与安全修复 |
+| `nginx-request-logging` | medium | 服务安装、配置与运行验证 |
+| `db-wal-recovery` | medium | 数据库文件分析与 WAL 恢复 |
+| `multi-source-data-merger` | medium | 多格式 ETL、字段映射与冲突处理 |
+| `large-scale-text-editing` | medium | 大文件变换与受限工具使用 |
+| `kv-store-grpc` | medium | gRPC 服务、代码生成与进程管理 |
+
 ## 环境准备
 
 真实运行额外需要 Python 3.12、Docker 或 Harbor 支持的云沙箱、`uv` 和相应模型
@@ -72,6 +97,10 @@ uv pip install `
 激活虚拟环境或直接确保该环境中的 `harbor` 位于 `PATH`，然后检查
 `harbor --version` 和 `docker version`。模型供应商凭据沿用 Harbor/Pi 官方环境
 变量，不写入 manifest、命令参数或仓库文件。
+
+若本机无法直连 Docker Hub，可以先从可用镜像源缓存 `ubuntu:24.04`，再给打印出的
+Harbor 命令追加 `--force-build`，由每个任务自带的 Dockerfile 本地构建。2026-07-24
+已使用无模型 `nop` agent 验证本机 Docker 构建、容器启动、verifier 和自动清理链路。
 
 ## 1. 生成运行命令
 
@@ -90,8 +119,9 @@ $extension = "git:github.com/ReadNULL/Bumblebee@$commit"
 npm run benchmark:2 -- plan candidate openai/<model> docker 1 tb21-full $extension high
 ```
 
-检查打印出的命令后再手工执行。正式 contract 固定 `-k 5`，即 89 个任务各运行
-5 次；并发数只影响吞吐，不得改变模型、thinking、任务集或预算。
+检查打印出的命令后再手工执行。生成的命令固定包含 9 个任务过滤器和 `-k 5`，
+所以每个 job 为 45 个 trial；三轮 baseline 加一轮 candidate 共 180 个 trial。
+并发数只影响吞吐，不得改变模型、thinking、任务集或预算。
 
 ## 2. 冻结 baseline 预算
 
@@ -102,7 +132,7 @@ npm run benchmark:2 -- calibrate `
   jobs\tb21-pi-1 `
   jobs\tb21-pi-2 `
   jobs\tb21-pi-3 `
-  benchmark\benchmark_2_terminal_bench_2_1\.runtime\baselines\pi-baseline-v1.json
+  benchmark\benchmark_2_terminal_bench_2_1\.runtime\baselines\pi-baseline-lite-v1.json
 ```
 
 校准器要求三个不同 job 均完整覆盖同一数据集、同一 Pi 版本和同一模型。candidate
@@ -115,7 +145,7 @@ npm run benchmark:2 -- calibrate `
 ```powershell
 npm run benchmark:2 -- import `
   jobs\tb21-full `
-  benchmark\benchmark_2_terminal_bench_2_1\.runtime\baselines\pi-baseline-v1.json `
+  benchmark\benchmark_2_terminal_bench_2_1\.runtime\baselines\pi-baseline-lite-v1.json `
   benchmark\benchmark_2_terminal_bench_2_1\.runtime\evaluation
 ```
 
@@ -160,8 +190,9 @@ Harbor job 上导入，否则根文件与子目录可能不是同一时刻的快
 - 每个 trial 的 reward、状态、时长、token、成本及脱敏异常分类；
 - 硬门槛、四项分数和最终 qualification。
 
-`.runtime/` 已被 Git 忽略。公开 leaderboard 前应另外审阅 Harbor 轨迹，再按
-官方要求使用至少 5 次 trial 的公开上传流程。
+`.runtime/` 已被 Git 忽略。公开结果前应另外审阅 Harbor 轨迹，并始终标注为
+`Terminal-Bench 2.1 Lite (Bumblebee fixed subset)`。官方排行榜要求完整任务集，
+不得上传或展示本子集为官方 Terminal-Bench 2.1 成绩。
 
 ## 开发验证
 
@@ -171,4 +202,4 @@ npm test -- benchmark/benchmark_2_terminal_bench_2_1/test
 npm run benchmark:2
 ```
 
-最后一个命令只显示帮助。当前没有执行真实模型或下载 Terminal-Bench 数据集。
+最后一个命令只显示帮助。当前仅完成无模型环境预检，没有执行真实模型评估。

@@ -81,4 +81,17 @@ describe("Terminal-Bench scoring", () => {
     expect(result.gateEvaluation.status).toBe("invalid");
     expect(result.score.score).toBeNull();
   });
+
+  it("rejects a different sample with the same task count", () => {
+    const manifest = createTestManifest();
+    const job = createNormalizedFixtureJob(manifest, {
+      taskIds: ["task-alpha", "task-gamma"],
+    });
+    const result = aggregateTerminalBench(manifest, job);
+
+    expect(result.metrics.task_coverage_rate).toBe(0.5);
+    expect(result.metrics.task_selection_match).toBe(0);
+    expect(result.metrics.unexpected_task_count).toBe(1);
+    expect(result.gateEvaluation.status).toBe("invalid");
+  });
 });

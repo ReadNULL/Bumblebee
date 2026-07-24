@@ -2,13 +2,14 @@ import {
   calculateCompositeScore,
   evaluateHardGates,
 } from "../../../benchmark_0_evaluation_core/src/index.js";
-import type {
-  NormalizedTerminalBenchJob,
-  NormalizedTerminalBenchTrial,
-  TerminalBenchAggregation,
-  TerminalBenchBudgetManifest,
-  TerminalBenchManifest,
-  TerminalBenchTaskBudget,
+import {
+  compareTerminalBenchTaskSelection,
+  type NormalizedTerminalBenchJob,
+  type NormalizedTerminalBenchTrial,
+  type TerminalBenchAggregation,
+  type TerminalBenchBudgetManifest,
+  type TerminalBenchManifest,
+  type TerminalBenchTaskBudget,
 } from "../contracts/index.js";
 
 export function aggregateTerminalBench(
@@ -17,6 +18,10 @@ export function aggregateTerminalBench(
   budget?: TerminalBenchBudgetManifest,
 ): TerminalBenchAggregation {
   const taskIds = new Set(job.trials.map((trial) => trial.taskId));
+  const taskSelection = compareTerminalBenchTaskSelection(
+    manifest,
+    taskIds,
+  );
   const validTrials = job.trials.filter(isValidTrial);
   const scoredTrials = validTrials.filter(
     (
@@ -64,9 +69,12 @@ export function aggregateTerminalBench(
         ? 1
         : 0,
     task_coverage_rate: divide(
-      taskIds.size,
+      taskSelection.matchedCount,
       manifest.dataset.expectedTaskCount,
     ),
+    task_selection_match: taskSelection.exact ? 1 : 0,
+    unexpected_task_count:
+      taskSelection.unexpectedTaskIds.length,
     job_completion_rate: divide(
       job.trials.length,
       job.nTotalTrials,

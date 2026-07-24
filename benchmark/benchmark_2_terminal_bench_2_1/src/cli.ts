@@ -30,11 +30,11 @@ import {
 const BENCHMARK_ROOT =
   "benchmark/benchmark_2_terminal_bench_2_1";
 const DEFAULT_MANIFEST_PATH =
-  `${BENCHMARK_ROOT}/manifests/terminal-bench-2-1-v1.json`;
+  `${BENCHMARK_ROOT}/manifests/terminal-bench-2-1-lite-v1.json`;
 const DEFAULT_EVALUATION_OUTPUT =
   `${BENCHMARK_ROOT}/.runtime/evaluation`;
 const DEFAULT_BUDGET_OUTPUT =
-  `${BENCHMARK_ROOT}/.runtime/baselines/pi-baseline-v1.json`;
+  `${BENCHMARK_ROOT}/.runtime/baselines/pi-baseline-lite-v1.json`;
 
 type CliCommand =
   | { readonly kind: "help" }
@@ -516,7 +516,7 @@ function printReport(
     : report.score.score.toFixed(2);
   process.stdout.write(
     [
-      `Terminal-Bench ${report.manifestVersion}`,
+      `Terminal-Bench Lite ${report.manifestVersion}`,
       `runId: ${report.runId}`,
       `Harbor job: ${report.harborJobId}`,
       `qualification: ${report.gateEvaluation.status}`,
@@ -549,6 +549,10 @@ function printHelp(): void {
       "  --concurrency <count>                Default: 1",
       "  --thinking <level>",
       "  --job-name <name>",
+      "",
+      "Frozen selection:",
+      "  9 representative tasks (10% of the 89-task source suite)",
+      "  5 trials per task; 180 trials across 3 baselines + 1 candidate",
       "",
       "Calibrate options:",
       "  --job <directory>  Repeat exactly three times",

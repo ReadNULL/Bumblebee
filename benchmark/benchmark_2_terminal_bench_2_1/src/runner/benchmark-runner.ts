@@ -155,7 +155,7 @@ function createRunInput(
     scoreSpec: options.manifest.scoreSpec.id,
     suite: {
       id: options.manifest.id,
-      name: "Terminal-Bench 2.1",
+      name: "Terminal-Bench 2.1 Lite",
       version: options.manifest.version,
       split: "release",
       datasetHash: options.job.datasetHash,
@@ -196,6 +196,14 @@ function createRunInput(
       trialResultsSha256:
         options.job.provenance.trialResultsSha256,
       upstreamTrialCount: options.job.nTotalTrials,
+      sourceTaskCount:
+        options.manifest.dataset.sourceTaskCount,
+      selectedTaskCount:
+        options.manifest.dataset.expectedTaskCount,
+      samplingFraction:
+        options.manifest.dataset.samplingFraction,
+      selectionMethod:
+        options.manifest.dataset.selectionMethod,
     },
   };
 }

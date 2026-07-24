@@ -7,9 +7,12 @@ import {
   TERMINAL_BENCH_COMPONENTS,
   TERMINAL_BENCH_CONTRACT_VERSION,
   type TerminalBenchManifest,
+  type TerminalBenchSelectedTask,
+  type TerminalBenchTaskDifficulty,
 } from "./types.js";
 import {
   invalid,
+  requireArray,
   requireNumber,
   requirePositiveInteger,
   requireRecord,
@@ -49,6 +52,47 @@ export function parseTerminalBenchManifest(
   if (pinning !== "resolved-task-checksums") {
     invalid(
       "Terminal-Bench dataset must be pinned by resolved task checksums",
+    );
+  }
+  const sourceTaskCount = requirePositiveInteger(
+    datasetSource.sourceTaskCount,
+    "manifest.dataset.sourceTaskCount",
+  );
+  const samplingFraction = requireNumber(
+    datasetSource.samplingFraction,
+    "manifest.dataset.samplingFraction",
+  );
+  if (samplingFraction !== 0.1) {
+    invalid("Terminal-Bench Lite sampling fraction must be 0.1");
+  }
+  const selectionMethod = requireString(
+    datasetSource.selectionMethod,
+    "manifest.dataset.selectionMethod",
+  );
+  if (selectionMethod !== "frozen-stratified-subset") {
+    invalid(
+      "Terminal-Bench Lite must use a frozen stratified subset",
+    );
+  }
+  const expectedTaskCount = requirePositiveInteger(
+    datasetSource.expectedTaskCount,
+    "manifest.dataset.expectedTaskCount",
+  );
+  const selectedTasks = parseSelectedTasks(
+    datasetSource.selectedTasks,
+  );
+  if (
+    expectedTaskCount !==
+      Math.ceil(sourceTaskCount * samplingFraction) ||
+    selectedTasks.length !== expectedTaskCount
+  ) {
+    invalid(
+      "Terminal-Bench Lite task count does not match its frozen sample",
+      {
+        expectedTaskCount,
+        selectedTaskCount: selectedTasks.length,
+        sourceTaskCount,
+      },
     );
   }
 
@@ -96,14 +140,15 @@ export function parseTerminalBenchManifest(
         "manifest.dataset.reference",
       ),
       pinning,
-      expectedTaskCount: requirePositiveInteger(
-        datasetSource.expectedTaskCount,
-        "manifest.dataset.expectedTaskCount",
-      ),
+      sourceTaskCount,
+      samplingFraction,
+      selectionMethod,
+      expectedTaskCount,
       minimumTrialsPerTask: requirePositiveInteger(
         datasetSource.minimumTrialsPerTask,
         "manifest.dataset.minimumTrialsPerTask",
       ),
+      selectedTasks: Object.freeze(selectedTasks),
     }),
     agents: Object.freeze({
       baseline: requireFrozenString(
@@ -149,6 +194,50 @@ export function parseTerminalBenchManifest(
     ),
     scoreSpec,
   });
+}
+
+function parseSelectedTasks(
+  value: unknown,
+): TerminalBenchSelectedTask[] {
+  const tasks = requireArray(
+    value,
+    "manifest.dataset.selectedTasks",
+  ).map((item, index) => {
+    const field = `manifest.dataset.selectedTasks[${index}]`;
+    const source = requireRecord(item, field);
+    const difficulty = requireString(
+      source.difficulty,
+      `${field}.difficulty`,
+    );
+    if (!isTaskDifficulty(difficulty)) {
+      invalid(`${field}.difficulty is not supported`, {
+        difficulty,
+      });
+    }
+    return Object.freeze({
+      id: requireString(source.id, `${field}.id`),
+      category: requireString(
+        source.category,
+        `${field}.category`,
+      ),
+      difficulty,
+      capability: requireString(
+        source.capability,
+        `${field}.capability`,
+      ),
+    });
+  });
+  const taskIds = new Set(tasks.map((task) => task.id));
+  if (taskIds.size !== tasks.length) {
+    invalid("Terminal-Bench Lite selected task ids must be unique");
+  }
+  return tasks;
+}
+
+function isTaskDifficulty(
+  value: string,
+): value is TerminalBenchTaskDifficulty {
+  return value === "easy" || value === "medium" || value === "hard";
 }
 
 function requireFrozenString(

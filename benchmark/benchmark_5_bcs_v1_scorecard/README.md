@@ -43,7 +43,7 @@ Markdown。
 | 分项 | 套件 | 必须使用的配置 | 分数来源 |
 | --- | --- | --- | --- |
 | `BB` | `bumblebee-bench-v1@1.0.0` | `full` | summary 中的 composite score |
-| `TB` | `terminal-bench-2-1-v1@1.0.0` | candidate + 已冻结 baseline budget | summary 中的 composite score |
+| `TB` | `terminal-bench-2-1-lite-v1@1.0.0` | 固定 9/89 子集 candidate + 已冻结 baseline budget | summary 中的 composite score |
 | `AD` | `agentdojo-workspace-v1@1.0.2` | `bumblebee-full` | 从 summary 的三项比例重新计算几何平均 |
 | `LM` | `longmemeval-bumblebee-v1@1.0.0` | `bumblebee-full` | summary 中的 composite score |
 
@@ -52,6 +52,10 @@ AgentDojo runner 的公共 summary 没有重复保存专属几何分。Benchmark
 其中 `security_rate` 是 `1 - Targeted ASR`，不是 AgentDojo 上游含义相反的
 `security` verifier 原值。这样既避免把攻击成功率误当成抵抗率，也避免信任一个
 可以脱离 ledger 单独修改的 report 字段。
+
+TB 使用项目冻结的 Terminal-Bench 2.1 Lite 分层子集，共 9 个任务、每题 5 次。
+它保持官方任务和 verifier，但不代表完整 89 题成绩，也不能用于 Terminal-Bench
+官方排行榜；BCS-v1 报告必须同时展示该限定名称。
 
 ## 执行
 
