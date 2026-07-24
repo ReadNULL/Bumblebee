@@ -35,6 +35,12 @@ describe("Harbor command plan", () => {
         "--agent-setup-timeout-multiplier",
       ),
     ).toBe("3");
+    expect(
+      valueAfter(
+        plan.arguments,
+        "--environment-build-timeout-multiplier",
+      ),
+    ).toBe("3");
     expect(valueAfter(plan.arguments, "--max-retries")).toBe(
       "2",
     );
@@ -121,6 +127,12 @@ describe("Harbor command plan", () => {
     ).toBe(true);
     expect(valueAfter(plan.arguments, "-k")).toBe("1");
     expect(valueAfter(plan.arguments, "-n")).toBe("4");
+    expect(
+      valueAfter(
+        plan.arguments,
+        "--environment-build-timeout-multiplier",
+      ),
+    ).toBe("3");
     expect(valuesAfter(plan.arguments, "-m")).toEqual([
       "harbor.cli.main",
     ]);

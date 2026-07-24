@@ -271,7 +271,8 @@ npm run benchmark:2 -- audit-preflight jobs\tb21-verifier-preflight
 ```
 
 预检固定执行 9 个任务、每任务 1 次、并发 4，不传模型也不运行 Agent 推理。setup
-会检查 apt、GitHub、Node/npm registry、astral、Python/PyPI，并只预热当前任务
+会先确认 Docker 任务镜像可启动，再检查 apt、GitHub、Node/npm registry、astral、
+Python/PyPI，并只预热当前任务
 上游 `test.sh` 已声明的精确 verifier 依赖；之后仍由原始 verifier 运行并写 reward。
 reward 可以是 0，因为预检不解题；验收关注 9/9 都产生 verifier 结果且没有
 adapter/dataset/infrastructure 异常。
@@ -279,6 +280,12 @@ adapter/dataset/infrastructure 异常。
 正式 Pi adapter 使用同一预热逻辑。即使 verifier 随后的重复下载瞬时失败，已有
 `uv`、Python 3.13 和包缓存仍可供原始脚本继续执行；任务文件、测试文件和 reward
 语义均不修改。
+
+Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
+`--environment-build-timeout-multiplier 3` 与
+`--agent-setup-timeout-multiplier 3`。若 Docker registry 不稳定，应先从可用
+备用源缓存上游 `task.toml` 声明的镜像，或用同一冻结任务目录的 Dockerfile 本地
+构建并标记为相同 tag；不能把拉取耗时混入模型 trial。
 
 ## 3. 生成模型运行命令
 

@@ -10,6 +10,7 @@ const AGENT_MODULE =
   "benchmark.benchmark_2_terminal_bench_2_1." +
   "harbor_agent.pi_agent";
 const AGENT_SETUP_TIMEOUT_MULTIPLIER = "3";
+const ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER = "3";
 const MAX_TRANSIENT_RETRIES = "2";
 const TRANSIENT_RETRY_EXCEPTIONS = [
   "ApiOverloadedError",
@@ -89,6 +90,8 @@ export function createHarborRunPlan(
     String(options.concurrency),
     "--agent-setup-timeout-multiplier",
     AGENT_SETUP_TIMEOUT_MULTIPLIER,
+    "--environment-build-timeout-multiplier",
+    ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER,
     "--max-retries",
     MAX_TRANSIENT_RETRIES,
     "--job-name",
@@ -165,6 +168,8 @@ export function createHarborPreflightPlan(
     String(options.concurrency),
     "--agent-setup-timeout-multiplier",
     AGENT_SETUP_TIMEOUT_MULTIPLIER,
+    "--environment-build-timeout-multiplier",
+    ENVIRONMENT_BUILD_TIMEOUT_MULTIPLIER,
     "--max-retries",
     MAX_TRANSIENT_RETRIES,
     "--job-name",

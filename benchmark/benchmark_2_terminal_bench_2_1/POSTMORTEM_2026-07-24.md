@@ -121,6 +121,13 @@ smoke test 得到成功结果，并把后者误当成完整验收。问题不只
 通过”两层。确定性 `dev/holdout` 已通过；9-task 无模型预检与首轮失败任务的真实
 candidate 复验结果将在本文件末尾追加，不能用本地测试替代。
 
+第一次 9-task 预检 `tb21-verifier-preflight-20260724-r2` 在模型调用前失败并主动
+停止：2 个任务在默认 600 秒环境启动阶段超时，1 个任务因 Docker Desktop 首选
+registry mirror DNS 失败而无法拉取镜像，其余为取消或未调度，模型成本为 0。该
+结果保留在 `.runtime/jobs/`。修复措施是分别放宽 environment build 与 agent setup
+超时，并在预检前按上游 tag 缓存 9 个任务镜像；这类故障不能靠 verifier 包预热
+解决。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |
