@@ -151,5 +151,6 @@ npm run typecheck
 ```
 
 当前包含 manifest 冻结、artifact 篡改、正式 profile、几何评分、NQ、身份混用、
-缺失门槛、Markdown 和端到端写入测试。AD 与 LM 已完成正式运行；由于 TB 尚未完成，
-当前 BCS-v1 仍为 `N/A`。
+缺失门槛、Markdown 和端到端写入测试。AD 与 LM 已完成正式运行；TB 已完成一轮
+探索性 baseline/candidate，但有效率未达到硬门槛，没有合格 TB 分数，因此当前
+BCS-v1 仍为 `N/A`。
