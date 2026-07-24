@@ -5,9 +5,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from harbor.agents.installed.base import ApiOverloadedError
+from harbor.agents.installed.base import (
+    ApiOverloadedError,
+    NetworkConnectionError,
+)
 
 from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
     APT_MIRROR_HOST,
@@ -17,6 +21,7 @@ from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
     NODE_DOWNLOAD_MIRROR,
     NODE_VERSION,
     PinnedPi,
+    PYTHON_INSTALL_MIRROR,
     UV_VERSION,
     _node_install_snippet,
     _preflight_network_command,
@@ -179,6 +184,10 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn("UV_HTTP_TIMEOUT=60", wal)
         self.assertIn("UV_HTTP_RETRIES=2", wal)
         self.assertIn(
+            f"UV_PYTHON_INSTALL_MIRROR={PYTHON_INSTALL_MIRROR}",
+            wal,
+        )
+        self.assertIn(
             "timeout --signal=TERM 600 "
             "/root/.local/bin/uv python install 3.13",
             wal,
@@ -196,6 +205,29 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn("git ls-remote --exit-code", command)
         self.assertIn("npm view", command)
         self.assertNotIn("pi --version", command)
+
+    def test_classifies_uv_download_timeout_as_retriable_network_error(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as logs_dir:
+            agent = PinnedPi(
+                logs_dir=Path(logs_dir),
+                model_name="openai/gpt-4o",
+            )
+
+        error = agent._classify_exec_error(
+            "uv python install 3.13",
+            SimpleNamespace(
+                return_code=1,
+                stdout=(
+                    "Request failed after 2 retries\n"
+                    "Caused by: operation timed out"
+                ),
+                stderr=None,
+            ),
+        )
+
+        self.assertIsInstance(error, NetworkConnectionError)
 
 
 class PinnedPiApiErrorTest(unittest.TestCase):

@@ -164,6 +164,19 @@ r7 还暴露并修复了审计器契约问题：无模型 agent 的 `model_info`
 现在只有 `audit-preflight` 显式允许 model-less identity，并归一化为
 `provider/name = none`；baseline、candidate、校准和正式导入仍严格要求模型信息。
 
+首个定向 candidate `tb21-targeted-bumblebee-20260725-r1` 在完成 8/20 后主动
+停止并保留，累计成本 `$0.073683`。7 个有效结果中 Cython 1/2、WAL 0/1、
+大文本 1/1、gRPC 1/3；另一个大文本 trial 在模型调用前下载 Python 3.13 超时，
+被 Harbor 泛化为不可重试的 `NonZeroAgentExitCodeError`。继续运行时有效率最多
+95%，必然低于 98% 门槛，因此没有用更多付费样本掩盖该故障。
+
+r2 将 uv 管理 Python 的下载基址切换到已用同一 32 MB 冻结产物验证为 HTTP 200
+的 HTTPS GitHub 代理；下载路径和 uv 内置版本元数据不变。同时将 uv 的超时和
+重试耗尽签名归类为 `NetworkConnectionError`，允许 Harbor 按固定上限重试。
+无模型复验 `tb21-python-mirror-preflight-20260725` 在 2 分 8 秒内完成上一轮
+实际失败的 `large-scale-text-editing`：1/1 verifier 结果、0 异常。设置 Python
+UTF-8 环境后，Harbor 的 Unicode 汇总表也正常输出并以退出码 0 结束。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |

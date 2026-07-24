@@ -12,6 +12,7 @@ from harbor.agents.installed.base import (
     ApiOverloadedError,
     ApiRateLimitError,
     CliFlag,
+    ErrorPattern,
     NetworkConnectionError,
     UnknownApiError,
 )
@@ -26,6 +27,10 @@ NVM_VERSION = "v0.40.2"
 NODE_VERSION = "22.20.0"
 NODE_DOWNLOAD_MIRROR = "https://npmmirror.com/mirrors/node"
 APT_MIRROR_HOST = "mirrors.aliyun.com"
+PYTHON_INSTALL_MIRROR = (
+    "https://ghfast.top/https://github.com/astral-sh/"
+    "python-build-standalone/releases/download"
+)
 BUMBLEBEE_REPOSITORY = "https://github.com/ReadNULL/Bumblebee.git"
 BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
 BUMBLEBEE_BENCHMARK_EXTENSION = (
@@ -153,6 +158,10 @@ def _verifier_dependency_command(environment_name: str) -> str:
         "export UV_HTTP_CONNECT_TIMEOUT=20",
         "export UV_HTTP_TIMEOUT=60",
         "export UV_HTTP_RETRIES=2",
+        (
+            "export UV_PYTHON_INSTALL_MIRROR="
+            f"{shlex.quote(PYTHON_INSTALL_MIRROR)}"
+        ),
         "mkdir -p /etc/apt/apt.conf.d",
         (
             "for source in /etc/apt/sources.list "
@@ -319,6 +328,15 @@ def _raise_terminal_api_error(output_path: Path) -> None:
 
 class PinnedPi(Pi):
     """Harbor's Pi integration with Bumblebee's Pi version pinned."""
+
+    ERROR_PATTERNS = [
+        *Pi.ERROR_PATTERNS,
+        ErrorPattern(
+            r"operation timed out|Request failed after \d+ retries|"
+            r"error sending request for url",
+            NetworkConnectionError,
+        ),
+    ]
 
     CLI_FLAGS = [
         *Pi.CLI_FLAGS,

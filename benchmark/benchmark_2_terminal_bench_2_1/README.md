@@ -301,6 +301,14 @@ result 和各 trial 目录后再给出结论。
 读取、重试和 600 秒命令级上限。该配置只作用于一次性评测容器，不进入
 Bumblebee 运行时。
 
+uv 管理的 Python 3.13 产物通过 `UV_PYTHON_INSTALL_MIRROR` 使用评测环境已验证
+可达的 HTTPS GitHub 代理，下载路径和 uv 内置版本元数据保持不变。uv 的
+`operation timed out`、`Request failed after N retries` 等 setup 错误会归类为
+`NetworkConnectionError`，只按 manifest 固定的最多 2 次策略重试，不能无限重跑。
+`tb21-python-mirror-preflight-20260725` 已对上一轮实际失败的
+`large-scale-text-editing` 做 1 次无模型复验：1/1 verifier 结果、0 异常，
+总耗时 2 分 8 秒。
+
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与
 `--agent-setup-timeout-multiplier 3`。若 Docker registry 不稳定，应先从可用
