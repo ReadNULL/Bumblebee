@@ -25,6 +25,7 @@ PI_VERSION = "0.78.1"
 NVM_VERSION = "v0.40.2"
 NODE_VERSION = "22.20.0"
 NODE_DOWNLOAD_MIRROR = "https://npmmirror.com/mirrors/node"
+APT_MIRROR_HOST = "mirrors.aliyun.com"
 BUMBLEBEE_REPOSITORY = "https://github.com/ReadNULL/Bumblebee.git"
 BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
 BUMBLEBEE_BENCHMARK_EXTENSION = (
@@ -150,13 +151,32 @@ def _verifier_dependency_command(environment_name: str) -> str:
         ),
         "mkdir -p /etc/apt/apt.conf.d",
         (
-            "printf 'Acquire::Retries \"5\";\\n"
-            "Acquire::http::Timeout \"30\";\\n"
-            "Acquire::https::Timeout \"30\";\\n' "
-            "> /etc/apt/apt.conf.d/80bumblebee-retries"
+            "for source in /etc/apt/sources.list "
+            "/etc/apt/sources.list.d/*.list "
+            "/etc/apt/sources.list.d/*.sources; do "
+            "test -f \"$source\" || continue; "
+            f"sed -i "
+            f"-e 's|http://deb.debian.org|http://{APT_MIRROR_HOST}|g' "
+            f"-e 's|https://deb.debian.org|http://{APT_MIRROR_HOST}|g' "
+            f"-e 's|http://security.debian.org|http://{APT_MIRROR_HOST}|g' "
+            f"-e 's|https://security.debian.org|http://{APT_MIRROR_HOST}|g' "
+            f"-e 's|http://archive.ubuntu.com/ubuntu|"
+            f"http://{APT_MIRROR_HOST}/ubuntu|g' "
+            f"-e 's|https://archive.ubuntu.com/ubuntu|"
+            f"http://{APT_MIRROR_HOST}/ubuntu|g' "
+            f"-e 's|http://security.ubuntu.com/ubuntu|"
+            f"http://{APT_MIRROR_HOST}/ubuntu|g' "
+            f"-e 's|https://security.ubuntu.com/ubuntu|"
+            f"http://{APT_MIRROR_HOST}/ubuntu|g' "
+            "\"$source\"; "
+            "done"
         ),
         (
-            "apt-get -o Acquire::Retries=5 update"
+            "printf 'Acquire::Retries \"3\";\\n"
+            "Acquire::http::Timeout \"20\";\\n"
+            "Acquire::https::Timeout \"20\";\\n"
+            "Acquire::ForceIPv4 \"true\";\\n' "
+            "> /etc/apt/apt.conf.d/80bumblebee-retries"
         ),
         (
             "missing=''; "
@@ -164,9 +184,11 @@ def _verifier_dependency_command(environment_name: str) -> str:
             "command -v git >/dev/null 2>&1 || missing=\"$missing git\"; "
             "test -r /etc/ssl/certs/ca-certificates.crt || "
             "missing=\"$missing ca-certificates\"; "
-            "test -z \"$missing\" || "
-            "apt-get -o Acquire::Retries=5 "
-            "-o DPkg::Lock::Timeout=120 install -y $missing"
+            "test -z \"$missing\" || { "
+            "apt-get -o Acquire::Retries=3 update && "
+            "apt-get -o Acquire::Retries=3 "
+            "-o DPkg::Lock::Timeout=120 install -y $missing; "
+            "}"
         ),
     ]
     if pip_requirements:

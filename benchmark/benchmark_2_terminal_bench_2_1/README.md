@@ -281,6 +281,10 @@ adapter/dataset/infrastructure 异常。
 `uv`、Python 3.13 和包缓存仍可供原始脚本继续执行；任务文件、测试文件和 reward
 语义均不修改。
 
+预热先检测 curl、git 和 CA 证书，仅在存在缺失项时刷新 apt 索引；Debian/Ubuntu
+软件源映射到当前评测环境已验证可达的阿里云镜像，并强制 IPv4、限制单请求时长和
+重试次数。该配置只作用于一次性评测容器，不进入 Bumblebee 运行时。
+
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与
 `--agent-setup-timeout-multiplier 3`。若 Docker registry 不稳定，应先从可用

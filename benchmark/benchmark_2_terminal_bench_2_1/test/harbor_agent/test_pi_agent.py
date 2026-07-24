@@ -10,6 +10,7 @@ from unittest.mock import patch
 from harbor.agents.installed.base import ApiOverloadedError
 
 from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
+    APT_MIRROR_HOST,
     BUMBLEBEE_BENCHMARK_EXTENSION,
     BUMBLEBEE_INSTALL_DIR,
     BumblebeePi,
@@ -174,6 +175,12 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn("connect-timeout = 20", wal)
         self.assertIn("max-time = 180", wal)
         self.assertIn("retry-all-errors", wal)
+        self.assertIn(APT_MIRROR_HOST, wal)
+        self.assertIn('Acquire::ForceIPv4 "true"', wal)
+        self.assertLess(
+            wal.index('test -z "$missing"'),
+            wal.index("apt-get -o Acquire::Retries=3 update"),
+        )
 
     def test_no_model_preflight_checks_github_and_npm(self) -> None:
         command = _preflight_network_command()
