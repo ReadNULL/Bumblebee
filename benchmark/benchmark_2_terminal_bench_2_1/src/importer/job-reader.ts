@@ -23,6 +23,13 @@ import {
   type HarborJobNormalizationOptions,
 } from "./normalizer.js";
 
+const BENCHMARK_EVIDENCE_SIGNATURES = [
+  "benchmark_2_terminal_bench_2_1/POSTMORTEM_",
+  "benchmark_2_terminal_bench_2_1/README.md",
+  "benchmark_2_terminal_bench_2_1/test/",
+  "benchmark_2_terminal_bench_2_1/manifests/",
+] as const;
+
 export async function readHarborJob(
   jobDirectory: string,
   manifest: TerminalBenchManifest,
@@ -64,10 +71,17 @@ export async function readHarborJob(
   };
   const verifierInfrastructureTrials =
     await findVerifierInfrastructureTrials(directory);
-  const result = addVerifierInfrastructureDiagnostics(
-    rawResult,
-    verifierInfrastructureTrials,
-    manifest.rewardKey,
+  const benchmarkEvidenceLeakTrials =
+    await findBenchmarkEvidenceLeakTrials(directory);
+  const verifierDiagnosedResult =
+    addVerifierInfrastructureDiagnostics(
+      rawResult,
+      verifierInfrastructureTrials,
+      manifest.rewardKey,
+    );
+  const result = addBenchmarkEvidenceLeakDiagnostics(
+    verifierDiagnosedResult,
+    benchmarkEvidenceLeakTrials,
   );
 
   return normalizeHarborJob(
@@ -79,32 +93,20 @@ export async function readHarborJob(
   );
 }
 
-async function addFallbackTrialResults(
+async function findBenchmarkEvidenceLeakTrials(
   directory: string,
-  value: unknown,
-): Promise<unknown> {
-  if (!isRecord(value)) {
-    return value;
-  }
-  if (
-    Array.isArray(value.trial_results) &&
-    value.trial_results.length > 0
-  ) {
-    return value;
-  }
-
+): Promise<ReadonlySet<string>> {
   const entries = await readdir(directory, { withFileTypes: true });
-  const trialResults: unknown[] = [];
+  const trialNames = new Set<string>();
   for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue;
     }
+    let output: string;
     try {
-      const bytes = await readFile(
-        join(directory, entry.name, "result.json"),
-      );
-      trialResults.push(
-        parseJson(bytes, `${entry.name}/result.json`),
+      output = await readFile(
+        join(directory, entry.name, "agent", "pi.txt"),
+        "utf8",
       );
     } catch (cause: unknown) {
       if (isMissingFileError(cause)) {
@@ -112,11 +114,55 @@ async function addFallbackTrialResults(
       }
       throw cause;
     }
+    const normalized = output.replaceAll("\\", "/");
+    if (
+      BENCHMARK_EVIDENCE_SIGNATURES.some((signature) =>
+        normalized.includes(signature)
+      )
+    ) {
+      trialNames.add(entry.name);
+    }
   }
+  return trialNames;
+}
 
+function addBenchmarkEvidenceLeakDiagnostics(
+  value: unknown,
+  trialNames: ReadonlySet<string>,
+): unknown {
+  if (
+    trialNames.size === 0 ||
+    !isRecord(value) ||
+    !Array.isArray(value.trial_results)
+  ) {
+    return value;
+  }
   return {
     ...value,
-    trial_results: trialResults,
+    trial_results: value.trial_results.map((trial) =>
+      addBenchmarkEvidenceLeakDiagnostic(trial, trialNames)
+    ),
+  };
+}
+
+function addBenchmarkEvidenceLeakDiagnostic(
+  value: unknown,
+  trialNames: ReadonlySet<string>,
+): unknown {
+  if (
+    !isRecord(value) ||
+    typeof value.trial_name !== "string" ||
+    !trialNames.has(value.trial_name)
+  ) {
+    return value;
+  }
+  return {
+    ...value,
+    exception_info: {
+      exception_type: "BenchmarkEvidenceLeakError",
+      exception_message:
+        "Agent accessed benchmark-only evidence; trial excluded",
+    },
   };
 }
 
@@ -229,6 +275,51 @@ function hasZeroReward(
   }
   const rewards = trial.verifier_result.rewards;
   return isRecord(rewards) && rewards[rewardKey] === 0;
+}
+
+/*
+ * Keep the parser and hashing helpers below independent from diagnostic
+ * overlays so provenance always describes Harbor's original bytes.
+ */
+async function addFallbackTrialResults(
+  directory: string,
+  value: unknown,
+): Promise<unknown> {
+  if (!isRecord(value)) {
+    return value;
+  }
+  if (
+    Array.isArray(value.trial_results) &&
+    value.trial_results.length > 0
+  ) {
+    return value;
+  }
+
+  const entries = await readdir(directory, { withFileTypes: true });
+  const trialResults: unknown[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    try {
+      const bytes = await readFile(
+        join(directory, entry.name, "result.json"),
+      );
+      trialResults.push(
+        parseJson(bytes, `${entry.name}/result.json`),
+      );
+    } catch (cause: unknown) {
+      if (isMissingFileError(cause)) {
+        continue;
+      }
+      throw cause;
+    }
+  }
+
+  return {
+    ...value,
+    trial_results: trialResults,
+  };
 }
 
 function parseJson(bytes: Buffer, label: string): unknown {

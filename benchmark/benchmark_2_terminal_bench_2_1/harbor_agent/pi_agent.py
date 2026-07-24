@@ -33,6 +33,7 @@ PYTHON_INSTALL_MIRROR = (
 )
 BUMBLEBEE_REPOSITORY = "https://github.com/ReadNULL/Bumblebee.git"
 BUMBLEBEE_INSTALL_DIR = "$HOME/.bumblebee-benchmark"
+BUMBLEBEE_SOURCE_DIR = "$HOME/.bumblebee-benchmark-source"
 BUMBLEBEE_BENCHMARK_EXTENSION = (
     f"{BUMBLEBEE_INSTALL_DIR}/benchmark/"
     "benchmark_2_terminal_bench_2_1/candidate-extension.ts"
@@ -114,6 +115,55 @@ def _node_install_snippet() -> str:
         f"nvm install {shlex.quote(NODE_VERSION)} && "
         f"nvm alias default {shlex.quote(NODE_VERSION)} && "
         "npm --version"
+    )
+
+
+def _candidate_install_command(commit: str) -> str:
+    """Build an extension install that excludes benchmark evidence."""
+
+    repository = shlex.quote(BUMBLEBEE_REPOSITORY)
+    pinned_commit = shlex.quote(commit)
+    wrapper_relative = (
+        "benchmark/benchmark_2_terminal_bench_2_1/"
+        "candidate-extension.ts"
+    )
+    wrapper_source = f"{BUMBLEBEE_SOURCE_DIR}/{wrapper_relative}"
+    wrapper_target = f"{BUMBLEBEE_INSTALL_DIR}/{wrapper_relative}"
+    return (
+        "set -euo pipefail; "
+        ". ~/.nvm/nvm.sh; "
+        f"rm -rf \"{BUMBLEBEE_SOURCE_DIR}\" "
+        f"\"{BUMBLEBEE_INSTALL_DIR}\"; "
+        f"git init \"{BUMBLEBEE_SOURCE_DIR}\"; "
+        f"git -C \"{BUMBLEBEE_SOURCE_DIR}\" remote add "
+        f"origin {repository}; "
+        f"git -C \"{BUMBLEBEE_SOURCE_DIR}\" fetch "
+        f"--depth 1 origin {pinned_commit}; "
+        f"git -C \"{BUMBLEBEE_SOURCE_DIR}\" checkout "
+        "--detach FETCH_HEAD; "
+        f"cd \"{BUMBLEBEE_SOURCE_DIR}\"; "
+        "archive=\"$(npm pack --silent | tail -n 1)\"; "
+        f"mkdir -p \"{BUMBLEBEE_INSTALL_DIR}\"; "
+        f"tar -xzf \"$archive\" -C \"{BUMBLEBEE_INSTALL_DIR}\" "
+        "--strip-components=1; "
+        f"cp package-lock.json "
+        f"\"{BUMBLEBEE_INSTALL_DIR}/package-lock.json\"; "
+        f"find \"{BUMBLEBEE_INSTALL_DIR}\" -type f "
+        "-name '*.md' -delete; "
+        f"mkdir -p \"$(dirname \"{wrapper_target}\")\"; "
+        f"cp \"{wrapper_source}\" \"{wrapper_target}\"; "
+        "cd /tmp; "
+        f"rm -rf \"{BUMBLEBEE_SOURCE_DIR}\"; "
+        f"cd \"{BUMBLEBEE_INSTALL_DIR}\"; "
+        "npm ci --omit=dev; "
+        f"test -f \"{BUMBLEBEE_BENCHMARK_EXTENSION}\"; "
+        f"test ! -e \"{BUMBLEBEE_INSTALL_DIR}/README.md\"; "
+        f"test -z \"$(find \"{BUMBLEBEE_INSTALL_DIR}\" "
+        f"-path \"{BUMBLEBEE_INSTALL_DIR}/node_modules\" -prune "
+        "-o -type f -name '*.md' -print -quit)\"; "
+        f"test ! -e \"{BUMBLEBEE_INSTALL_DIR}/benchmark/"
+        "benchmark_2_terminal_bench_2_1/README.md\"; "
+        f"test ! -e \"{BUMBLEBEE_SOURCE_DIR}\""
     )
 
 
@@ -448,24 +498,10 @@ class BumblebeePi(PinnedPi):
     @override
     async def install(self, environment: BaseEnvironment) -> None:
         await super().install(environment)
-        commit = shlex.quote(self._bumblebee_commit)
-        repository = shlex.quote(BUMBLEBEE_REPOSITORY)
         await self.exec_as_agent(
             environment,
-            command=(
-                "set -euo pipefail; "
-                ". ~/.nvm/nvm.sh; "
-                f"test -d \"{BUMBLEBEE_INSTALL_DIR}/.git\" || "
-                f"(git init \"{BUMBLEBEE_INSTALL_DIR}\" && "
-                f"git -C \"{BUMBLEBEE_INSTALL_DIR}\" remote add "
-                f"origin {repository}); "
-                f"git -C \"{BUMBLEBEE_INSTALL_DIR}\" fetch "
-                f"--depth 1 origin {commit}; "
-                f"git -C \"{BUMBLEBEE_INSTALL_DIR}\" checkout "
-                "--detach FETCH_HEAD; "
-                f"cd \"{BUMBLEBEE_INSTALL_DIR}\"; "
-                f"test -f \"{BUMBLEBEE_BENCHMARK_EXTENSION}\"; "
-                "npm ci --omit=dev"
+            command=_candidate_install_command(
+                self._bumblebee_commit
             ),
         )
 
@@ -481,6 +517,47 @@ class BumblebeePi(PinnedPi):
     @override
     def name() -> str:
         return "bumblebee-pi"
+
+
+class CandidateIsolationPreflight(BumblebeePi):
+    """Install the candidate without invoking a model, then audit its files."""
+
+    @staticmethod
+    @override
+    def name() -> str:
+        return "candidate-isolation-preflight"
+
+    @override
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        del instruction, context
+        result = await environment.exec(
+            command=(
+                "set -euo pipefail; "
+                f"test -f \"{BUMBLEBEE_INSTALL_DIR}/src/extension.ts\"; "
+                f"test -f \"{BUMBLEBEE_BENCHMARK_EXTENSION}\"; "
+                f"test ! -d \"{BUMBLEBEE_INSTALL_DIR}/.git\"; "
+                f"test ! -e \"{BUMBLEBEE_INSTALL_DIR}/README.md\"; "
+                f"test -z \"$(find \"{BUMBLEBEE_INSTALL_DIR}\" "
+                f"-path \"{BUMBLEBEE_INSTALL_DIR}/node_modules\" -prune "
+                "-o -type f -name '*.md' -print -quit)\"; "
+                f"test ! -e \"{BUMBLEBEE_INSTALL_DIR}/benchmark/"
+                "benchmark_2_terminal_bench_2_1/README.md\"; "
+                f"test ! -e \"{BUMBLEBEE_INSTALL_DIR}/benchmark/"
+                "benchmark_2_terminal_bench_2_1/"
+                "POSTMORTEM_2026-07-24.md\"; "
+                f"test ! -e \"{BUMBLEBEE_SOURCE_DIR}\""
+            ),
+        )
+        if result.return_code != 0:
+            output = result.stderr or result.stdout or "no output"
+            raise RuntimeError(
+                f"Candidate isolation audit failed: {output[-500:]}"
+            )
 
 
 class VerifierPreflight(BaseAgent):

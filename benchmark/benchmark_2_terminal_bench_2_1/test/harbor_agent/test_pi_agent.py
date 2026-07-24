@@ -17,12 +17,15 @@ from benchmark.benchmark_2_terminal_bench_2_1.harbor_agent.pi_agent import (
     APT_MIRROR_HOST,
     BUMBLEBEE_BENCHMARK_EXTENSION,
     BUMBLEBEE_INSTALL_DIR,
+    BUMBLEBEE_SOURCE_DIR,
     BumblebeePi,
+    CandidateIsolationPreflight,
     NODE_DOWNLOAD_MIRROR,
     NODE_VERSION,
     PinnedPi,
     PYTHON_INSTALL_MIRROR,
     UV_VERSION,
+    _candidate_install_command,
     _node_install_snippet,
     _preflight_network_command,
     _raise_terminal_api_error,
@@ -126,6 +129,48 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertNotIn(
             f'--extension "{BUMBLEBEE_INSTALL_DIR}"',
             flags,
+        )
+        self.assertEqual(
+            CandidateIsolationPreflight.name(),
+            "candidate-isolation-preflight",
+        )
+
+    def test_candidate_install_excludes_benchmark_evidence(self) -> None:
+        command = _candidate_install_command("0" * 40)
+
+        self.assertIn("npm pack --silent", command)
+        self.assertIn("--strip-components=1", command)
+        self.assertIn(
+            "cp package-lock.json",
+            command,
+        )
+        self.assertIn(
+            f'rm -rf "{BUMBLEBEE_SOURCE_DIR}"',
+            command,
+        )
+        self.assertIn(
+            f'test ! -e "{BUMBLEBEE_SOURCE_DIR}"',
+            command,
+        )
+        self.assertIn(
+            f'find "{BUMBLEBEE_INSTALL_DIR}" -type f '
+            "-name '*.md' -delete",
+            command,
+        )
+        self.assertIn(
+            f'test ! -e "{BUMBLEBEE_INSTALL_DIR}/README.md"',
+            command,
+        )
+        self.assertIn(
+            "benchmark_2_terminal_bench_2_1/README.md",
+            command,
+        )
+        self.assertNotIn("POSTMORTEM_2026-07-24.md", command)
+        self.assertLess(
+            command.rindex(
+                f'rm -rf "{BUMBLEBEE_SOURCE_DIR}"'
+            ),
+            command.index("npm ci --omit=dev"),
         )
 
     def test_candidate_scopes_the_selected_feature_profile(self) -> None:

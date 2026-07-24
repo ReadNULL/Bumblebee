@@ -1,15 +1,15 @@
 # Bumblebee Benchmark
 
 该目录只承载开发评估工程，不属于 Bumblebee 运行时，也不会进入 npm 发布包。
-本轮已暂停继续评测；以下内容只汇总截至 2026-07-24 已经完成的运行，不代表刚刚
-重新执行了测试。
+以下内容汇总截至 2026-07-25 已完成的运行。当前只复验 Terminal-Bench 首轮失败
+的 4 类任务，已成功任务不重复运行。
 
 ## 结果总览
 
 | 分项 | 已观测原始结果 | 可发布分数 | 资格 |
 | --- | --- | ---: | --- |
 | BumblebeeBench (`BB`) | 360/360 个确定性 full trial 通过 | `100.00` | qualified |
-| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45、candidate 30/45；审计后 32/43 与 30/42 | `N/A` | invalid |
+| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45；candidate 原始 30/45，追加审计后 30 passed、10 failed、5 invalid | `N/A` | invalid |
 | AgentDojo Workspace (`AD`) | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `94.39` | qualified |
 | LongMemEval-Bumblebee (`LM`) | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `98.50` | qualified |
 | BCS-v1 | BB/AD/LM 已完成，TB 没有合格输入 | `N/A` | not-qualified |
@@ -33,12 +33,12 @@ BCS-v1 只有在四个来源均满足身份、完整性和硬门槛时才计算�
 | 检查项 | 结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 86 个测试文件、387 项测试全部通过 |
+| Vitest | 90 个测试文件、406 项测试全部通过 |
 | 架构约束 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖方向通过 |
-| npm 发布边界 | dry-run 共 78 个生产文件，不包含 `benchmark/` 和 `test/` |
+| npm 发布边界 | dry-run 共 100 个生产文件，不包含 `benchmark/` 和 `test/` |
 | Benchmark 0 | 6 个测试文件、21 项测试通过 |
 | Benchmark 1 | 5 个测试文件、16 项测试通过 |
-| Benchmark 2 | 8 个测试文件、31 项测试通过 |
+| Benchmark 2 | 9 个 TypeScript 测试文件、39 项测试和 14 项 Python 测试通过 |
 | Benchmark 3 | 7 个 TypeScript 文件、28 项测试和 6 项 Python 测试通过 |
 | Benchmark 4 | 7 个测试文件、24 项测试通过 |
 | Benchmark 5 | 6 个测试文件、15 项测试通过 |
@@ -84,15 +84,16 @@ BB = 0.20 * Runtime
 | --- | ---: | ---: |
 | 完成 trial | 45/45 | 45/45 |
 | 原始 reward | 32/45 | 30/45 |
-| 审计状态 | 32 passed、11 failed、2 invalid | 30 passed、12 failed、3 invalid |
-| 有效率 | 95.56% | 93.33% |
-| 有效样本诊断通过率 | 74.42% | 71.43% |
+| 审计状态 | 32 passed、11 failed、2 invalid | 30 passed、10 failed、5 invalid |
+| 有效率 | 95.56% | 88.89% |
+| 有效样本诊断通过率 | 74.42% | 75.00% |
 | 模型成本 | `$0.354801` | `$0.374389` |
 | Agent p50 | 46.4s | 83.2s |
 
 两轮有效率都低于冻结的 98% 门槛，因此结果无效，`TB = N/A`。诊断通过率差值
-不能作为正式分数，也不能证明 Bumblebee 回归。3 个 candidate 无效 trial 来自
-verifier 下载依赖超时；有效失败暴露了需求契约遗漏、显式测试失败后仍结束任务、
+不能作为正式分数，也不能证明 Bumblebee 回归。candidate 的 5 个无效 trial 是
+2 个 verifier 下载故障与 3 个 benchmark 证据泄漏的去重并集；后者已通过候选包
+隔离和导入审计修复。其余有效失败暴露了需求契约遗漏、显式测试失败后仍结束任务、
 恢复前未保护原始证据和产物格式漏检。
 
 详细运行记录见
@@ -203,5 +204,5 @@ flowchart LR
   Decision -- 否 --> Reject["保留失败结论"]
 ```
 
-目前暂停继续测试。再次启动前，应优先完成 Terminal-Bench verifier 无模型预检和
-复盘中的 P0 改进，不直接重复付费运行。
+Terminal-Bench verifier 无模型预检和 P0/P1 通用改进已完成。后续真实评测必须使用
+不含仓库文档与测试资料的隔离候选包，并先审计证据泄漏，再解释能力结果。

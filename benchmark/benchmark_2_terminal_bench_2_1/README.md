@@ -8,9 +8,10 @@ Bumblebee 的 npm 发布包。
 
 评估工程已经实现。2026-07-24 完成了第一轮 45-trial 真实 `pi-baseline` 和一轮
 45-trial Bumblebee candidate。baseline 审计后为 32 passed、11 failed、2
-infrastructure invalid；candidate 为 30 passed、12 failed、3 infrastructure
-invalid。两轮有效率分别为 95.56% 和 93.33%，均低于冻结的 98% 门槛，因此只
-保留为探索性证据，当前仍没有可发布的 TB 分数。
+infrastructure invalid。后续证据审计又发现 candidate 有 3 个 trial 读取了随
+完整仓库安装进容器的 benchmark 专用资料；与既有基础设施无效样本合并后，
+candidate 为 30 passed、10 failed、5 invalid，有效率 88.89%。两轮均低于冻结的
+98% 门槛，因此只保留为探索性证据，当前仍没有可发布的 TB 分数。
 
 失败轨迹、证据边界、改进优先级和下一轮验收条件见
 [首轮真实评测复盘](./POSTMORTEM_2026-07-24.md)。
@@ -65,8 +66,9 @@ flowchart LR
   `@earendil-works/pi-coding-agent@0.78.1`；
 - baseline 使用 `PinnedPi` 且强制 `--no-extensions`；
 - candidate 使用 `BumblebeePi`，在 Agent setup 阶段将指定 commit 安装到固定本地
-  目录，执行阶段通过 `--no-extensions --extension <local-path>` 只加载该 commit
-  内的 benchmark wrapper；
+  目录；安装器通过 `npm pack` 只提取生产发布白名单，再单独复制 benchmark
+  wrapper，删除临时 Git checkout 和根 README 后才启动模型。执行阶段通过
+  `--no-extensions --extension <local-path>` 只加载该 commit 的生产代码与 wrapper；
 - Harbor 没有交互式授权 UI，candidate wrapper 固定注入 `allow-once` authority；
   它仍注册同一组 Bumblebee 生产模块，只替换授权决策来源；
 - `main`、tag、短 SHA 或未推送的本地目录不能作为正式 candidate 身份；
@@ -118,7 +120,11 @@ Pi `0.78.1`、`deepseek/deepseek-v4-flash`、thinking `high`、Docker 和 2 路
 | `tb21-lite-pi-1-20260724-r3` | 45/45 | Harbor 原始运行完整，但 2 条 verifier 网络故障污染 reward 0，审计后不具备校准资格 |
 | `tb21-lite-bumblebee-smoke-20260724` | 1/1 | reward 0；默认 PermissionSystem 在无 UI 时正确拒绝写入和 Shell，证明不能直接把生产交互模式用于 Harbor |
 | `tb21-lite-bumblebee-smoke-20260724-r1` | 1/1 | benchmark-only `allow-once` wrapper 已能执行 `bash/write/edit`；Harbor 在收集产物时异常，但容器内 verifier 直接复核 2/2 通过 |
-| `tb21-lite-bumblebee-1-20260724-r1` | 45/45 | candidate 完整运行；3 条 verifier 依赖下载超时使有效率仅 93.33%，结果为 invalid，`TB = N/A` |
+| `tb21-lite-bumblebee-1-20260724-r1` | 45/45 | 原始 reward 30/45；追加审计确认 3 条证据泄漏，与基础设施异常去重后共 5 invalid，`TB = N/A` |
+| `tb21-targeted-bumblebee-20260725-r1` | 8/20 | Python 运行时下载超时使有效率上限低于 98%，主动停止；7 个有效结果和 1 个基础设施无效结果均保留 |
+| `tb21-python-mirror-preflight-20260725` | 1/1 | 无模型复验通过，Python 下载镜像和错误分类修复生效 |
+| `tb21-targeted-bumblebee-20260725-r2` | 20/20 | 原始 reward 14/20，但 3 个 WAL trial 读取 benchmark 专用资料；整轮判为污染、invalid，不作为改进结论 |
+| `tb21-candidate-isolation-preflight-20260725` | 1/1 | 无模型真实容器验证生产代码与 wrapper 可用，且 `.git`、根 README、benchmark 文档和临时源码目录均不可见 |
 
 中断不是删除记录。前三次正式尝试和 smoke/preflight 的原始结果均继续保留，用于说明
 环境问题、修复依据和成本；只有通过完整性与有效率门槛的 job 才能进入校准。
@@ -172,10 +178,10 @@ reward，也不是 TB 分数。`db-wal-recovery` 消耗约 `$0.190064`，占本 
 | 指标 | 结果 |
 | --- | ---: |
 | Harbor 原始 reward | 30/45，均值 `0.6667` |
-| 审计后状态 | 30 passed、12 failed、3 infrastructure invalid |
-| 有效率 | 42/45，`93.33%`，低于 `98%` 硬门槛 |
-| 诊断通过率 | 30/42，`71.43%`，不能替代官方 reward |
-| 异常 | 3 个 `VerifierTimeoutError`、1 个计入能力失败的 `AgentTimeoutError` |
+| 追加审计后状态 | 30 passed、10 failed、5 invalid |
+| 有效率 | 40/45，`88.89%`，低于 `98%` 硬门槛 |
+| 诊断通过率 | 30/40，`75.00%`，不能替代官方 reward |
+| 异常 | 原始 3 个 `VerifierTimeoutError`；另识别 3 个证据泄漏，二者有 1 个 trial 重叠 |
 | 重试 | 1 次 candidate 安装网络错误，Harbor 自动重试后成功 |
 | 总运行时间 | 3 小时 21 分 30 秒 |
 | Agent 时延 | p50 `83.2s`、p95 `558.4s`、p99 `900.0s` |
@@ -191,17 +197,15 @@ reward，也不是 TB 分数。`db-wal-recovery` 消耗约 `$0.190064`，占本 
 | `cancel-async-tasks` | 5/5 | 稳定通过 |
 | `fix-code-vulnerability` | 5/5 | 稳定通过 |
 | `nginx-request-logging` | 5/5 | 稳定通过 |
-| `db-wal-recovery` | 0/5 | 4 次未正确恢复 WAL，1 次 verifier 下载 Python 超时 |
+| `db-wal-recovery` | 0/5 | 3 次访问 benchmark 资料而 invalid，其中 1 次还发生 verifier 超时；其余 2 个有效样本未正确恢复 |
 | `multi-source-data-merger` | 3/5 | 3 个有效样本全部通过，另 2 次 verifier 下载数据依赖超时 |
 | `large-scale-text-editing` | 4/5 | 1 次输出未满足 verifier |
 | `kv-store-grpc` | 3/5 | 2 次服务实现未满足 verifier |
 
-同一模型的探索性 baseline 诊断通过率为 32/43（`74.42%`），candidate 为
-30/42（`71.43%`），相差 -2.99 个百分点；candidate 原始通过数少 2，成本高
-5.52%，p50 Agent 时延高 79.31%。candidate 在异步取消和漏洞修复上各多通过
-1 次，但在原生扩展构建、gRPC 和基础设施有效率上回退。由于两轮都未通过有效率
-门槛，且 candidate 只有一轮，以上只能定位改进方向，不能证明 Bumblebee 相对
-baseline 的稳定收益或回归。
+同一模型的探索性 baseline 诊断通过率为 32/43（`74.42%`），candidate 追加审计
+后为 30/40（`75.00%`）。0.58 个百分点的差值没有比较意义：candidate 有证据
+污染、两轮都未通过有效率门槛，且 candidate 只有一轮。原始通过数、成本和时延
+仍可作为工程记录，但不能证明 Bumblebee 相对 baseline 的稳定收益或回归。
 
 本次真实导入还暴露了两个 Windows 兼容问题：Harbor 的 namespaced task ID
 不能直接作为 Benchmark 0 文件路径，微秒和本地时间戳也不满足核心 UTC 契约。
@@ -308,6 +312,21 @@ uv 管理的 Python 3.13 产物通过 `UV_PYTHON_INSTALL_MIRROR` 使用评测环
 `tb21-python-mirror-preflight-20260725` 已对上一轮实际失败的
 `large-scale-text-editing` 做 1 次无模型复验：1/1 verifier 结果、0 异常，
 总耗时 2 分 8 秒。
+
+### 候选隔离与污染审计
+
+定向 r2 在 49 分 47 秒内完成 20/20，原始 reward 为 14/20，模型成本
+`$0.277662`，但不能据此判断 P0/P1 改进有效。审计发现 3 个 WAL trial 访问了候选
+checkout 中的 benchmark README、复盘、测试或 manifest；导入器将这类样本标记为
+`BenchmarkEvidenceLeakError`，保留原始 reward、日志和哈希，但排除出能力统计。
+r2 因证据污染和仅覆盖 4/9 任务而 invalid，`TB = N/A`。
+
+候选安装现改为两阶段：完整 Git checkout 只在 setup 中短暂存在；`npm pack` 提取
+生产发布白名单后，仅复制 benchmark wrapper，删除根 README 与临时 checkout，再
+调用模型。`tb21-candidate-isolation-preflight-20260725` 已在真实 Docker 容器中
+以 1/1、0 异常、约 2 分钟通过，确认生产入口和 wrapper 存在，而 `.git`、根
+README、benchmark 专用资料及源码 checkout 均不存在。干净候选仍需重新运行同一
+4 类失败任务；污染 r2 不与新结果拼接。
 
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与

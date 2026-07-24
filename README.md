@@ -87,13 +87,14 @@ Bumblebee 能力，正常使用无需加载。
 | 分项 | 已观测结果 | 可发布分数与资格 |
 | --- | --- | --- |
 | BumblebeeBench | 360/360 确定性 trial 通过 | `BB = 100.00`，qualified |
-| Terminal-Bench 2.1 Lite | baseline 32/45、candidate 30/45；审计后分别为 32/43（74.42%）和 30/42（71.43%） | 有效率 95.56%/93.33%，均未达到 98%；`TB = N/A`，invalid |
+| Terminal-Bench 2.1 Lite | baseline 32/45；candidate 原始 30/45，追加证据审计后为 30 passed、10 failed、5 invalid | 有效率 95.56%/88.89%，均未达到 98%；`TB = N/A`，invalid |
 | AgentDojo Workspace | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `AD = 94.39`，qualified |
 | LongMemEval-Bumblebee | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `LM = 98.50`，qualified |
 | BCS-v1 | 已有 BB/AD/LM，TB 没有合格输入 | `N/A`，not-qualified |
 
-本轮暂停继续 benchmark，不会启动新的模型评测。完整指标、成本、失败分类、资格边界
-和各套件入口见 [Benchmark 结果总览](./benchmark/README.md)；Terminal-Bench 的失败经验见[首轮真实评测复盘](./benchmark/benchmark_2_terminal_bench_2_1/POSTMORTEM_2026-07-24.md)。
+当前只复验 Terminal-Bench 首轮失败的 4 类任务，已成功任务不重复运行。完整指标、
+成本、失败分类、资格边界和各套件入口见 [Benchmark 结果总览](./benchmark/README.md)；
+Terminal-Bench 的失败经验见[首轮真实评测复盘](./benchmark/benchmark_2_terminal_bench_2_1/POSTMORTEM_2026-07-24.md)。
 
 `N/A` 只表示结果不能作为正式分数发布，不表示删除或隐藏本轮数据。未通过门槛、
 执行失败、取消和基础设施无效的结果都会保留原始指标与原因。

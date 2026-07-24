@@ -183,6 +183,52 @@ describe("Harbor job reader", () => {
     );
   });
 
+  it("invalidates trials that access benchmark-only evidence", async () => {
+    const manifest = createTestManifest();
+    const directory = await mkdtemp(
+      join(tmpdir(), "bumblebee-harbor-leak-"),
+    );
+    const raw = createRawFixtureJob(manifest);
+    await writeJson(join(directory, "config.json"), raw.config);
+    await writeJson(join(directory, "result.json"), raw.result);
+    const leakedTrial = raw.result.trial_results[0];
+    if (leakedTrial === undefined) {
+      throw new Error("fixture must contain a trial");
+    }
+    const agentDirectory = join(
+      directory,
+      leakedTrial.trial_name,
+      "agent",
+    );
+    await mkdir(agentDirectory, { recursive: true });
+    await writeFile(
+      join(agentDirectory, "pi.txt"),
+      [
+        "read /root/.bumblebee-benchmark/benchmark/",
+        "benchmark_2_terminal_bench_2_1/",
+        "POSTMORTEM_2026-07-24.md",
+      ].join(""),
+      "utf8",
+    );
+
+    const job = await readHarborJob(directory, manifest);
+
+    expect(job.trials[0]).toMatchObject({
+      status: "invalid",
+      stable: false,
+      failure: {
+        category: "dataset",
+        code: "HARBOR_BENCHMARKEVIDENCELEAKERROR",
+        retryable: false,
+      },
+    });
+    expect(job.trials.slice(1)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ stable: true }),
+      ]),
+    );
+  });
+
   it("preserves completed trials from an interrupted job", async () => {
     const manifest = createTestManifest();
     const directory = await mkdtemp(

@@ -16,18 +16,19 @@
 | 模型 | `deepseek/deepseek-v4-flash`，thinking `high` | 相同 |
 | 环境 | Harbor 0.20.0、Pi 0.78.1、Docker、并发 2 | 相同 |
 
-candidate 的 45 个 trial 全部结束，但 3 个 verifier 在下载依赖时超时，有效率只有
-`93.33%`，低于冻结的 `98%` 硬门槛。因此本文只分析问题，不计算或发布“修正后的
+candidate 的 45 个 trial 全部结束。追加审计确认 3 个 trial 访问了 benchmark
+专用资料；与 verifier 基础设施异常去重后共有 5 个 invalid，有效率只有
+`88.89%`，低于冻结的 `98%` 硬门槛。因此本文只分析问题，不计算或发布“修正后的
 官方成绩”。
 
 ## 2. 结果摘要
 
 | 指标 | Baseline | Candidate | 可以得出的结论 |
 | --- | ---: | ---: | --- |
-| 原始 reward | 32/45 | 30/45 | 两轮都受 verifier 基础设施故障污染 |
-| 审计后有效样本 | 43/45 | 42/45 | 两轮都未达到 98% 有效率门槛 |
-| 有效样本通过率 | 74.42% | 71.43% | 仅用于诊断，差值为 -2.99 个百分点 |
-| Wilson 95% 区间 | 59.76%-85.07% | 56.43%-82.83% | 区间高度重叠，不能证明回归或收益 |
+| 原始 reward | 32/45 | 30/45 | baseline 受基础设施故障影响，candidate 还存在证据污染 |
+| 审计后有效样本 | 43/45 | 40/45 | 两轮都未达到 98% 有效率门槛 |
+| 有效样本通过率 | 74.42% | 75.00% | 仅用于诊断，污染运行不可参与能力比较 |
+| Wilson 95% 区间 | 59.76%-85.07% | 59.81%-85.81% | 区间高度重叠，不能证明回归或收益 |
 | 模型成本 | `$0.354801` | `$0.374389` | candidate 高 5.52%，只有一轮，不能归因 |
 | Agent p50 | 46.4s | 83.2s | candidate 高 79.31%，不能直接归因于权限系统 |
 
@@ -43,7 +44,8 @@ candidate 的 45 个 trial 全部结束，但 3 个 verifier 在下载依赖时�
 ### 可以确认
 
 - Harbor 原始结果、trial 日志和上游 verifier 输出是本轮根因分类的主要证据。
-- 12 个有效失败计入能力失败；3 个 verifier 依赖下载超时计入基础设施无效。
+- 追加审计后 candidate 有 10 个有效失败和 5 个 invalid；3 个证据泄漏与 3 个
+  verifier 异常有 1 个 trial 重叠。
 - candidate 的 `delegate_task` 和 `bumblebee_memory` 在 45 个 trial 中均未被调用。
 - candidate wrapper 只为无交互评测环境注入 `allow_once` authority；生产扩展仍然
   保持无 UI 时 fail-closed。
@@ -176,6 +178,19 @@ r2 将 uv 管理 Python 的下载基址切换到已用同一 32 MB 冻结产物�
 无模型复验 `tb21-python-mirror-preflight-20260725` 在 2 分 8 秒内完成上一轮
 实际失败的 `large-scale-text-editing`：1/1 verifier 结果、0 异常。设置 Python
 UTF-8 环境后，Harbor 的 Unicode 汇总表也正常输出并以退出码 0 结束。
+
+第二个定向 candidate `tb21-targeted-bumblebee-20260725-r2` 完成 20/20，原始
+reward 14/20、0 个最终异常、1 次网络重试，耗时 49 分 47 秒，成本
+`$0.277662`。但后验审计发现 3 个 WAL trial 读取了随完整 Git checkout 暴露的
+benchmark README、复盘、测试或 manifest。该信息不属于生产 Agent 可见上下文，
+因此 r2 是污染运行，不能用于证明 P0/P1 修复提升；导入后为 14 passed、3 failed、
+3 dataset invalid，同时因只覆盖 4/9 任务而保持 invalid。
+
+这一问题按 P0 处理。candidate setup 现在只把 `npm pack` 的生产发布白名单与单独
+wrapper 留给模型，并在运行前删除临时 checkout、`.git` 和根 README。导入器增加
+`BenchmarkEvidenceLeakError` 诊断，保留 Harbor 原始证据与哈希，不修改 reward。
+无模型真实容器预检 `tb21-candidate-isolation-preflight-20260725` 在约 2 分钟内
+1/1 通过；仍需用该隔离协议重跑同一 4 类历史失败任务。
 
 ### P0：下一轮正式评测前必须完成
 

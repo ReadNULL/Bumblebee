@@ -52,6 +52,7 @@ const INFRASTRUCTURE_EXCEPTIONS = [
 ] as const;
 
 const DATASET_EXCEPTIONS = [
+  "BenchmarkEvidenceLeakError",
   "RewardFile",
   "Verifier",
 ] as const;
