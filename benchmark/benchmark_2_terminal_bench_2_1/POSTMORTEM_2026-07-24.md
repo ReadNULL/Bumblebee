@@ -128,6 +128,12 @@ registry mirror DNS 失败而无法拉取镜像，其余为取消或未调度，
 超时，并在预检前按上游 tag 缓存 9 个任务镜像；这类故障不能靠 verifier 包预热
 解决。
 
+第二次预检 `tb21-verifier-preflight-20260724-r3` 在镜像缓存后证明环境启动已恢复：
+`build-cython-ext` 与 `kv-store-grpc` 均由原始 verifier 正常写出 reward 0 且无异常。
+随后主动停止剩余任务，因为预热脚本在 Python 基础镜像中仍重复安装
+`python3/python3-pip`，4 路并发放大了 apt 下载耗时。r4 改为 apt update 后只补
+缺失的 curl、git 和 CA 证书；Python/pip 由冻结任务镜像提供。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |

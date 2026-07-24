@@ -169,6 +169,8 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn("pyarrow==22.0.0", merger)
         self.assertIn("pytest==8.4.2", grpc)
         self.assertNotIn("uv python install 3.13", grpc)
+        self.assertNotIn("python3-pip", wal)
+        self.assertIn("test -z \"$missing\"", wal)
 
     def test_no_model_preflight_checks_github_and_npm(self) -> None:
         command = _preflight_network_command()

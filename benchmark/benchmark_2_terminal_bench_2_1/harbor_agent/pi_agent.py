@@ -149,10 +149,17 @@ def _verifier_dependency_command(environment_name: str) -> str:
             "> /etc/apt/apt.conf.d/80bumblebee-retries"
         ),
         (
-            "apt-get -o Acquire::Retries=5 update && "
+            "apt-get -o Acquire::Retries=5 update"
+        ),
+        (
+            "missing=''; "
+            "command -v curl >/dev/null 2>&1 || missing=\"$missing curl\"; "
+            "command -v git >/dev/null 2>&1 || missing=\"$missing git\"; "
+            "test -r /etc/ssl/certs/ca-certificates.crt || "
+            "missing=\"$missing ca-certificates\"; "
+            "test -z \"$missing\" || "
             "apt-get -o Acquire::Retries=5 "
-            "-o DPkg::Lock::Timeout=120 install -y "
-            "ca-certificates curl git python3 python3-pip"
+            "-o DPkg::Lock::Timeout=120 install -y $missing"
         ),
     ]
     if pip_requirements:
