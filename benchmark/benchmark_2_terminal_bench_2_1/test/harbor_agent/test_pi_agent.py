@@ -174,7 +174,15 @@ class PinnedPiInstallTest(unittest.TestCase):
         self.assertIn("test -z \"$missing\"", wal)
         self.assertIn("connect-timeout = 20", wal)
         self.assertIn("max-time = 180", wal)
+        self.assertIn("retry-max-time = 180", wal)
         self.assertIn("retry-all-errors", wal)
+        self.assertIn("UV_HTTP_TIMEOUT=60", wal)
+        self.assertIn("UV_HTTP_RETRIES=2", wal)
+        self.assertIn(
+            "timeout --signal=TERM 600 "
+            "/root/.local/bin/uv python install 3.13",
+            wal,
+        )
         self.assertIn(APT_MIRROR_HOST, wal)
         self.assertIn('Acquire::ForceIPv4 "true"', wal)
         self.assertLess(

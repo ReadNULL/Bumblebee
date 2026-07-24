@@ -147,6 +147,12 @@ registry mirror DNS 失败而无法拉取镜像，其余为取消或未调度，
 检测缺失项，仅在必要时刷新 apt 索引；Debian/Ubuntu 软件源透明映射到已验证镜像，
 并启用 IPv4、20 秒单请求超时和 3 次重试。包名、发行版套件和 verifier 均不变。
 
+第五次预检 `tb21-verifier-preflight-20260725-r6` 证明 apt 镜像修复生效：
+`build-cython-ext` 与 `kv-store-grpc` 正常完成，apt 冷启动从 7 分钟级降至约
+30 秒。但原始 verifier 的 curl 超过 3 分钟仍未退出，说明 `max-time` 会随重试
+重新计时，不能约束完整重试窗口。该轮同样在模型调用前停止。r7 增加
+`retry-max-time = 180`，并为 uv 设置连接/读取/重试限制及 600 秒命令级上限。
+
 ### P0：下一轮正式评测前必须完成
 
 | ID | 类型 | 改进 | 验收条件 |

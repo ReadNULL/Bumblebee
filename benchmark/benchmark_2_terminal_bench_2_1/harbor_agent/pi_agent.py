@@ -146,9 +146,13 @@ def _verifier_dependency_command(environment_name: str) -> str:
             "printf 'connect-timeout = 20\\n"
             "max-time = 180\\n"
             "retry = 2\\n"
+            "retry-max-time = 180\\n"
             "retry-all-errors\\n' "
             "> /root/.curlrc"
         ),
+        "export UV_HTTP_CONNECT_TIMEOUT=20",
+        "export UV_HTTP_TIMEOUT=60",
+        "export UV_HTTP_RETRIES=2",
         "mkdir -p /etc/apt/apt.conf.d",
         (
             "for source in /etc/apt/sources.list "
@@ -225,8 +229,10 @@ def _verifier_dependency_command(environment_name: str) -> str:
                     "printf 'export PATH=\"/root/.local/bin:$PATH\"\\n' "
                     "> /root/.local/bin/env"
                 ),
+                "timeout --signal=TERM 600 "
                 "/root/.local/bin/uv python install 3.13",
                 (
+                    "timeout --signal=TERM 600 "
                     "/root/.local/bin/uvx -p 3.13 "
                     f"{packages} python -c "
                     + shlex.quote(

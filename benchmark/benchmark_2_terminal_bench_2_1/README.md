@@ -283,7 +283,9 @@ adapter/dataset/infrastructure 异常。
 
 预热先检测 curl、git 和 CA 证书，仅在存在缺失项时刷新 apt 索引；Debian/Ubuntu
 软件源映射到当前评测环境已验证可达的阿里云镜像，并强制 IPv4、限制单请求时长和
-重试次数。该配置只作用于一次性评测容器，不进入 Bumblebee 运行时。
+重试次数。curl 的全部重试共享 180 秒总窗口，uv 的网络请求和预热命令也分别具有
+读取、重试和 600 秒命令级上限。该配置只作用于一次性评测容器，不进入
+Bumblebee 运行时。
 
 Harbor 的环境构建/启动和 Agent setup 是两个独立阶段，命令计划分别设置
 `--environment-build-timeout-multiplier 3` 与
