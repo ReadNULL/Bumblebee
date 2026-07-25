@@ -57,6 +57,11 @@ TB 使用项目冻结的 Terminal-Bench 2.1 Lite 分层子集，共 9 个任务�
 它保持官方任务和 verifier，但不代表完整 89 题成绩，也不能用于 Terminal-Bench
 官方排行榜；BCS-v1 报告必须同时展示该限定名称。
 
+Terminal-Bench 当前另外公开了跨运行的历史最佳观测组合
+`TB-BOC = 93.33`。该指标按任务选择不同 commit 的最高完整批次，不是单个标准
+Benchmark 0 run，因此 Scorecard 必须拒绝将它作为 `TB` 输入；正式 TB 未合格前，
+`BCS-v1` 继续为 `N/A`。
+
 ## 执行
 
 ```bash

@@ -230,6 +230,11 @@ r5 使用 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，并在对应候选
 `NetworkConnectionError`；离线导入器对历史异常使用相同规范化规则，不改写
 Harbor 原始结果。最新 P1 仍需在恢复额度后只重跑 Cython，成功任务继续不跑。
 
+现有审计后结果另按“每任务选择最高完整 5-trial 批次、invalid 仍计 0”的固定规则
+汇总为 `TB-BOC = 93.33`（42/45）。该跨 commit 指标只用于发布历史最佳观测能力，
+正式 `TB` 和 `BCS-v1` 仍为 `N/A`；详见
+[最佳观测组合报告](./BEST_OBSERVED_2026-07-25.md)。
+
 ### P0：已完成并通过确定性验证
 
 | ID | 类型 | 改进 | 验收条件 |

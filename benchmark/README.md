@@ -10,7 +10,7 @@ Cython，但 4/5 是外部基础设施无效样本，因此尚不能评价最新
 | 分项 | 已观测原始结果 | 可发布分数 | 资格 |
 | --- | --- | ---: | --- |
 | BumblebeeBench (`BB`) | 360/360 个确定性 full trial 通过 | `100.00` | qualified |
-| Terminal-Bench 2.1 Lite (`TB`) | baseline 32/45；历史 candidate 审计后 30/40；干净定向 r3 16/20；r4 Cython/WAL 8/10；r5 Cython 为 1 passed、4 infrastructure invalid | `N/A` | invalid |
+| Terminal-Bench 2.1 Lite (`TB`) | 历史最佳观测组合 42/45；有效样本诊断 42/43 | `TB-BOC = 93.33`；正式 `TB = N/A` | composite diagnostic |
 | AgentDojo Workspace (`AD`) | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `94.39` | qualified |
 | LongMemEval-Bumblebee (`LM`) | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `98.50` | qualified |
 | BCS-v1 | BB/AD/LM 已完成，TB 没有合格输入 | `N/A` | not-qualified |
@@ -120,6 +120,13 @@ r5 固定包含该门槛的 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，
 运行时现将余额耗尽映射为不可自动重试的 `ApiUsageLimitError`，依赖索引空响应
 映射为 `NetworkConnectionError`；原始异常、8 次历史重试和 job 证据均保留。
 
+对审计后的 candidate 结果以任务的完整 5-trial 批次为单位选择最高原始 reward，
+得到 42 passed、1 failed、2 invalid，即 `TB-BOC = 93.33`。两个 invalid 仍按
+0 计入固定分母；没有使用 r5 的有效样本 1/1 把 Cython 伪装成 100%。该组合跨越
+3 个 commit，只发布为历史最佳观测指标，不进入正式 `TB` 或 `BCS-v1`。完整选择
+规则、任务来源和成本见
+[最佳观测组合报告](./benchmark_2_terminal_bench_2_1/BEST_OBSERVED_2026-07-25.md)。
+
 ## AgentDojo Workspace
 
 首轮完整真实评估固定使用 AgentDojo `0.1.35`、Workspace `v1.2.2`、
@@ -190,7 +197,7 @@ benchmark/benchmark_<序号>_<测试集或能力名称>/
 | ---: | --- | --- | --- |
 | 0 | [Evaluation Core](./benchmark_0_evaluation_core/README.md) | 结果契约、证据、硬门槛和 lesson | 已实现 |
 | 1 | [BumblebeeBench](./benchmark_1_bumblebee_bench/README.md) | 自有工程能力 | BB 100.00 |
-| 2 | [Terminal-Bench](./benchmark_2_terminal_bench_2_1/README.md) | 真实终端任务 | TB N/A |
+| 2 | [Terminal-Bench](./benchmark_2_terminal_bench_2_1/README.md) | 真实终端任务 | TB-BOC 93.33；正式 TB N/A |
 | 3 | [AgentDojo](./benchmark_3_agentdojo_workspace/README.md) | 工具效用与提示注入 | AD 94.39 |
 | 4 | [LongMemEval](./benchmark_4_longmemeval_bumblebee/README.md) | 显式长期记忆 | LM 98.50 |
 | 5 | [BCS-v1 Scorecard](./benchmark_5_bcs_v1_scorecard/README.md) | 来源校验与加权报告 | BCS N/A |

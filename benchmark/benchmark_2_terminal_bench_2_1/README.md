@@ -11,7 +11,14 @@ Bumblebee 的 npm 发布包。
 infrastructure invalid。后续证据审计又发现 candidate 有 3 个 trial 读取了随
 完整仓库安装进容器的 benchmark 专用资料；与既有基础设施无效样本合并后，
 candidate 为 30 passed、10 failed、5 invalid，有效率 88.89%。两轮均低于冻结的
-98% 门槛，因此只保留为探索性证据，当前仍没有可发布的 TB 分数。
+98% 门槛，因此只保留为探索性证据，当前仍没有可发布的正式 TB 分数。
+
+为了汇总后续定向修复已经实际达到的任务级能力，本项目另外发布
+`TB-BOC = 93.33`：对审计后的 candidate job，以每个任务完整的 5-trial 批次为
+单位选择最高原始 reward，最终为 42 passed、1 failed、2 invalid。invalid 仍按
+0 计入 45 次固定分母；该指标跨越 3 个 commit，只表示历史最佳观测组合，不替代
+正式 `TB = N/A`。选择规则和逐任务来源见
+[最佳观测组合报告](./BEST_OBSERVED_2026-07-25.md)。
 
 失败轨迹、证据边界、改进优先级和下一轮验收条件见
 [首轮真实评测复盘](./POSTMORTEM_2026-07-24.md)。
