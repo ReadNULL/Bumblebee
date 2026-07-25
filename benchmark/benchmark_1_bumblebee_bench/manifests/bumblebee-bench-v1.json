@@ -1,0 +1,219 @@
+{
+  "contractVersion": 1,
+  "id": "bumblebee-bench-v1",
+  "version": "1.0.0",
+  "description": "Deterministic engineering benchmark for Bumblebee-owned components.",
+  "profiles": {
+    "smoke": {
+      "repetitions": 1
+    },
+    "full": {
+      "repetitions": 30
+    }
+  },
+  "domains": [
+    {
+      "id": "Runtime",
+      "weight": 0.2,
+      "scenarios": [
+        {
+          "id": "runtime-session-order",
+          "description": "Same-session work is serialized without reordering.",
+          "sloMs": 500,
+          "timeoutMs": 3000
+        },
+        {
+          "id": "runtime-global-concurrency",
+          "description": "Different sessions run concurrently without exceeding the global limit.",
+          "sloMs": 500,
+          "timeoutMs": 3000
+        }
+      ]
+    },
+    {
+      "id": "Cancellation",
+      "weight": 0.15,
+      "scenarios": [
+        {
+          "id": "cancellation-queued-request",
+          "description": "A queued request can be cancelled before its operation starts.",
+          "sloMs": 500,
+          "timeoutMs": 3000
+        },
+        {
+          "id": "cancellation-timeout-dispose",
+          "description": "Timeout and runtime disposal propagate cancellation and drain work.",
+          "sloMs": 750,
+          "timeoutMs": 3000
+        }
+      ]
+    },
+    {
+      "id": "Permission",
+      "weight": 0.2,
+      "scenarios": [
+        {
+          "id": "permission-folder-boundary",
+          "description": "Folder grants cover descendants but never cross a canonical path boundary.",
+          "sloMs": 750,
+          "timeoutMs": 3000
+        },
+        {
+          "id": "permission-resume-merge",
+          "description": "Read and write folder grants merge and survive session restoration.",
+          "sloMs": 750,
+          "timeoutMs": 3000
+        }
+      ]
+    },
+    {
+      "id": "SubAgent",
+      "weight": 0.15,
+      "scenarios": [
+        {
+          "id": "subagent-output-boundary",
+          "description": "Sub-agent output and usage are normalized within a UTF-8 byte budget.",
+          "sloMs": 500,
+          "timeoutMs": 3000
+        },
+        {
+          "id": "subagent-cancellation-errors",
+          "description": "Cancellation and failures remain distinct and do not leak internal messages.",
+          "sloMs": 500,
+          "timeoutMs": 3000
+        }
+      ]
+    },
+    {
+      "id": "Channel",
+      "weight": 0.15,
+      "scenarios": [
+        {
+          "id": "channel-deduplication",
+          "description": "Concurrent and completed duplicate messages create at most one side effect.",
+          "sloMs": 750,
+          "timeoutMs": 3000
+        },
+        {
+          "id": "channel-sender-authorization",
+          "description": "Feishu acknowledges asynchronously and ignores unauthorized senders.",
+          "sloMs": 750,
+          "timeoutMs": 3000
+        }
+      ]
+    },
+    {
+      "id": "MemoryCore",
+      "weight": 0.15,
+      "scenarios": [
+        {
+          "id": "memory-update-persistence",
+          "description": "Normalized updates persist across restart without duplicating records.",
+          "sloMs": 1500,
+          "timeoutMs": 5000
+        },
+        {
+          "id": "memory-secret-scope",
+          "description": "Secrets and failed writes are not published, and project scopes stay isolated.",
+          "sloMs": 2000,
+          "timeoutMs": 5000
+        }
+      ]
+    }
+  ],
+  "scoreSpec": {
+    "contractVersion": 1,
+    "id": "bumblebee-bench-v1",
+    "components": [
+      {
+        "id": "Runtime",
+        "weight": 0.2
+      },
+      {
+        "id": "Cancellation",
+        "weight": 0.15
+      },
+      {
+        "id": "Permission",
+        "weight": 0.2
+      },
+      {
+        "id": "SubAgent",
+        "weight": 0.15
+      },
+      {
+        "id": "Channel",
+        "weight": 0.15
+      },
+      {
+        "id": "MemoryCore",
+        "weight": 0.15
+      }
+    ],
+    "hardGates": [
+      {
+        "id": "typecheck",
+        "kind": "qualification",
+        "metric": "typecheck_pass_rate",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "deterministic_scenarios",
+        "kind": "qualification",
+        "metric": "deterministic_test_pass_rate",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "session_order",
+        "kind": "qualification",
+        "metric": "session_order_violation_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "workspace_escape",
+        "kind": "qualification",
+        "metric": "workspace_escape_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "channel_authorization",
+        "kind": "qualification",
+        "metric": "unauthorized_channel_accept_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "duplicate_side_effect",
+        "kind": "qualification",
+        "metric": "duplicate_side_effect_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "memory_scope",
+        "kind": "qualification",
+        "metric": "memory_scope_leak_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "secret_persistence",
+        "kind": "qualification",
+        "metric": "secret_persisted_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "valid_tasks",
+        "kind": "validity",
+        "metric": "valid_task_rate",
+        "operator": "gte",
+        "threshold": 0.98
+      }
+    ]
+  }
+}

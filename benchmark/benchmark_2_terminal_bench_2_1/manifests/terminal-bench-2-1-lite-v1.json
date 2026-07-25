@@ -1,0 +1,243 @@
+{
+  "contractVersion": 1,
+  "id": "terminal-bench-2-1-lite-v1",
+  "version": "1.0.0",
+  "description": "Bumblebee project evaluation over a frozen stratified 10% subset of Terminal-Bench 2.1 through Harbor.",
+  "dataset": {
+    "id": "terminal-bench/terminal-bench-2-1",
+    "reference": "latest",
+    "pinning": "resolved-task-checksums",
+    "sourceTaskCount": 89,
+    "samplingFraction": 0.1,
+    "selectionMethod": "frozen-stratified-subset",
+    "expectedTaskCount": 9,
+    "minimumTrialsPerTask": 5,
+    "selectedTasks": [
+      {
+        "id": "terminal-bench/fix-git",
+        "category": "software-engineering",
+        "difficulty": "easy",
+        "capability": "Git state diagnosis and commit recovery"
+      },
+      {
+        "id": "terminal-bench/build-cython-ext",
+        "category": "debugging",
+        "difficulty": "medium",
+        "capability": "Dependency repair and native extension compilation"
+      },
+      {
+        "id": "terminal-bench/cancel-async-tasks",
+        "category": "software-engineering",
+        "difficulty": "hard",
+        "capability": "Async concurrency, cancellation, and cleanup"
+      },
+      {
+        "id": "terminal-bench/fix-code-vulnerability",
+        "category": "security",
+        "difficulty": "hard",
+        "capability": "Vulnerability diagnosis and defensive code repair"
+      },
+      {
+        "id": "terminal-bench/nginx-request-logging",
+        "category": "system-administration",
+        "difficulty": "medium",
+        "capability": "Service installation, configuration, and verification"
+      },
+      {
+        "id": "terminal-bench/db-wal-recovery",
+        "category": "file-operations",
+        "difficulty": "medium",
+        "capability": "Database artifact inspection and recovery"
+      },
+      {
+        "id": "terminal-bench/multi-source-data-merger",
+        "category": "data-processing",
+        "difficulty": "medium",
+        "capability": "Multi-format ETL and conflict resolution"
+      },
+      {
+        "id": "terminal-bench/large-scale-text-editing",
+        "category": "file-operations",
+        "difficulty": "medium",
+        "capability": "Large-file transformation under tool constraints"
+      },
+      {
+        "id": "terminal-bench/kv-store-grpc",
+        "category": "software-engineering",
+        "difficulty": "medium",
+        "capability": "Service implementation, code generation, and process control"
+      }
+    ]
+  },
+  "agents": {
+    "baseline": "pi-baseline",
+    "candidate": "bumblebee-pi",
+    "candidateApprovalPolicy": "allow-once",
+    "piPackage": "@earendil-works/pi-coding-agent",
+    "piVersion": "0.78.1",
+    "extensionSourcePrefix": "git:github.com/ReadNULL/Bumblebee@"
+  },
+  "baseline": {
+    "requiredRuns": 3,
+    "minimumSamplesPerTask": 3,
+    "estimator": "median"
+  },
+  "rewardKey": "reward",
+  "scoreSpec": {
+    "contractVersion": 1,
+    "id": "terminal-bench-2-1-lite-v1",
+    "components": [
+      {
+        "id": "OfficialReward",
+        "weight": 0.8
+      },
+      {
+        "id": "CostEfficiency",
+        "weight": 0.1
+      },
+      {
+        "id": "LatencyEfficiency",
+        "weight": 0.05
+      },
+      {
+        "id": "Stability",
+        "weight": 0.05
+      }
+    ],
+    "hardGates": [
+      {
+        "id": "dataset_identity",
+        "kind": "validity",
+        "metric": "dataset_identity_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "task_coverage",
+        "kind": "validity",
+        "metric": "task_coverage_rate",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "task_selection",
+        "kind": "validity",
+        "metric": "task_selection_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "job_completion",
+        "kind": "validity",
+        "metric": "job_completion_rate",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "trial_repetitions",
+        "kind": "validity",
+        "metric": "minimum_trials_per_task",
+        "operator": "gte",
+        "threshold": 5
+      },
+      {
+        "id": "task_checksums",
+        "kind": "validity",
+        "metric": "task_checksum_conflict_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "candidate_agent",
+        "kind": "validity",
+        "metric": "candidate_agent_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "agent_identity",
+        "kind": "validity",
+        "metric": "agent_identity_conflict_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "model_identity",
+        "kind": "validity",
+        "metric": "model_identity_conflict_count",
+        "operator": "eq",
+        "threshold": 0
+      },
+      {
+        "id": "pi_version",
+        "kind": "validity",
+        "metric": "pi_version_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "extension_pin",
+        "kind": "validity",
+        "metric": "extension_source_pinned",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "valid_trials",
+        "kind": "validity",
+        "metric": "valid_trial_rate",
+        "operator": "gte",
+        "threshold": 0.98
+      },
+      {
+        "id": "reward_coverage",
+        "kind": "validity",
+        "metric": "reward_coverage_rate",
+        "operator": "gte",
+        "threshold": 0.98
+      },
+      {
+        "id": "baseline_dataset_identity",
+        "kind": "validity",
+        "metric": "baseline_dataset_identity_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "baseline_agent_identity",
+        "kind": "validity",
+        "metric": "baseline_agent_identity_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "baseline_model_identity",
+        "kind": "validity",
+        "metric": "baseline_model_identity_match",
+        "operator": "eq",
+        "threshold": 1
+      },
+      {
+        "id": "cost_coverage",
+        "kind": "validity",
+        "metric": "cost_coverage_rate",
+        "operator": "gte",
+        "threshold": 0.98
+      },
+      {
+        "id": "latency_coverage",
+        "kind": "validity",
+        "metric": "latency_coverage_rate",
+        "operator": "gte",
+        "threshold": 0.98
+      },
+      {
+        "id": "efficiency_budget",
+        "kind": "qualification",
+        "metric": "efficiency_budget_coverage",
+        "operator": "eq",
+        "threshold": 1
+      }
+    ]
+  }
+}

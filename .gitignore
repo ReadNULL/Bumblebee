@@ -1,46 +1,38 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build and coverage output
 dist/
+coverage/
 
-# Test files
-tests/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Wechaty session
-wechat.memory-card.json
-
-# Environment
+# Local environment and Bumblebee state
 .env
 .env.local
 .env.*.local
 .bumblebee.yaml
 .bumblebee.yml
 .bumblebee.json
+wechat.memory-card.json
 
 # Logs
 *.log
 npm-debug.log*
 
-# Coverage
-coverage/
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
-# Plan (development only)
+# Development-only material
 plan/
-
-# Issue tracking (development only)
 issue.md
 
-# Lock file (optional, uncomment if preferred)
-# package-lock.json
+# Benchmark local evidence and external environments
+benchmark/benchmark_*/artifacts/
+benchmark/**/.runtime/
+benchmark/**/.venv/
+benchmark/**/__pycache__/
