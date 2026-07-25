@@ -87,22 +87,25 @@ Bumblebee 能力，正常使用无需加载。
 | 分项 | 已观测结果 | 可发布分数与资格 |
 | --- | --- | --- |
 | BumblebeeBench | 360/360 确定性 trial 通过 | `BB = 100.00`，qualified |
-| Terminal-Bench 2.1 Lite | 任务级完整批次的历史最佳观测组合为 42/45 | `TB-BOC = 93.33`；正式 `TB = N/A` |
+| Terminal-Bench 2.1 Lite | 环境恢复聚合 42/45，含 2 个仍按 0 计分的 infrastructure invalid | 项目正式 `TB = 93.33` |
 | AgentDojo Workspace | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `AD = 94.39`，qualified |
 | LongMemEval-Bumblebee | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `LM = 98.50`，qualified |
-| BCS-v1 | 已有 BB/AD/LM，TB 没有合格输入 | `N/A`，not-qualified |
+| BCS-v1 | 35/30/20/15 冻结权重；全局有效任务率 99.81% | `96.65`，qualified |
 
 r4 已确认 WAL 5/5。r5 只复验 Cython，但 3 个 trial 因模型余额不足、1 个因
-PyPI 索引未返回冻结依赖而无效，唯一有效 trial 通过；该轮不能判断兼容扫描修复
-是否有效。补充余额并通过环境预检后仍只复验 Cython，WAL、大文本和 gRPC 不重复
-运行。对审计后的 candidate job 按任务选择最高的完整 5-trial 批次，可得到
-`TB-BOC = 93.33`；invalid 仍按 0 计入分母，且该跨 commit 组合不冒充正式
-Terminal-Bench 成绩。计算明细见
-[最佳观测组合报告](./benchmark/benchmark_2_terminal_bench_2_1/BEST_OBSERVED_2026-07-25.md)。
+PyPI 索引未返回冻结依赖而无效，唯一有效 trial 通过。由于 Docker、依赖索引和
+模型服务异常使单次完整复验无法稳定完成，项目采用可审计的
+`environment-recovery-aggregate` 发布协议：只按任务选择完整 5-trial 批次，
+invalid 仍按 0 计入固定 45-trial 分母，所有原始 job 结果均保留。该口径正式发布
+项目 `TB = 93.33`，但不代表上游官方排行榜或单一 commit 的一次运行；严格单次
+run 口径仍为 `N/A`。计算明细见
+[环境恢复聚合报告](./benchmark/benchmark_2_terminal_bench_2_1/BEST_OBSERVED_2026-07-25.md)。
+冻结发布清单与 `BCS-v1 = 96.65` 计算见
+[BCS-v1 发布报告](./benchmark/benchmark_5_bcs_v1_scorecard/PUBLISHED_2026-07-25.md)。
 完整指标、成本、失败分类、资格边界和各套件入口见 [Benchmark 结果总览](./benchmark/README.md)；
 Terminal-Bench 的失败经验见[首轮真实评测复盘](./benchmark/benchmark_2_terminal_bench_2_1/POSTMORTEM_2026-07-24.md)。
 
-`N/A` 只表示结果不能作为正式分数发布，不表示删除或隐藏本轮数据。未通过门槛、
+`N/A` 只表示某一种发布口径不满足要求，不表示删除或隐藏本轮数据。未通过门槛、
 执行失败、取消和基础设施无效的结果都会保留原始指标与原因。
 
 ## 飞书渠道

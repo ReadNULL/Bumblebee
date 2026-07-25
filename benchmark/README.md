@@ -3,24 +3,27 @@
 该目录只承载开发评估工程，不属于 Bumblebee 运行时，也不会进入 npm 发布包。
 以下内容汇总截至 2026-07-25 已完成的运行。r4 已确认 WAL 5/5；r5 只复验
 Cython，但 4/5 是外部基础设施无效样本，因此尚不能评价最新兼容扫描门槛。
-后续仍只复验 Cython，WAL、大文本和 gRPC 不重复运行。
+项目不再消耗模型预算重跑已成功任务，改用可审计的环境恢复聚合协议发布现有结果。
 
 ## 结果总览
 
 | 分项 | 已观测原始结果 | 可发布分数 | 资格 |
 | --- | --- | ---: | --- |
 | BumblebeeBench (`BB`) | 360/360 个确定性 full trial 通过 | `100.00` | qualified |
-| Terminal-Bench 2.1 Lite (`TB`) | 历史最佳观测组合 42/45；有效样本诊断 42/43 | `TB-BOC = 93.33`；正式 `TB = N/A` | composite diagnostic |
+| Terminal-Bench 2.1 Lite (`TB`) | 环境恢复聚合 42/45；严格单次 run 仍未合格 | `93.33` | qualified project aggregate |
 | AgentDojo Workspace (`AD`) | Utility 90.00、攻击下 Utility 91.61、Targeted ASR 0.18% | `94.39` | qualified |
 | LongMemEval-Bumblebee (`LM`) | 36/36 trial 有效；QA 100、Recall@5 100、Precision@5 85 | `98.50` | qualified |
-| BCS-v1 | BB/AD/LM 已完成，TB 没有合格输入 | `N/A` | not-qualified |
+| BCS-v1 | 全局有效任务率 99.81%，全部冻结硬门槛通过 | `96.65` | qualified |
 
 ```text
 BCS-v1 = 0.35 * BB + 0.30 * TB + 0.20 * AD + 0.15 * LM
 ```
 
-BCS-v1 只有在四个来源均满足身份、完整性和硬门槛时才计算。不能用 0 或手工修正值
-替代缺失的 TB，也不能只对已有三项重新归一化权重。
+本次 `BCS-v1` 使用正式的项目环境恢复发布清单计算，没有用 0 补项或重新归一化
+权重。TB 来源不是单次 run：Docker、依赖索引和模型服务异常导致多轮恢复测试，
+因此清单只选择每个任务完整的 5-trial 批次，保留全部 job 原始状态及产物哈希，
+并把 2 个 infrastructure invalid 按 0 计入 45 次分母。该例外只改变 TB 的项目
+发布来源，不改变 BCS-v1 的权重和全局硬门槛。
 
 门槛只控制“能否发布分数”，不控制“是否记录结果”。未通过门槛、普通失败、取消、
 适配器错误和基础设施无效运行都保留原始指标、状态与原因；`N/A` 不能替代已经观测
@@ -34,7 +37,7 @@ BCS-v1 只有在四个来源均满足身份、完整性和硬门槛时才计算�
 | 检查项 | 结果 |
 | --- | --- |
 | TypeScript 类型检查 | 通过 |
-| Vitest | 90 个测试文件、412 项测试全部通过 |
+| Vitest | 91 个测试文件、417 项测试全部通过 |
 | 架构约束 | Foundation、Runtime、Security、Agent、Channel、Memory、Benchmark 依赖方向通过 |
 | npm 发布边界 | dry-run 共 100 个生产文件，不包含 `benchmark/` 和 `test/` |
 | Benchmark 0 | 6 个测试文件、21 项测试通过 |
@@ -42,7 +45,7 @@ BCS-v1 只有在四个来源均满足身份、完整性和硬门槛时才计算�
 | Benchmark 2 | 9 个 TypeScript 测试文件、42 项测试和 16 项 Python 测试通过 |
 | Benchmark 3 | 7 个 TypeScript 文件、28 项测试和 6 项 Python 测试通过 |
 | Benchmark 4 | 7 个测试文件、24 项测试通过 |
-| Benchmark 5 | 6 个测试文件、15 项测试通过 |
+| Benchmark 5 | 7 个测试文件、20 项测试通过 |
 
 以上数字来自本次修改后的完整回归，不是沿用旧记录。
 
@@ -91,7 +94,7 @@ BB = 0.20 * Runtime
 | 模型成本 | `$0.354801` | `$0.374389` |
 | Agent p50 | 46.4s | 83.2s |
 
-两轮有效率都低于冻结的 98% 门槛，因此结果无效，`TB = N/A`。诊断通过率差值
+两轮有效率都低于冻结的 98% 门槛，因此严格单次 run 结果无效、`TB = N/A`。诊断通过率差值
 不能作为正式分数，也不能证明 Bumblebee 回归。candidate 的 5 个无效 trial 是
 2 个 verifier 下载故障与 3 个 benchmark 证据泄漏的去重并集；后者已通过候选包
 隔离和导入审计修复。其余有效失败暴露了需求契约遗漏、显式测试失败后仍结束任务、
@@ -109,7 +112,7 @@ P0/P1 修复后的干净定向 job 只运行 Cython、WAL、大文本和 gRPC �
 r4 只复验 r3 仍失败的 Cython 与 WAL，结果为 8/10：Cython 3/5、WAL 5/5。
 10 个样本全部有效，0 异常、0 重试、证据泄漏和凭据命中均为 0。导入后的
 OfficialReward 为 80.00、Stability 为 100.00；因只覆盖 2/9 且没有完整效率预算，
-资格仍为 invalid，`TB = N/A`。两个 Cython 失败暴露了兼容扫描仍按已知文件类型
+该单个 job 资格仍为 invalid，`TB = N/A`。两个 Cython 失败暴露了兼容扫描仍按已知文件类型
 收窄的问题，已转化为仓库级兼容迁移的通用完成门槛。
 
 r5 固定包含该门槛的 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，
@@ -121,11 +124,22 @@ r5 固定包含该门槛的 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，
 映射为 `NetworkConnectionError`；原始异常、8 次历史重试和 job 证据均保留。
 
 对审计后的 candidate 结果以任务的完整 5-trial 批次为单位选择最高原始 reward，
-得到 42 passed、1 failed、2 invalid，即 `TB-BOC = 93.33`。两个 invalid 仍按
+得到 42 passed、1 failed、2 invalid，即项目正式 `TB = 93.33`。两个 invalid 仍按
 0 计入固定分母；没有使用 r5 的有效样本 1/1 把 Cython 伪装成 100%。该组合跨越
-3 个 commit，只发布为历史最佳观测指标，不进入正式 `TB` 或 `BCS-v1`。完整选择
-规则、任务来源和成本见
-[最佳观测组合报告](./benchmark_2_terminal_bench_2_1/BEST_OBSERVED_2026-07-25.md)。
+3 个 commit，是因测试环境中断采用的项目发布聚合，不代表单一版本运行，也不是
+上游 Terminal-Bench 官方分数。完整选择规则、任务来源和成本见
+[环境恢复聚合报告](./benchmark_2_terminal_bench_2_1/BEST_OBSERVED_2026-07-25.md)。
+据此得到：
+
+```text
+BCS-v1
+= 0.35 * 100.00 + 0.30 * 93.3333 + 0.20 * 94.3899 + 0.15 * 98.50
+= 96.6530
+= 96.65
+```
+
+发布清单、哈希和硬门槛结果见
+[BCS-v1 发布报告](./benchmark_5_bcs_v1_scorecard/PUBLISHED_2026-07-25.md)。
 
 ## AgentDojo Workspace
 
@@ -197,10 +211,10 @@ benchmark/benchmark_<序号>_<测试集或能力名称>/
 | ---: | --- | --- | --- |
 | 0 | [Evaluation Core](./benchmark_0_evaluation_core/README.md) | 结果契约、证据、硬门槛和 lesson | 已实现 |
 | 1 | [BumblebeeBench](./benchmark_1_bumblebee_bench/README.md) | 自有工程能力 | BB 100.00 |
-| 2 | [Terminal-Bench](./benchmark_2_terminal_bench_2_1/README.md) | 真实终端任务 | TB-BOC 93.33；正式 TB N/A |
+| 2 | [Terminal-Bench](./benchmark_2_terminal_bench_2_1/README.md) | 真实终端任务 | 项目聚合 TB 93.33 |
 | 3 | [AgentDojo](./benchmark_3_agentdojo_workspace/README.md) | 工具效用与提示注入 | AD 94.39 |
 | 4 | [LongMemEval](./benchmark_4_longmemeval_bumblebee/README.md) | 显式长期记忆 | LM 98.50 |
-| 5 | [BCS-v1 Scorecard](./benchmark_5_bcs_v1_scorecard/README.md) | 来源校验与加权报告 | BCS N/A |
+| 5 | [BCS-v1 Scorecard](./benchmark_5_bcs_v1_scorecard/README.md) | 来源校验与加权报告 | BCS 96.65 |
 
 Benchmark 0 不是测试集，而是后续套件共用的追加式运行记录、制品完整性、硬门槛和
 经验记录基础。

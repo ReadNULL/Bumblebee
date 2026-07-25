@@ -11,14 +11,15 @@ Bumblebee 的 npm 发布包。
 infrastructure invalid。后续证据审计又发现 candidate 有 3 个 trial 读取了随
 完整仓库安装进容器的 benchmark 专用资料；与既有基础设施无效样本合并后，
 candidate 为 30 passed、10 failed、5 invalid，有效率 88.89%。两轮均低于冻结的
-98% 门槛，因此只保留为探索性证据，当前仍没有可发布的正式 TB 分数。
+98% 门槛，因此严格单次 run 口径没有合格 TB 分数。
 
-为了汇总后续定向修复已经实际达到的任务级能力，本项目另外发布
-`TB-BOC = 93.33`：对审计后的 candidate job，以每个任务完整的 5-trial 批次为
-单位选择最高原始 reward，最终为 42 passed、1 failed、2 invalid。invalid 仍按
-0 计入 45 次固定分母；该指标跨越 3 个 commit，只表示历史最佳观测组合，不替代
-正式 `TB = N/A`。选择规则和逐任务来源见
-[最佳观测组合报告](./BEST_OBSERVED_2026-07-25.md)。
+由于 Docker、依赖索引和模型服务异常导致测试分多轮恢复完成，本项目采用
+`environment-recovery-aggregate` 协议正式发布 `TB = 93.33`：对审计后的
+candidate job，以每个任务完整的 5-trial 批次为单位选择最高原始 reward，最终为
+42 passed、1 failed、2 infrastructure invalid。invalid 仍按 0 计入 45 次固定
+分母。该结果跨越 3 个 commit，是 Bumblebee 项目分数，不是上游官方排行榜或
+单一版本的一次运行；严格单次 run 口径仍为 `N/A`。选择规则和逐任务来源见
+[环境恢复聚合报告](./BEST_OBSERVED_2026-07-25.md)。
 
 失败轨迹、证据边界、改进优先级和下一轮验收条件见
 [首轮真实评测复盘](./POSTMORTEM_2026-07-24.md)。
@@ -28,7 +29,8 @@ Task Assurance、三档 feature profile、空记忆按需注入、只读 critic�
 和独立 `dev/holdout` 定向集。9-task 无模型预检
 `tb21-verifier-preflight-20260725-r7` 已通过独立审计；失败任务的定向真实模型
 复验结果见本页后续记录。r5 已按“成功任务不重跑”的原则只运行 Cython，但 5 个
-trial 中 4 个被余额和包索引故障污染，因此最新兼容扫描门槛仍待有效复验。
+trial 中 4 个被余额和包索引故障污染；这些无效结果保持原样，不再重复消耗预算，
+并按上述项目发布协议进入聚合审计。
 
 这是 Bumblebee 的项目级 `TB-Lite` 分项，不是完整 Terminal-Bench 2.1 成绩，也
 不具备官方排行榜提交资格。这样将原计划的

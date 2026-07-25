@@ -1,14 +1,16 @@
-# Terminal-Bench 最佳观测组合
+# Terminal-Bench 环境恢复聚合发布
 
-截至 2026-07-25，Bumblebee 在现有真实模型运行中的任务级最佳观测组合为：
+截至 2026-07-25，Bumblebee 将现有真实模型运行中的任务级完整批次聚合正式发布为
+项目 TB 分数：
 
 ```text
-TB-BOC = 42 / 45 * 100 = 93.33
+TB = 42 / 45 * 100 = 93.33
 ```
 
-`TB-BOC` 表示 Terminal-Bench Best-Observed Composite。它用于公开项目迭代过程中
-已经实际观测到的最佳任务级结果，不是官方 Terminal-Bench 分数，也不进入
-`BCS-v1`。正式 `TB` 仍为 `N/A`。
+该结果最初记录为 `TB-BOC`，现按项目的
+`environment-recovery-aggregate` 协议转为正式 `TB` 输入。原因是 Docker、
+依赖索引和模型服务异常导致测试分多轮恢复完成。它不是官方 Terminal-Bench
+排行榜分数，也不代表单一 commit 的一次运行；严格单次 run 口径仍为 `N/A`。
 
 ## 组合规则
 
@@ -53,7 +55,7 @@ TB-BOC = 42 / 45 * 100 = 93.33
 
 | 指标 | 结果 |
 | --- | ---: |
-| 最佳观测组合分 | `93.33` |
+| 项目正式 TB | `93.33` |
 | 有效样本诊断通过率 | 42/43，`97.67%` |
 | 有效率 | 43/45，`95.56%` |
 | 所选 trial 模型成本 | `$0.255798` |
@@ -66,13 +68,15 @@ TB-BOC = 42 / 45 * 100 = 93.33
 
 可以使用以下表述：
 
-> Terminal-Bench 2.1 Lite 历史最佳观测组合为 93.33（42/45，跨三次审计后
-> candidate job 的任务级完整批次组合）。
+> Bumblebee 项目的 Terminal-Bench 2.1 Lite 环境恢复聚合分数为 93.33
+>（42/45，跨三次审计后 candidate job 的任务级完整批次组合）。
 
 必须同时说明：
 
-- 该结果跨越三个 commit，表示迭代历史中的最佳观测能力，不代表单一版本的一次运行；
-- 组合中仍有两个 infrastructure invalid，有效率低于正式门槛；
+- 该结果跨越三个 commit，表示环境恢复后的项目聚合能力，不代表单一版本的一次运行；
+- 组合中仍有两个 infrastructure invalid，均保留并按 0 计分；
 - 没有完整且合格的三轮 baseline 效率预算；
-- 该结果不能标记为官方 Terminal-Bench、排行榜成绩或 qualified `TB`；
-- `BCS-v1` 继续显示 `N/A`，不能把 `TB-BOC` 填入正式加权公式。
+- 该结果只能标记为 Bumblebee 项目正式 `TB`，不能标记为官方 Terminal-Bench
+  或排行榜成绩；
+- 该结果已按冻结权重进入项目 `BCS-v1 = 96.65`，发布清单见
+  [BCS-v1 正式项目发布](../benchmark_5_bcs_v1_scorecard/PUBLISHED_2026-07-25.md)。

@@ -1,0 +1,263 @@
+{
+  "contractVersion": 1,
+  "id": "bcs-v1-environment-recovery-2026-07-25",
+  "scoreSpec": "bcs-v1",
+  "publicationMode": "environment-recovery-aggregate",
+  "reason": "Terminal-Bench was split across repeated recovery runs because Docker, package-index, and model-provider failures prevented one complete qualified run. The publication keeps every raw job outcome, selects only complete five-trial task batches, and counts invalid trials as zero.",
+  "components": [
+    {
+      "id": "BB",
+      "mode": "standard-run",
+      "score": 100,
+      "taskCounts": {
+        "total": 360,
+        "passed": 360,
+        "failed": 0,
+        "invalid": 0,
+        "cancelled": 0
+      },
+      "metrics": {
+        "typecheck_pass_rate": 1,
+        "deterministic_test_pass_rate": 1,
+        "critical_unsafe_action_count": 0,
+        "workspace_escape_count": 0,
+        "remote_write_success_count": 0,
+        "memory_scope_leak_count": 0,
+        "unauthorized_channel_accept_count": 0,
+        "session_order_violation_count": 0,
+        "duplicate_side_effect_count": 0,
+        "secret_persisted_count": 0
+      },
+      "evidence": {
+        "runId": "run_mrxgopxi_8fbe0a2c-10e0-4c91-95af-4a9e27a79127",
+        "suiteId": "bumblebee-bench-v1",
+        "suiteVersion": "1.0.0",
+        "qualification": "qualified",
+        "bumblebeeCommit": "84fe4450b8115066034c0019e859e42fdc5be441",
+        "piVersion": "0.78.1",
+        "workspaceClean": true,
+        "manifestSha256": "df8e752f2c93cebba22bf2c581917682abc23dc61050d9d9390242c7a4ead001",
+        "summarySha256": "fc79396361b636d000955b7d01fd12921c53cb5de7578451d33b0e0bbff19fa6"
+      }
+    },
+    {
+      "id": "TB",
+      "mode": "environment-recovery-aggregate",
+      "suiteId": "terminal-bench-2-1-lite-v1",
+      "suiteVersion": "1.0.0",
+      "piVersion": "0.78.1",
+      "model": {
+        "provider": "deepseek",
+        "id": "deepseek-v4-flash",
+        "thinkingLevel": "high"
+      },
+      "sourceJobs": [
+        {
+          "name": "tb21-lite-bumblebee-1-20260724-r1",
+          "harborJobId": "9ac55e55-a8a5-4d52-8e97-47f3a69c3abb",
+          "bumblebeeCommit": "c8aebb8279dfec819102cc12b4c349b89e483c75",
+          "completedTrials": 45,
+          "passed": 30,
+          "failed": 10,
+          "invalid": 5,
+          "configSha256": "7e8c0bf73f2bea1a26ec55fb50f45d6aa6b4ed749455160b1961a47568e6c083",
+          "resultSha256": "bd7890e40e61c74bb7730f22e36fd2c422162754cc4a40b3a2e24e9fd79fc12c",
+          "trialResultsSha256": "1c3bd0b073cc88327eac254e2362042a281596b5c28282d2ded5fda665c0142c"
+        },
+        {
+          "name": "tb21-targeted-bumblebee-20260725-r1",
+          "harborJobId": "8e96c5e2-d047-4415-a314-8d7161a7e897",
+          "bumblebeeCommit": "bd0f573acc9fdc5d8a3bf0355b05f86bc91b064c",
+          "completedTrials": 8,
+          "passed": 3,
+          "failed": 3,
+          "invalid": 2,
+          "configSha256": "29640e59885359d20c7e0c5d37ed3db699bcf4cded04158f7eda01c4e05933b3",
+          "resultSha256": "317739afe29963c40051e958ade74577f849b55f2c65a45878be03113c2db42d",
+          "trialResultsSha256": "7fa19d58e6ae24536a8bda440fc1d6cb99e014c836fcc9de20a9f7a1e86854cb"
+        },
+        {
+          "name": "tb21-targeted-bumblebee-20260725-r2",
+          "harborJobId": "49631689-6104-4382-a08a-9a646651dff5",
+          "bumblebeeCommit": "65e35068f19f3902091a14216c551bb67034fd1b",
+          "completedTrials": 20,
+          "passed": 14,
+          "failed": 3,
+          "invalid": 3,
+          "configSha256": "8e628a7c22b9a67c88e5261c69463d106e5b2e27da2b5adbf50a7452acbcf44a",
+          "resultSha256": "2cffbbbbacadfc57188d3a469d47c7d1ca4a48edea91becbbc2502bf7978b043",
+          "trialResultsSha256": "b46b265da8bfb582753abe001638308a0f1a65fc67e40c7ff65d6275c904e482"
+        },
+        {
+          "name": "tb21-targeted-bumblebee-20260725-r3",
+          "harborJobId": "3ab90593-ffb0-4ef0-9183-f06900103bee",
+          "bumblebeeCommit": "f4057b7d8abc818aa8759d0d3289be399f3d7c10",
+          "completedTrials": 20,
+          "passed": 16,
+          "failed": 4,
+          "invalid": 0,
+          "configSha256": "5dd03fac018c8ea16250b5184ddad6aa60a9c382c552a9eccf445588e28b3f9d",
+          "resultSha256": "6e3228a35ae1b6a508eb961870b09a4ccba5c9b86e0e7166ba61da095742917e",
+          "trialResultsSha256": "4baa209874aa43661739a709dcfe34964916eab433b6a7094e282c1fbce1a904"
+        },
+        {
+          "name": "tb21-targeted-bumblebee-20260725-r4",
+          "harborJobId": "96cea1d6-f575-48e9-9058-a30ebf5b3eaa",
+          "bumblebeeCommit": "ec372aee5e871f74b1d0bcdfe8ce0c067f1c6e60",
+          "completedTrials": 10,
+          "passed": 8,
+          "failed": 2,
+          "invalid": 0,
+          "configSha256": "f65a9bef5a0b57c71d44c026b27714f298e3480c2a164c7b5083b0127643c0b3",
+          "resultSha256": "90d2199a3c955bac745797f3618963955a266d2852262349bb0da7ec21de28ba",
+          "trialResultsSha256": "9dae3a43d7f5ba236e174dd523c7ab2129182d082fc1e387b462d7cc0ca35eb3"
+        },
+        {
+          "name": "tb21-targeted-bumblebee-20260725-r5",
+          "harborJobId": "7e44a3d1-2684-47c6-b569-a0e8a11d01ef",
+          "bumblebeeCommit": "df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0",
+          "completedTrials": 5,
+          "passed": 1,
+          "failed": 0,
+          "invalid": 4,
+          "configSha256": "dc09e1b0fa936b48c1dd3288d759acf3db314aa586d17c2ba5faa7e57e114238",
+          "resultSha256": "2ae72e6d590464dd671516426b1714fa233e96e59b8063d1c015db92b693edbd",
+          "trialResultsSha256": "24cd2737ca92a59a3f7f1b147ff310afd25d7991429eeedc0ac3eed768a2e3a8"
+        }
+      ],
+      "selectedBatches": [
+        {
+          "taskId": "terminal-bench/fix-git",
+          "sourceJob": "tb21-lite-bumblebee-1-20260724-r1",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/build-cython-ext",
+          "sourceJob": "tb21-targeted-bumblebee-20260725-r3",
+          "passed": 4,
+          "failed": 1,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/cancel-async-tasks",
+          "sourceJob": "tb21-lite-bumblebee-1-20260724-r1",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/fix-code-vulnerability",
+          "sourceJob": "tb21-lite-bumblebee-1-20260724-r1",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/nginx-request-logging",
+          "sourceJob": "tb21-lite-bumblebee-1-20260724-r1",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/db-wal-recovery",
+          "sourceJob": "tb21-targeted-bumblebee-20260725-r4",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/multi-source-data-merger",
+          "sourceJob": "tb21-lite-bumblebee-1-20260724-r1",
+          "passed": 3,
+          "failed": 0,
+          "invalid": 2,
+          "invalidCategory": "infrastructure",
+          "invalidReason": "The task verifier could not download required packages in the benchmark environment; both trials remain invalid and count as zero."
+        },
+        {
+          "taskId": "terminal-bench/large-scale-text-editing",
+          "sourceJob": "tb21-targeted-bumblebee-20260725-r3",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        },
+        {
+          "taskId": "terminal-bench/kv-store-grpc",
+          "sourceJob": "tb21-targeted-bumblebee-20260725-r3",
+          "passed": 5,
+          "failed": 0,
+          "invalid": 0
+        }
+      ]
+    },
+    {
+      "id": "AD",
+      "mode": "standard-run",
+      "score": 94.3899,
+      "taskCounts": {
+        "total": 614,
+        "passed": 563,
+        "failed": 51,
+        "invalid": 0,
+        "cancelled": 0
+      },
+      "metrics": {
+        "utility_rate": 0.9,
+        "utility_under_attack_rate": 0.9160714285714285,
+        "security_rate": 0.9982142857142857
+      },
+      "evidence": {
+        "runId": "run_mrxo3346_7c8d11f0-40d5-4246-aea0-0354ff53e003",
+        "suiteId": "agentdojo-workspace-v1",
+        "suiteVersion": "1.0.2",
+        "qualification": "qualified",
+        "bumblebeeCommit": "84fe4450b8115066034c0019e859e42fdc5be441",
+        "piVersion": "0.78.1",
+        "workspaceClean": true,
+        "model": {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "thinkingLevel": "high"
+        },
+        "manifestSha256": "e741881ff03d5b521e78f98c9b349915e15dd0fee62683b596c8f719b55b4e90",
+        "summarySha256": "381f9750ada7ec521d53de326987bc7d560c2a0869f64ce7b3cd956bc8f622ab"
+      }
+    },
+    {
+      "id": "LM",
+      "mode": "standard-run",
+      "score": 98.5,
+      "taskCounts": {
+        "total": 36,
+        "passed": 36,
+        "failed": 0,
+        "invalid": 0,
+        "cancelled": 0
+      },
+      "metrics": {
+        "critical_unsafe_action_count": 0,
+        "memory_scope_leak_count": 0,
+        "secret_persisted_count": 0
+      },
+      "evidence": {
+        "runId": "run_mrxgph4t_6ea933f0-efc3-4145-9dca-635dfd356053",
+        "suiteId": "longmemeval-bumblebee-v1",
+        "suiteVersion": "1.0.0",
+        "qualification": "qualified",
+        "bumblebeeCommit": "84fe4450b8115066034c0019e859e42fdc5be441",
+        "piVersion": "0.78.1",
+        "workspaceClean": true,
+        "model": {
+          "provider": "deepseek",
+          "id": "deepseek-v4-flash",
+          "thinkingLevel": "high"
+        },
+        "manifestSha256": "26ff56a7676af268391fde3480eb693d5dfb4022dc69918559c56cc0ec7bec92",
+        "summarySha256": "a66019c6fdac69464ef22775c4a3d638f2cc2eb2df5fea846d73e1298bbe6c2e"
+      }
+    }
+  ]
+}

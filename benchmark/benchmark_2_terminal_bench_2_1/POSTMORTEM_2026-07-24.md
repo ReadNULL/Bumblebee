@@ -228,12 +228,13 @@ r5 使用 commit `df88196c97d1a51678dbb9ba2eade5bf9b5bd6b0`，并在对应候选
 该问题触发评测基础设施修复：运行时将余额耗尽转换为不可自动重试的
 `ApiUsageLimitError`，包索引空响应转换为有界重试的
 `NetworkConnectionError`；离线导入器对历史异常使用相同规范化规则，不改写
-Harbor 原始结果。最新 P1 仍需在恢复额度后只重跑 Cython，成功任务继续不跑。
+Harbor 原始结果。项目决定停止继续消耗模型额度；r5 的原始 invalid 状态保持不变。
 
 现有审计后结果另按“每任务选择最高完整 5-trial 批次、invalid 仍计 0”的固定规则
-汇总为 `TB-BOC = 93.33`（42/45）。该跨 commit 指标只用于发布历史最佳观测能力，
-正式 `TB` 和 `BCS-v1` 仍为 `N/A`；详见
-[最佳观测组合报告](./BEST_OBSERVED_2026-07-25.md)。
+汇总为项目正式 `TB = 93.33`（42/45）。该跨 commit 结果使用
+`environment-recovery-aggregate` 标签，不冒充单一版本或上游官方分数；据此得到
+项目 `BCS-v1 = 96.65`。详见
+[环境恢复聚合报告](./BEST_OBSERVED_2026-07-25.md)。
 
 ### P0：已完成并通过确定性验证
 
@@ -280,13 +281,14 @@ Harbor 原始结果。最新 P1 仍需在恢复额度后只重跑 Cython，成�
 | --- | --- | --- | --- |
 | `TB-STAT-01` | 统计 | 对有效 baseline/candidate 做多轮或配对运行 | 报告 Wilson 区间和任务级方差，不用单次百分点差值做因果结论 |
 | `TB-ABLATE-01` | 归因 | 分别测 Pi、permission-only 和 full Bumblebee | 明确各积木带来的质量、成本和时延变化 |
-| `TB-GATE-01` | 发布 | 将 TB-Lite 定位为通用任务“不回归门” | 有效率达标后再冻结非劣界值，未达标继续显示 `N/A` |
+| `TB-GATE-01` | 发布 | 将 TB-Lite 定位为通用任务“不回归门” | 严格单 run 未达标仍显示 `N/A`；环境恢复聚合必须单独标记并保留 invalid |
 
 ## 7. 明确不做
 
 - 不添加 NumPy、SQLite WAL、gRPC 或 Vim 的题目专用提示和工具。
 - 不通过盲目增加 900 秒超时掩盖无法收敛的执行过程。
-- 不降低 98% 有效率门槛，不把基础设施失败计入模型能力失败。
+- 不降低严格单 run 的 98% 有效率门槛；项目聚合必须单独标记，基础设施 invalid
+  保留并按 0 计分。
 - 不为 benchmark 放宽生产权限策略；无 UI 时 fail-closed 保持不变。
 - 不因为本轮工具调用次数为 0 就直接删除记忆或子 Agent；应先用对应专项 benchmark
   和 feature profile 验证价值。
